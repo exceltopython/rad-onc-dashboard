@@ -90,11 +90,13 @@ if check_password():
             return pd.to_datetime(f"{month_str} {year_str}")
         return datetime.now()
 
-    # --- HELPER: CLEAN NAMES ---
+    # --- HELPER: CLEAN NAMES (CRASH FIXED) ---
     def clean_provider_name(name_str):
         if not isinstance(name_str, str): return str(name_str)
-        # CRASH FIX: Return empty if string is empty or whitespace
-        if not name_str.strip(): return ""
+        
+        # CRASH FIX: Strip first, then check if empty
+        name_str = name_str.strip()
+        if not name_str: return ""
         
         if "," in name_str:
             return name_str.split(",")[0].strip()
@@ -215,7 +217,7 @@ if check_password():
             # Name is Column B (index 1)
             prov_name_raw = str(row[1]).strip()
             
-            # CRASH FIX: Explicit check for empty strings
+            # CRASH FIX: Explicit check for empty strings or None
             if not prov_name_raw or prov_name_raw.lower() in ['nan', 'physician', 'amount', 'none']: 
                 continue
                 
@@ -223,6 +225,7 @@ if check_password():
                 break 
                 
             clean_name = clean_provider_name(prov_name_raw)
+            # Extra safety check
             if not clean_name or clean_name not in PROVIDER_CONFIG: continue
 
             try:
