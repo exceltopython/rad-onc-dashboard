@@ -222,7 +222,7 @@ if check_password():
             df_clinic, df_provider = process_files(uploaded_files)
 
         if df_clinic.empty and df_provider.empty:
-            st.error("No valid data found. Please check that files contain 'PHYSICIAN', 'POS', 'PROTON', 'LROC', or 'TROC' in the filename.")
+            st.error("No valid data found. Please check that files contain 'Physicians', 'POS', 'PROTON', 'LROC', or 'TROC' in the filename.")
         else:
             tab_c, tab_p = st.tabs(["🏥 Clinic Analytics", "👨‍⚕️ Provider Analytics"])
 
@@ -295,5 +295,6 @@ if check_password():
                         # The .style call below requires matplotlib!
                         st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
     else:
-        st.info("👋 Ready. Upload files containing 'PHYSICIAN', 'POS', 'PROTON', 'LROC', or 'TROC'.")
+        st.info("👋 Ready. Upload files containing 'Physicians', 'POS', 'PROTON', 'LROC', or 'TROC'.")
+
 
