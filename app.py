@@ -166,7 +166,8 @@ if check_password():
                         clean_name = "Friedman"
                         s_upper = "FRIEDMAN"
 
-                    # CLINIC DETECTION LOGIC
+                    # --- STEP 1: CLINIC DETECTION ---
+                    # Check Config OR LROC/TROC filenames
                     is_lroc = "LROC" in filename and ("LROC" in s_upper or "POS" in s_upper)
                     is_troc = "TROC" in filename and ("TROC" in s_upper or "POS" in s_upper)
                     
@@ -179,9 +180,17 @@ if check_password():
                         if not res.empty: clinic_data.append(res)
                         continue
 
+                    # --- STEP 2: SUMMARY SHEET BLOCKER ---
                     if any(ignored in s_upper for ignored in IGNORED_SHEETS):
                         continue
 
+                    # --- STEP 3: "PROV" SHEET BLOCKER (New) ---
+                    # Explicitly ignore sheets ending in " prov" (e.g. "CENT prov")
+                    # unless they were already caught as LROC/TROC above.
+                    if clean_name.lower().endswith(" prov"):
+                        continue
+
+                    # --- STEP 4: PROVIDER DETECTION ---
                     res = parse_sheet(df, clean_name, 'provider')
                     if not res.empty:
                         provider_data.append(res)
@@ -248,6 +257,7 @@ if check_password():
                 for line in debug_log:
                     st.write(line)
         else:
+            # --- SPLIT DATA INTO MDs AND APPs ---
             if not df_provider.empty:
                 df_apps = df_provider[df_provider['Name'].isin(APP_LIST)]
                 df_mds = df_provider[~df_provider['Name'].isin(APP_LIST)]
