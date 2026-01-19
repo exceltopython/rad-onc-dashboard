@@ -27,8 +27,6 @@ def check_password():
 
 if check_password():
     # --- CONFIGURATION ---
-    
-    # 1. CLINIC CONFIGURATION
     CLINIC_CONFIG = {
         "CENT": {"name": "Centennial", "fte": 2.0},
         "Dickson": {"name": "Horizon", "fte": 1.0},
@@ -41,10 +39,9 @@ if check_password():
         "Summit": {"name": "Summit", "fte": 1.0},
         "Sumner": {"name": "Sumner", "fte": 1.5},
         "TROC": {"name": "TROC", "fte": 0.6},
-        "TOPC": {"name": "TN Proton Center", "fte": 0.0} # Placeholder; calculated dynamically
+        "TOPC": {"name": "TN Proton Center", "fte": 0.0}
     }
 
-    # 2. PROVIDER CONFIGURATION
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
         "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedmen": 1.0,
@@ -68,7 +65,6 @@ if check_password():
     TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
 
     # --- PROCESSING LOGIC ---
-
     def parse_sheet(df, sheet_name, entity_type, forced_fte=None):
         if entity_type == 'clinic':
             config = CLINIC_CONFIG.get(sheet_name, {"name": sheet_name, "fte": 1.0})
@@ -85,21 +81,23 @@ if check_password():
         data_rows = filtered_df.copy()
         
         records = []
-        for col in df.columns[4:]: # Columns starting at E
-            header_val = df.iloc[1, col] # Date Row
-            if pd.isna(header_val): continue
-            
-            col_sum = pd.to_numeric(data_rows[col], errors='coerce').sum()
-            
-            records.append({
-                "Type": entity_type,
-                "ID": sheet_name,
-                "Name": name,
-                "FTE": fte,
-                "Month": header_val,
-                "Total RVUs": col_sum,
-                "RVU per FTE": col_sum / fte if fte > 0 else 0
-            })
+        # Ensure we don't go out of bounds if file is empty
+        if len(df.columns) > 4 and len(df) > 1:
+            for col in df.columns[4:]: # Columns starting at E
+                header_val = df.iloc[1, col] # Date Row
+                if pd.isna(header_val): continue
+                
+                col_sum = pd.to_numeric(data_rows[col], errors='coerce').sum()
+                
+                records.append({
+                    "Type": entity_type,
+                    "ID": sheet_name,
+                    "Name": name,
+                    "FTE": fte,
+                    "Month": header_val,
+                    "Total RVUs": col_sum,
+                    "RVU per FTE": col_sum / fte if fte > 0 else 0
+                })
         return pd.DataFrame(records)
 
     def process_files(files):
@@ -110,13 +108,11 @@ if check_password():
             filename = file.name.upper()
             xls = pd.read_excel(file, sheet_name=None, header=None)
             
-            # --- SCENARIO 1: PROTON (TOPC) FILE ---
             if "PROTON" in filename or "TOPC" in filename:
                 proton_providers = []
                 for sheet_name, df in xls.items():
                     if "PRODUCTIVITY" in sheet_name.upper() or "PROTON" in sheet_name.upper() or "COVER" in sheet_name.upper():
                         continue
-                    
                     res = parse_sheet(df, sheet_name, 'provider')
                     if not res.empty:
                         provider_data.append(res)
@@ -124,10 +120,9 @@ if check_password():
                 
                 if proton_providers:
                     combined_proton = pd.concat(proton_providers)
-                    # Sum provider data to create clinic total
-                    topc_grp = combined_proton.groupby('Month')[['Total RVUs', 'FTE']].sum().reset_index()
+                    # Use as_index=False to prevent ValueError
+                    topc_grp = combined_proton.groupby('Month', as_index=False)[['Total RVUs', 'FTE']].sum()
                     
-                    # Reconstruct the clinic record format
                     topc_records = []
                     for idx, row in topc_grp.iterrows():
                          topc_records.append({
@@ -141,7 +136,6 @@ if check_password():
                          })
                     clinic_data.append(pd.DataFrame(topc_records))
 
-            # --- SCENARIO 2: STANDARD or LROC/TROC FILES ---
             else:
                 for sheet_name, df in xls.items():
                     if sheet_name in CLINIC_CONFIG:
@@ -188,37 +182,41 @@ if check_password():
             if df_clinic.empty:
                 st.warning("No Clinic data found.")
             else:
-                # SAFE CALCULATION: Group by month, sum values, then calculate ratio
-                clinic_grp = df_clinic.groupby('Month_Clean')[['Total RVUs', 'FTE']].sum().reset_index()
+                # SAFE CALCULATION: as_index=False prevents the 'cannot insert' error
+                clinic_grp = df_clinic.groupby('Month_Clean', as_index=False)[['Total RVUs', 'FTE']].sum()
                 clinic_grp['Avg RVU/FTE'] = clinic_grp['Total RVUs'] / clinic_grp['FTE']
                 
-                # Merge back
                 df_clinic = df_clinic.merge(clinic_grp[['Month_Clean', 'Avg RVU/FTE']], on='Month_Clean', how='left')
 
                 latest_mo = df_clinic['Month_Clean'].max()
-                latest_c = df_clinic[df_clinic['Month_Clean'] == latest_mo]
                 
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Division Total RVUs", f"{latest_c['Total RVUs'].sum():,.0f}", f"{latest_mo.strftime('%b %Y')}")
-                
-                mkt_val = clinic_grp[clinic_grp['Month_Clean']==latest_mo]['Avg RVU/FTE'].values
-                if len(mkt_val) > 0:
-                    c2.metric("Market Avg RVU/FTE", f"{mkt_val[0]:,.0f}")
-                
-                if not latest_c.empty:
-                    top_clinic = latest_c.loc[latest_c['RVU per FTE'].idxmax()]
-                    c3.metric("Top Clinic", top_clinic['Name'], f"{top_clinic['RVU per FTE']:,.0f} RVU/FTE")
+                # Check for NaT (Not a Time) to prevent crash
+                if pd.isna(latest_mo):
+                    st.error("Could not determine dates from files. Please check the Excel headers.")
+                else:
+                    latest_c = df_clinic[df_clinic['Month_Clean'] == latest_mo]
+                    
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Division Total RVUs", f"{latest_c['Total RVUs'].sum():,.0f}", f"{latest_mo.strftime('%b %Y')}")
+                    
+                    mkt_val = clinic_grp[clinic_grp['Month_Clean']==latest_mo]['Avg RVU/FTE'].values
+                    if len(mkt_val) > 0:
+                        c2.metric("Market Avg RVU/FTE", f"{mkt_val[0]:,.0f}")
+                    
+                    if not latest_c.empty:
+                        top_clinic = latest_c.loc[latest_c['RVU per FTE'].idxmax()]
+                        c3.metric("Top Clinic", top_clinic['Name'], f"{top_clinic['RVU per FTE']:,.0f} RVU/FTE")
 
-                st.markdown("#### 📊 Clinic Performance Matrix")
-                fig_scatter = px.scatter(latest_c, x="FTE", y="Total RVUs", size="RVU per FTE", color="Name", text="Name", 
-                                         title=f"Volume vs Staffing ({latest_mo.strftime('%b %Y')})")
-                st.plotly_chart(fig_scatter, use_container_width=True)
+                    st.markdown("#### 📊 Clinic Performance Matrix")
+                    fig_scatter = px.scatter(latest_c, x="FTE", y="Total RVUs", size="RVU per FTE", color="Name", text="Name", 
+                                             title=f"Volume vs Staffing ({latest_mo.strftime('%b %Y')})")
+                    st.plotly_chart(fig_scatter, use_container_width=True)
 
-                st.markdown("#### 📈 Longitudinal Trends")
-                selected_clinics = st.multiselect("Select Clinics", df_clinic['Name'].unique(), default=df_clinic['Name'].unique())
-                fig_line = px.line(df_clinic[df_clinic['Name'].isin(selected_clinics)], x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
-                fig_line.add_trace(go.Scatter(x=clinic_grp['Month_Clean'], y=clinic_grp['Avg RVU/FTE'], name='Market Avg', line=dict(color='black', width=3, dash='dot')))
-                st.plotly_chart(fig_line, use_container_width=True)
+                    st.markdown("#### 📈 Longitudinal Trends")
+                    selected_clinics = st.multiselect("Select Clinics", df_clinic['Name'].unique(), default=df_clinic['Name'].unique())
+                    fig_line = px.line(df_clinic[df_clinic['Name'].isin(selected_clinics)], x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
+                    fig_line.add_trace(go.Scatter(x=clinic_grp['Month_Clean'], y=clinic_grp['Avg RVU/FTE'], name='Market Avg', line=dict(color='black', width=3, dash='dot')))
+                    st.plotly_chart(fig_line, use_container_width=True)
 
         # === TAB 2: PROVIDERS ===
         with tab_providers:
@@ -228,7 +226,7 @@ if check_password():
                 df_included = df_provider[df_provider['ID'].isin(MARKET_AVG_INCLUSION)]
                 
                 # SAFE CALCULATION for Providers
-                prov_grp = df_included.groupby('Month_Clean')[['Total RVUs', 'FTE']].sum().reset_index()
+                prov_grp = df_included.groupby('Month_Clean', as_index=False)[['Total RVUs', 'FTE']].sum()
                 prov_grp['Avg RVU/FTE'] = prov_grp['Total RVUs'] / prov_grp['FTE']
                 
                 df_provider = df_provider.merge(prov_grp[['Month_Clean', 'Avg RVU/FTE']], on='Month_Clean', how='left')
@@ -251,21 +249,23 @@ if check_password():
                 
                 if not subset.empty:
                     latest_p_mo = subset['Month_Clean'].max()
-                    latest_p_data = subset[subset['Month_Clean'] == latest_p_mo].sort_values("RVU per FTE", ascending=False)
-                    
-                    fig_bar = px.bar(latest_p_data, x='Name', y='RVU per FTE', color='RVU per FTE', title="RVU per FTE (Latest Month)", color_continuous_scale='Viridis')
-                    
-                    # Add Market Line if data exists
-                    mkt_val_p = prov_grp[prov_grp['Month_Clean'] == latest_p_mo]['Avg RVU/FTE'].values
-                    if len(mkt_val_p) > 0:
-                         fig_bar.add_hline(y=mkt_val_p[0], line_dash="dot", annotation_text="Market Avg", annotation_position="top right")
-                    
-                    st.plotly_chart(fig_bar, use_container_width=True)
+                    if pd.isna(latest_p_mo):
+                        st.error("No valid dates found for providers.")
+                    else:
+                        latest_p_data = subset[subset['Month_Clean'] == latest_p_mo].sort_values("RVU per FTE", ascending=False)
+                        
+                        fig_bar = px.bar(latest_p_data, x='Name', y='RVU per FTE', color='RVU per FTE', title="RVU per FTE (Latest Month)", color_continuous_scale='Viridis')
+                        
+                        mkt_val_p = prov_grp[prov_grp['Month_Clean'] == latest_p_mo]['Avg RVU/FTE'].values
+                        if len(mkt_val_p) > 0:
+                             fig_bar.add_hline(y=mkt_val_p[0], line_dash="dot", annotation_text="Market Avg", annotation_position="top right")
+                        
+                        st.plotly_chart(fig_bar, use_container_width=True)
 
-                    st.markdown("#### 📅 Quarterly Performance")
-                    pivot = subset.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                    pivot["Total"] = pivot.sum(axis=1)
-                    st.dataframe(pivot.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
+                        st.markdown("#### 📅 Quarterly Performance")
+                        pivot = subset.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                        pivot["Total"] = pivot.sum(axis=1)
+                        st.dataframe(pivot.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
                 else:
                     st.info(f"No providers found in the '{group_select}' group.")
     else:
