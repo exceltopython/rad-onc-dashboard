@@ -117,6 +117,7 @@ if check_password():
     def process_files(files):
         clinic_data = []
         provider_data = []
+        debug_log = []
 
         for file in files:
             # CONVERT FILENAME TO UPPERCASE FOR MATCHING
@@ -156,13 +157,17 @@ if check_password():
                     clinic_data.append(pd.DataFrame(topc_records))
 
             # 2. PHYSICIAN FILE - LOOK FOR "PHYSICIAN" IN UPPERCASE FILENAME
-            # This captures "Physicians", "PHYSICIAN", "physician", etc.
             elif "PHYSICIAN" in filename:
                 for sheet_name, df in xls.items():
                     clean_name = sheet_name.strip()
                     if clean_name in PROVIDER_CONFIG:
                         res = parse_sheet(df, clean_name, 'provider')
-                        if not res.empty: provider_data.append(res)
+                        if not res.empty: 
+                            provider_data.append(res)
+                        else:
+                            debug_log.append(f"Sheet '{clean_name}' matched config but returned no data.")
+                    else:
+                        debug_log.append(f"Sheet '{clean_name}' ignored (not in Provider Config).")
 
             # 3. CLINIC/POS FILE
             elif "POS" in filename or "LROC" in filename or "TROC" in filename:
@@ -177,6 +182,9 @@ if check_password():
                     elif "TROC" in filename and "TROC" in clean_name.upper():
                          res = parse_sheet(df, "TROC", 'clinic')
                          if not res.empty: clinic_data.append(res)
+            
+            else:
+                 debug_log.append(f"File '{filename}' did not match any category (PROTON, PHYSICIAN, POS, LROC, TROC).")
 
         df_clinic = pd.concat(clinic_data, ignore_index=True) if clinic_data else pd.DataFrame()
         df_provider = pd.concat(provider_data, ignore_index=True) if provider_data else pd.DataFrame()
@@ -189,7 +197,7 @@ if check_password():
                 d.sort_values('Month_Clean', inplace=True)
                 d['Month_Label'] = d['Month_Clean'].dt.strftime('%b-%y')
 
-        return df_clinic, df_provider
+        return df_clinic, df_provider, debug_log
 
     # --- UI ---
     st.set_page_config(page_title="RadOnc Analytics", layout="wide", page_icon="🩺")
@@ -201,11 +209,17 @@ if check_password():
 
     if uploaded_files:
         with st.spinner("Analyzing files..."):
-            df_clinic, df_provider = process_files(uploaded_files)
+            df_clinic, df_provider, debug_log = process_files(uploaded_files)
 
         if df_clinic.empty and df_provider.empty:
-            st.error("No valid data found. Please ensure your file names contain 'Physician', 'POS', 'Proton', 'LROC', or 'TROC'.")
-            st.write("Debug Hint: Filenames detected: " + ", ".join([f.name for f in uploaded_files]))
+            st.error("No valid data found.")
+            with st.expander("🕵️ Debugging Details (Why was my file rejected?)"):
+                if debug_log:
+                    for line in debug_log:
+                        st.write(line)
+                else:
+                    st.write("File matched category but no sheets contained valid data structure.")
+                    st.write("Check: 1) Are tabs named correctly? 2) Do rows 1-10 contain 'Jan', 'Feb', etc.?")
         else:
             tab_c, tab_p = st.tabs(["🏥 Clinic Analytics", "👨‍⚕️ Provider Analytics"])
 
