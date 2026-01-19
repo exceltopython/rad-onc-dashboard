@@ -82,22 +82,19 @@ if check_password():
 
     # --- HELPER: DATE FROM FILENAME ---
     def get_date_from_filename(filename):
-        # Look for patterns like JAN25, DEC25, JAN 2025
         match = re.search(r'(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s*(\d{2,4})', filename, re.IGNORECASE)
         if match:
             month_str = match.group(1)
             year_str = match.group(2)
             if len(year_str) == 2: year_str = "20" + year_str
             return pd.to_datetime(f"{month_str} {year_str}")
-        return datetime.now() # Fallback
+        return datetime.now()
 
     # --- HELPER: CLEAN NAMES ---
     def clean_provider_name(name_str):
         if not isinstance(name_str, str): return str(name_str)
-        # Convert "Jones, Ryan T" to "Jones"
         if "," in name_str:
             return name_str.split(",")[0].strip()
-        # Convert "Jones MD, Ryan" to "Jones"
         return name_str.split()[0].strip()
 
     # --- HELPER: INSIGHT GENERATOR ---
@@ -111,14 +108,11 @@ if check_password():
         
         total_vol = latest_df[metric_col].sum()
         
-        # Determine Top Performer
         if metric_col == "Total RVUs":
-            # Use RVU/FTE for productivity
             top_perf = latest_df.loc[latest_df['RVU per FTE'].idxmax()]
             top_val = top_perf['RVU per FTE']
             top_metric = "wRVUs/FTE"
         else:
-            # Use raw volume for visits
             top_perf = latest_df.loc[latest_df[metric_col].idxmax()]
             top_val = top_perf[metric_col]
             top_metric = unit
@@ -178,40 +172,63 @@ if check_password():
         return pd.DataFrame(records)
 
     def parse_visits_sheet(df, filename_date):
-        # Extract Total OV (Col B) and New Patients (Col G approx)
-        # Assuming structure: Name(A) | Total(B) ... | Name(F) | New(G)
-        
         records = []
-        # Find start row (look for 'Castle')
-        start_row = 0
-        for i in range(len(df)):
-            val = str(df.iloc[i, 0])
-            if "Castle" in val:
-                start_row = i
-                break
         
-        if start_row == 0: return pd.DataFrame()
-
-        for i in range(start_row, len(df)):
-            row = df.iloc[i]
-            prov_name_raw = str(row[0])
+        # 1. FIND HEADER ROWS & DATA COLUMNS DYNAMICALLY
+        # Logic: Use the year from the filename (e.g. "JAN26" -> 2026) to find the correct column
+        year_target = str(filename_date.year) 
+        
+        ov_col_idx = None
+        np_col_idx = None
+        data_start_row = -1
+        
+        # Scan first 15 rows to find header structure
+        for i in range(min(15, len(df))):
+            row_vals = [str(v).strip() for v in df.iloc[i].values]
             
-            # Stop if footer or empty
-            if "Total" in prov_name_raw or pd.isna(prov_name_raw) or prov_name_raw == 'nan':
+            # Identify columns matching the Target Year (e.g. "2026")
+            year_indices = [idx for idx, val in enumerate(row_vals) if year_target in val]
+            
+            if len(year_indices) >= 1:
+                ov_col_idx = year_indices[0] # First occurrence is Office Visits
+                if len(year_indices) >= 2:
+                    np_col_idx = year_indices[1] # Second occurrence is New Patients
+                
+                data_start_row = i + 1 
                 break
+
+        # Fallback if dynamic search fails (default to standard layout)
+        if ov_col_idx is None: ov_col_idx = 3 # Column D
+        if np_col_idx is None: np_col_idx = 10 # Column K
+        
+        # 2. ITERATE ROWS
+        scan_start = 0 if data_start_row == -1 else data_start_row
+        
+        for i in range(scan_start, len(df)):
+            row = df.iloc[i]
+            if len(row) <= max(ov_col_idx, np_col_idx): continue
+            
+            # NAME is in Column B (Index 1)
+            prov_name_raw = str(row[1]) 
+            
+            if pd.isna(prov_name_raw) or prov_name_raw.lower() in ['nan', 'physician', 'amount', 'none', '']: 
+                continue
+            if "Total" in prov_name_raw: 
+                break 
                 
             clean_name = clean_provider_name(prov_name_raw)
             if clean_name not in PROVIDER_CONFIG: continue
 
-            # Visits (Col B = index 1)
-            visits = pd.to_numeric(row[1], errors='coerce') or 0
-            
-            # New Patients (Look for Name match in Col F/index 5, Value in G/index 6)
-            # Sometimes headers shift, but assuming standard format from screenshot
-            new_patients = 0
-            if len(row) > 6:
-                np_val = pd.to_numeric(row[6], errors='coerce')
+            # READ VALUES
+            try:
+                ov_val = pd.to_numeric(row[ov_col_idx], errors='coerce')
+                visits = ov_val if pd.notna(ov_val) else 0
+                
+                np_val = pd.to_numeric(row[np_col_idx], errors='coerce')
                 new_patients = np_val if pd.notna(np_val) else 0
+            except:
+                visits = 0
+                new_patients = 0
 
             records.append({
                 "Name": clean_name,
@@ -238,7 +255,6 @@ if check_password():
                 filename = file_obj.name.upper()
                 xls = pd.read_excel(file_obj, sheet_name=None, header=None)
             
-            # Identify Context
             file_tag = "General"
             if "LROC" in filename: file_tag = "LROC"
             elif "TROC" in filename: file_tag = "TROC"
@@ -247,11 +263,16 @@ if check_password():
             # --- VISIT DATA DETECTION ---
             if "NEW PATIENTS" in filename or "NEW PT" in filename:
                 file_date = get_date_from_filename(filename)
+                found_sheet = False
                 for sheet_name, df in xls.items():
                     if "PHYS YTD OV" in sheet_name.upper():
                         res = parse_visits_sheet(df, file_date)
-                        if not res.empty: visit_data.append(res)
-                continue # Skip standard RVU processing for this file
+                        if not res.empty: 
+                            visit_data.append(res)
+                            found_sheet = True
+                if not found_sheet:
+                    debug_log.append(f"Found 'New Patients' file {filename} but could not find/parse 'PHYS YTD OV' sheet.")
+                continue 
 
             # --- STANDARD RVU PROCESSING ---
             if file_tag == "TOPC":
@@ -260,15 +281,12 @@ if check_password():
                     s_upper = sheet_name.upper()
                     if any(ignored in s_upper for ignored in IGNORED_SHEETS) or "PROTON POS" in s_upper: continue
                     if "PRODUCTIVITY TREND" in s_upper: continue 
-                    
                     clean_name = sheet_name.strip()
                     if clean_name.upper() == "FRIEDMEN": clean_name = "Friedman"
-                    
                     res = parse_rvu_sheet(df, clean_name, 'provider', clinic_tag="TOPC")
                     if not res.empty:
                         provider_data.append(res) 
                         proton_providers_temp.append(res)
-                
                 if proton_providers_temp:
                     combined_proton = pd.concat(proton_providers_temp)
                     topc_grp = combined_proton.groupby('Month', as_index=False)[['Total RVUs', 'FTE']].sum()
@@ -282,13 +300,11 @@ if check_password():
                             "Clinic_Tag": "TOPC"
                          })
                     clinic_data.append(pd.DataFrame(topc_records))
-
             else:
                 for sheet_name, df in xls.items():
                     clean_name = sheet_name.strip()
                     s_upper = clean_name.upper()
                     if clean_name.upper() == "FRIEDMEN": clean_name = "Friedman"
-
                     is_summary_sheet = "PRODUCTIVITY TREND" in s_upper
                     
                     if (file_tag in ["LROC", "TROC"]) and is_summary_sheet:
@@ -308,12 +324,10 @@ if check_password():
                     res = parse_rvu_sheet(df, clean_name, 'provider', clinic_tag=file_tag)
                     if not res.empty: provider_data.append(res)
 
-        # Aggregate Dataframes
         df_clinic = pd.concat(clinic_data, ignore_index=True) if clinic_data else pd.DataFrame()
         df_provider_raw = pd.concat(provider_data, ignore_index=True) if provider_data else pd.DataFrame()
         df_visits = pd.concat(visit_data, ignore_index=True) if visit_data else pd.DataFrame()
 
-        # Clean Clinic
         if not df_clinic.empty:
             df_clinic['Month_Clean'] = pd.to_datetime(df_clinic['Month'], format='%b-%y', errors='coerce')
             mask = df_clinic['Month_Clean'].isna()
@@ -327,7 +341,6 @@ if check_password():
             df_clinic.sort_values('Month_Clean', inplace=True)
             df_clinic['Month_Label'] = df_clinic['Month_Clean'].dt.strftime('%b-%y')
 
-        # Clean Provider Global
         df_provider_global = pd.DataFrame()
         if not df_provider_raw.empty:
             df_provider_raw['Month_Clean'] = pd.to_datetime(df_provider_raw['Month'], format='%b-%y', errors='coerce')
@@ -371,8 +384,11 @@ if check_password():
         with st.spinner("Analyzing files..."):
             df_clinic, df_md_global, df_provider_raw, df_visits, debug_log = process_files(all_files)
 
-        if df_clinic.empty and df_md_global.empty:
+        if df_clinic.empty and df_md_global.empty and df_visits.empty:
             st.error("No valid data found.")
+            if debug_log:
+                with st.expander("Debug Log"):
+                    for msg in debug_log: st.write(msg)
         else:
             if not df_md_global.empty:
                 df_apps = df_md_global[df_md_global['Name'].isin(APP_LIST)]
@@ -383,7 +399,6 @@ if check_password():
 
             tab_c, tab_md, tab_app = st.tabs(["🏥 Clinic Analytics", "👨‍⚕️ MD Analytics", "👩‍⚕️ APP Analytics"])
 
-            # --- 1. CLINIC ANALYTICS ---
             with tab_c:
                 if df_clinic.empty:
                     st.info("No Clinic data found.")
@@ -433,7 +448,6 @@ if check_password():
                                             fig_pie.update_layout(font=dict(size=14))
                                             st.plotly_chart(fig_pie, use_container_width=True)
 
-            # --- 2. MD ANALYTICS (Split View) ---
             with tab_md:
                 col_nav_md, col_main_md = st.columns([1, 5])
                 with col_nav_md:
@@ -446,7 +460,6 @@ if check_password():
                         else:
                             max_date = df_mds['Month_Clean'].max()
                             st.info(generate_narrative(df_mds, "Physician"))
-                            
                             with st.container(border=True):
                                 st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
                                 min_date = max_date - pd.DateOffset(months=11)
@@ -454,7 +467,6 @@ if check_password():
                                 fig_trend = px.line(l12m_df, x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
                                 fig_trend.update_layout(font=dict(size=14))
                                 st.plotly_chart(fig_trend, use_container_width=True)
-
                             with st.container(border=True):
                                 st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({max_date.year})")
                                 ytd_df = df_mds[df_mds['Month_Clean'].dt.year == max_date.year]
@@ -466,15 +478,14 @@ if check_password():
                     elif md_view == "Office Visits":
                         if df_visits.empty:
                             st.warning("No Office Visit data found. Please upload a file containing 'New Patients' in the filename.")
+                            if debug_log:
+                                with st.expander("Troubleshooting"):
+                                    for l in debug_log: st.write(l)
                         else:
                             latest_v_date = df_visits['Month_Clean'].max()
                             latest_v_df = df_visits[df_visits['Month_Clean'] == latest_v_date]
-                            
                             st.info(generate_narrative(df_visits, "Physician", metric_col="Total Visits", unit="Visits"))
-
-                            # Two Columns: Total Visits | New Patients
                             c_ov1, c_ov2 = st.columns(2)
-                            
                             with c_ov1:
                                 with st.container(border=True):
                                     st.markdown(f"#### 🏥 Total Office Visits ({latest_v_date.year} YTD)")
@@ -483,7 +494,6 @@ if check_password():
                                                     color='Total Visits', color_continuous_scale='Blues')
                                     fig_ov.update_layout(font=dict(size=14))
                                     st.plotly_chart(fig_ov, use_container_width=True)
-                            
                             with c_ov2:
                                 with st.container(border=True):
                                     st.markdown(f"#### 🆕 New Patients ({latest_v_date.year} YTD)")
@@ -493,14 +503,12 @@ if check_password():
                                     fig_np.update_layout(font=dict(size=14))
                                     st.plotly_chart(fig_np, use_container_width=True)
 
-            # --- 3. APP ANALYTICS ---
             with tab_app:
                 if df_apps.empty:
                     st.info("No APP data found.")
                 else:
                     max_date = df_apps['Month_Clean'].max()
                     st.info(generate_narrative(df_apps, "APP"))
-
                     with st.container(border=True):
                         st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
                         min_date = max_date - pd.DateOffset(months=11)
