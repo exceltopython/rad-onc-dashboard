@@ -41,7 +41,6 @@ if check_password():
         "TOPC": {"name": "TN Proton Center", "fte": 0.0}
     }
 
-    # KNOWN PROVIDERS (Used for specific FTEs)
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
         "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedmen": 1.0,
@@ -64,7 +63,6 @@ if check_password():
 
     TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
     
-    # IGNORE THESE SHEETS IN AUTO-DETECT MODE
     IGNORED_SHEETS = ["PRODUCTIVITY TREND", "RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
 
     # --- HELPER: ROBUST MONTH FINDER ---
@@ -196,20 +194,17 @@ if check_password():
         df_clinic = pd.concat(clinic_data, ignore_index=True) if clinic_data else pd.DataFrame()
         df_provider = pd.concat(provider_data, ignore_index=True) if provider_data else pd.DataFrame()
 
-        # Date Cleaning - NEW LOGIC TO FORCE 'Jan-25' RECOGNITION
+        # Date Cleaning
         for d in [df_clinic, df_provider]:
             if not d.empty:
-                # Attempt 1: Strict format for "Jan-25" type strings
+                # Force strictly YYYY recognition for 'Jan-25' formats
                 d['Month_Clean'] = pd.to_datetime(d['Month'], format='%b-%y', errors='coerce')
-                
-                # Attempt 2: If strict failed (NaT), try general parser
                 mask = d['Month_Clean'].isna()
                 if mask.any():
                     d.loc[mask, 'Month_Clean'] = pd.to_datetime(d.loc[mask, 'Month'], errors='coerce')
 
-                # Check for failure
                 if d['Month_Clean'].isna().all():
-                    debug_log.append("CRITICAL: Date conversion failed. The dates might be in an unusual format.")
+                    debug_log.append("CRITICAL: Date conversion failed.")
                 
                 d.dropna(subset=['Month_Clean'], inplace=True)
                 d.sort_values('Month_Clean', inplace=True)
@@ -231,7 +226,7 @@ if check_password():
 
         if df_clinic.empty and df_provider.empty:
             st.error("No valid data found.")
-            with st.expander("🕵️ Debugging Details (Why was my file rejected?)"):
+            with st.expander("🕵️ Debugging Details"):
                 for line in debug_log:
                     st.write(line)
         else:
@@ -240,7 +235,7 @@ if check_password():
             # CLINICS
             with tab_c:
                 if df_clinic.empty:
-                    st.info("No Clinic (POS) data found.")
+                    st.info("No Clinic data found.")
                 else:
                     clinic_grp = df_clinic.groupby('Month_Clean', as_index=False)[['Total RVUs', 'FTE']].sum()
                     clinic_grp['Avg RVU/FTE'] = clinic_grp['Total RVUs'] / clinic_grp['FTE']
@@ -259,11 +254,7 @@ if check_password():
                         top = latest_c.loc[latest_c['RVU per FTE'].idxmax()]
                         c3.metric("Top Clinic", top['Name'], f"{top['RVU per FTE']:,.0f}")
 
-                    st.markdown("#### 📊 Clinic Matrix")
-                    fig = px.scatter(latest_c, x="FTE", y="Total RVUs", size="RVU per FTE", color="Name", text="Name", title=f"Volume vs Staffing ({latest.strftime('%b %Y')})")
-                    st.plotly_chart(fig, use_container_width=True)
-
-                    st.markdown("#### 📈 Trends")
+                    st.markdown("#### 📈 Longitudinal Trends")
                     sel_c = st.multiselect("Select Clinics", df_clinic['Name'].unique(), default=df_clinic['Name'].unique())
                     fig2 = px.line(df_clinic[df_clinic['Name'].isin(sel_c)], x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
                     st.plotly_chart(fig2, use_container_width=True)
@@ -294,16 +285,40 @@ if check_password():
                     else: sub = scen_df
 
                     if not sub.empty:
-                        latest_p = sub['Month_Clean'].max()
-                        latest_p_dat = sub[sub['Month_Clean'] == latest_p].sort_values("RVU per FTE", ascending=False)
+                        # 1. LAST 12 MONTHS TREND
+                        st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
                         
-                        fig3 = px.bar(latest_p_dat, x='Name', y='RVU per FTE', color='RVU per FTE', title="Latest Month RVU/FTE", color_continuous_scale='Viridis')
-                        st.plotly_chart(fig3, use_container_width=True)
+                        # Get data for last 12 months only
+                        max_date = sub['Month_Clean'].max()
+                        min_date = max_date - pd.DateOffset(months=11)
+                        l12m_df = sub[sub['Month_Clean'] >= min_date].sort_values('Month_Clean')
+                        
+                        fig_trend = px.line(l12m_df, x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
+                        st.plotly_chart(fig_trend, use_container_width=True)
 
-                        st.markdown("#### 📅 Quarterly Table")
+                        # 2. YEAR TO DATE TOTALS
+                        st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({max_date.year})")
+                        ytd_df = sub[sub['Month_Clean'].dt.year == max_date.year]
+                        ytd_sum = ytd_df.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
+                        
+                        fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
+                        st.plotly_chart(fig_ytd, use_container_width=True)
+
+                        # 3. CHRONOLOGICAL TABLE
+                        st.markdown("#### 🔢 Detailed Data Table")
+                        # Pivot the data
                         piv = sub.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                        
+                        # FORCE CHRONOLOGICAL SORTING OF COLUMNS
+                        # Get unique months from data, sort them by date, then extract label
+                        sorted_months = sub[['Month_Clean', 'Month_Label']].drop_duplicates().sort_values('Month_Clean')['Month_Label'].tolist()
+                        
+                        # Reorder pivot columns to match chronological order
+                        # Filter to only include columns that actually exist in the pivot (safety check)
+                        existing_cols = [m for m in sorted_months if m in piv.columns]
+                        piv = piv[existing_cols]
+                        
                         piv["Total"] = piv.sum(axis=1)
-                        # Requires matplotlib in requirements.txt
                         st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
     else:
         st.info("👋 Ready. Upload files containing 'Physicians', 'POS', 'PROTON', 'LROC', or 'TROC'.")
