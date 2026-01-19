@@ -93,9 +93,16 @@ if check_password():
     # --- HELPER: CLEAN NAMES ---
     def clean_provider_name(name_str):
         if not isinstance(name_str, str): return str(name_str)
+        # CRASH FIX: Return empty if string is empty or whitespace
+        if not name_str.strip(): return ""
+        
         if "," in name_str:
             return name_str.split(",")[0].strip()
-        return name_str.split()[0].strip()
+        
+        # CRASH FIX: Safety check before splitting by space
+        parts = name_str.split()
+        if not parts: return ""
+        return parts[0].strip()
 
     # --- HELPER: INSIGHT GENERATOR ---
     def generate_narrative(df, entity_type="Provider", metric_col="Total RVUs", unit="wRVUs"):
@@ -173,48 +180,60 @@ if check_password():
 
     def parse_visits_sheet(df, filename_date):
         records = []
-        # Robust Start Row Finder: Look for "Physician" header
-        start_row = -1
-        for i in range(len(df)):
-            val = str(df.iloc[i, 0])
-            if "Physician" in val and "Only" not in val: # Avoid "Physicians Only" row
-                 start_row = i + 1 # Start reading data AFTER the header
-                 break
-            if "Castle" in val: # Fallback if header is missing
-                start_row = i
-                break
         
-        if start_row == -1: return pd.DataFrame()
-
-        for i in range(start_row, len(df)):
-            row = df.iloc[i]
-            prov_name_raw = str(row[0])
+        year_target = str(filename_date.year) 
+        ov_col_idx = None
+        np_col_idx = None
+        data_start_row = -1
+        
+        # 1. Header Scan
+        for i in range(min(15, len(df))):
+            row_vals = [str(v).strip() for v in df.iloc[i].values]
             
-            # Robust Exit/Skip Logic
-            if pd.isna(prov_name_raw) or prov_name_raw.lower() == 'nan' or prov_name_raw.strip() == "":
-                continue # Skip empty rows instead of breaking
+            # Identify columns matching Target Year
+            year_indices = [idx for idx, val in enumerate(row_vals) if year_target in val]
             
-            if "Total" in prov_name_raw: # Stop at the Total row
+            if len(year_indices) >= 1:
+                ov_col_idx = year_indices[0] # First occurrence = Office Visits
+                if len(year_indices) >= 2:
+                    np_col_idx = year_indices[1] # Second occurrence = New Patients
+                
+                data_start_row = i + 1 
                 break
+
+        # Fallback if dynamic search fails
+        if ov_col_idx is None: ov_col_idx = 3 # Col D
+        if np_col_idx is None: np_col_idx = 10 # Col K
+        
+        # 2. Row Scan
+        scan_start = 0 if data_start_row == -1 else data_start_row
+        
+        for i in range(scan_start, len(df)):
+            row = df.iloc[i]
+            if len(row) <= max(ov_col_idx, np_col_idx): continue
+            
+            # Name is Column B (index 1)
+            prov_name_raw = str(row[1]).strip()
+            
+            # CRASH FIX: Explicit check for empty strings
+            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'physician', 'amount', 'none']: 
+                continue
+                
+            if "Total" in prov_name_raw: 
+                break 
                 
             clean_name = clean_provider_name(prov_name_raw)
-            if clean_name not in PROVIDER_CONFIG: continue
+            if not clean_name or clean_name not in PROVIDER_CONFIG: continue
 
-            # Visits (Col B = index 1)
-            visits = pd.to_numeric(row[1], errors='coerce') or 0
-            
-            # New Patients - Robustly find the column
-            # Check row 6 or so for "AMOUNT" under "YTD NEW PATIENTS" but column is usually fixed relative to Total
-            # Based on screenshot: Total OV (B), New Patients seems to be Col F or G. 
-            # Let's try to find numeric value in expected column range (index 5, 6, 7)
-            new_patients = 0
-            if len(row) > 6:
-                # Try index 6 (Col G) first as per typical layout
-                np_val = pd.to_numeric(row[6], errors='coerce')
-                # If NaN, try index 5 or 7 just in case
-                if pd.isna(np_val): np_val = pd.to_numeric(row[5], errors='coerce')
+            try:
+                ov_val = pd.to_numeric(row[ov_col_idx], errors='coerce')
+                visits = ov_val if pd.notna(ov_val) else 0
                 
+                np_val = pd.to_numeric(row[np_col_idx], errors='coerce')
                 new_patients = np_val if pd.notna(np_val) else 0
+            except:
+                visits = 0
+                new_patients = 0
 
             records.append({
                 "Name": clean_name,
