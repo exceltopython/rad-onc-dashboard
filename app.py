@@ -42,7 +42,7 @@ if check_password():
     }
 
     # KNOWN PROVIDERS (Used for specific FTEs)
-    # Added "Castle" at 0.6 FTE
+    # New providers NOT on this list will default to 1.0 FTE automatically
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
         "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedmen": 1.0,
@@ -68,18 +68,33 @@ if check_password():
     # IGNORE THESE SHEETS IN AUTO-DETECT MODE
     IGNORED_SHEETS = ["PRODUCTIVITY TREND", "RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
 
-    # --- HELPER: ROBUST MONTH FINDER ---
+    # --- HELPER: HYBRID DATE FINDER ---
     def find_date_row(df):
+        """
+        Scans first 10 rows for either Month Strings (JAN, FEB) OR valid Excel Datetime objects.
+        Returns the row index with the highest confidence score.
+        """
         months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
-        best_row = 0
-        max_matches = 0
+        best_row = 1 # Default to Row 2
+        max_score = 0
+        
         for r in range(min(10, len(df))):
-            row_str = str(df.iloc[r].values).upper()
-            matches = sum(1 for m in months if m in row_str)
-            if matches > max_matches:
-                max_matches = matches
+            # Grab columns E-P (indices 4-15)
+            row_vals = df.iloc[r, 4:16]
+            
+            # Score 1: Text Matches
+            str_vals = [str(v).upper() for v in row_vals if pd.notna(v)]
+            text_matches = sum(1 for v in str_vals if any(m in v for m in months))
+            
+            # Score 2: Datetime Object Matches
+            dt_matches = sum(1 for v in row_vals if isinstance(v, (datetime, pd.Timestamp)))
+            
+            total_score = text_matches + (dt_matches * 2) # Weight actual dates higher
+            
+            if total_score > max_score:
+                max_score = total_score
                 best_row = r
-        if max_matches == 0: return 1 
+                
         return best_row
 
     # --- PARSING LOGIC ---
@@ -116,7 +131,8 @@ if check_password():
                     "FTE": fte,
                     "Month": header_val,
                     "Total RVUs": col_sum,
-                    "RVU per FTE": col_sum / fte if fte > 0 else 0
+                    "RVU per FTE": col_sum / fte if fte > 0 else 0,
+                    "Debug_Source_Row": header_row_idx
                 })
         return pd.DataFrame(records)
 
@@ -126,7 +142,6 @@ if check_password():
         debug_log = []
 
         for file in files:
-            # CONVERT FILENAME TO UPPERCASE FOR MATCHING
             filename = file.name.upper()
             xls = pd.read_excel(file, sheet_name=None, header=None)
             
@@ -134,7 +149,6 @@ if check_password():
             if "PROTON" in filename or "TOPC" in filename:
                 proton_providers = []
                 for sheet_name, df in xls.items():
-                    # Check partial matches for summary tabs to skip them
                     s_upper = sheet_name.upper()
                     if any(ignored in s_upper for ignored in IGNORED_SHEETS) or "PROTON POS" in s_upper:
                         continue
@@ -161,28 +175,29 @@ if check_password():
                          })
                     clinic_data.append(pd.DataFrame(topc_records))
 
-            # 2. PHYSICIAN FILE - "AUTO DETECT" MODE
+            # 2. PHYSICIAN FILE
             elif "PHYSICIAN" in filename:
                 for sheet_name, df in xls.items():
                     clean_name = sheet_name.strip()
                     s_upper = clean_name.upper()
                     
-                    # Skip known summary sheets
                     is_summary = any(ignored in s_upper for ignored in IGNORED_SHEETS)
-                    
                     if is_summary:
                          debug_log.append(f"Skipped summary sheet: {clean_name}")
                          continue
 
-                    # Assume it is a provider!
-                    # If they are in the config (like Castle=0.6), they get their specific FTE.
-                    # If NOT in the config, they default to 1.0 FTE.
+                    # Assume it is a provider
                     res = parse_sheet(df, clean_name, 'provider')
                     if not res.empty: 
                         provider_data.append(res)
-                        debug_log.append(f"Successfully loaded provider: {clean_name}")
+                        # Log header detection for the first provider to help debug
+                        if len(provider_data) == 1:
+                            r_idx = res.iloc[0]['Debug_Source_Row']
+                            sample_date = res.iloc[0]['Month']
+                            debug_log.append(f"Header Check: Using Row {r_idx+1} for dates. Sample: {sample_date}")
+                        debug_log.append(f"Loaded provider: {clean_name}")
                     else:
-                        debug_log.append(f"Sheet '{clean_name}' was processed as a provider but contained no data.")
+                        debug_log.append(f"Sheet '{clean_name}' processed but no data found.")
 
             # 3. CLINIC/POS FILE
             elif "POS" in filename or "LROC" in filename or "TROC" in filename:
@@ -199,7 +214,7 @@ if check_password():
                          if not res.empty: clinic_data.append(res)
             
             else:
-                 debug_log.append(f"File '{filename}' did not match any category (PROTON, PHYSICIAN, POS, LROC, TROC).")
+                 debug_log.append(f"File '{filename}' did not match recognized patterns.")
 
         df_clinic = pd.concat(clinic_data, ignore_index=True) if clinic_data else pd.DataFrame()
         df_provider = pd.concat(provider_data, ignore_index=True) if provider_data else pd.DataFrame()
@@ -208,6 +223,12 @@ if check_password():
         for d in [df_clinic, df_provider]:
             if not d.empty:
                 d['Month_Clean'] = pd.to_datetime(d['Month'], errors='coerce')
+                
+                # Check for failure
+                if d['Month_Clean'].isna().all():
+                    debug_log.append("CRITICAL: Date conversion failed for all rows. Showing raw 'Month' data in debug.")
+                    debug_log.append(f"Raw Month Data Sample: {d['Month'].unique()[:5]}")
+                
                 d.dropna(subset=['Month_Clean'], inplace=True)
                 d.sort_values('Month_Clean', inplace=True)
                 d['Month_Label'] = d['Month_Clean'].dt.strftime('%b-%y')
@@ -229,11 +250,8 @@ if check_password():
         if df_clinic.empty and df_provider.empty:
             st.error("No valid data found.")
             with st.expander("🕵️ Debugging Details (Why was my file rejected?)"):
-                if debug_log:
-                    for line in debug_log:
-                        st.write(line)
-                else:
-                    st.write("File matched category but no sheets contained valid data structure.")
+                for line in debug_log:
+                    st.write(line)
         else:
             tab_c, tab_p = st.tabs(["🏥 Clinic Analytics", "👨‍⚕️ Provider Analytics"])
 
