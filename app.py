@@ -41,6 +41,7 @@ if check_password():
         "TOPC": {"name": "TN Proton Center", "fte": 0.0}
     }
 
+    # KNOWN PROVIDERS (Used for specific FTEs)
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
         "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedmen": 1.0,
@@ -63,12 +64,13 @@ if check_password():
 
     TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
     
+    # IGNORED SHEETS
     IGNORED_SHEETS = ["PRODUCTIVITY TREND", "RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
 
     # --- HELPER: ROBUST MONTH FINDER ---
     def find_date_row(df):
         months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
-        best_row = 1 # Default to Row 2
+        best_row = 1 
         max_score = 0
         
         for r in range(min(10, len(df))):
@@ -126,9 +128,10 @@ if check_password():
             filename = file.name.upper()
             xls = pd.read_excel(file, sheet_name=None, header=None)
             
-            # 1. PROTON FILE
+            # --- 1. PROTON FILE SPECIAL LOGIC ---
+            # (Proton needs special handling to create the "TOPC" clinic aggregate)
             if "PROTON" in filename or "TOPC" in filename:
-                proton_providers = []
+                proton_providers_temp = []
                 for sheet_name, df in xls.items():
                     s_upper = sheet_name.upper()
                     if any(ignored in s_upper for ignored in IGNORED_SHEETS) or "PROTON POS" in s_upper:
@@ -137,11 +140,12 @@ if check_password():
                     clean_name = sheet_name.strip()
                     res = parse_sheet(df, clean_name, 'provider')
                     if not res.empty:
-                        provider_data.append(res)
-                        proton_providers.append(res)
+                        provider_data.append(res) # Add to main provider list
+                        proton_providers_temp.append(res) # Keep separate copy for Clinic Aggregate
                 
-                if proton_providers:
-                    combined_proton = pd.concat(proton_providers)
+                # Create TOPC Clinic Aggregate
+                if proton_providers_temp:
+                    combined_proton = pd.concat(proton_providers_temp)
                     topc_grp = combined_proton.groupby('Month', as_index=False)[['Total RVUs', 'FTE']].sum()
                     topc_records = []
                     for idx, row in topc_grp.iterrows():
@@ -156,59 +160,67 @@ if check_password():
                          })
                     clinic_data.append(pd.DataFrame(topc_records))
 
-            # 2. PHYSICIAN FILE
-            elif "PHYSICIAN" in filename:
+            # --- 2. ALL OTHER FILES (Physician, LROC, TROC, POS) ---
+            # We now scan EVERY file for provider tabs
+            else:
                 for sheet_name, df in xls.items():
                     clean_name = sheet_name.strip()
                     s_upper = clean_name.upper()
                     
-                    is_summary = any(ignored in s_upper for ignored in IGNORED_SHEETS)
-                    if is_summary:
-                         debug_log.append(f"Skipped summary sheet: {clean_name}")
-                         continue
-
-                    # Assume it is a provider
-                    res = parse_sheet(df, clean_name, 'provider')
-                    if not res.empty: 
-                        provider_data.append(res)
-                    else:
-                        debug_log.append(f"Sheet '{clean_name}' processed but no data found.")
-
-            # 3. CLINIC/POS FILE
-            elif "POS" in filename or "LROC" in filename or "TROC" in filename:
-                for sheet_name, df in xls.items():
-                    clean_name = sheet_name.strip()
-                    if clean_name in CLINIC_CONFIG:
+                    # CHECK 1: Is this a Clinic Summary Sheet? (LROC, TROC, CENT, etc.)
+                    if clean_name in CLINIC_CONFIG or ("LROC" in s_upper and "LROC" in filename) or ("TROC" in s_upper and "TROC" in filename):
                         res = parse_sheet(df, clean_name, 'clinic')
                         if not res.empty: clinic_data.append(res)
-                    elif "LROC" in filename and "LROC" in clean_name.upper():
-                         res = parse_sheet(df, "LROC", 'clinic')
-                         if not res.empty: clinic_data.append(res)
-                    elif "TROC" in filename and "TROC" in clean_name.upper():
-                         res = parse_sheet(df, "TROC", 'clinic')
-                         if not res.empty: clinic_data.append(res)
-            
-            else:
-                 debug_log.append(f"File '{filename}' did not match recognized patterns.")
+                        continue # If it's a clinic sheet, don't check if it's a provider
+
+                    # CHECK 2: Is this a summary/junk sheet?
+                    if any(ignored in s_upper for ignored in IGNORED_SHEETS):
+                        continue
+
+                    # CHECK 3: Assume it is a Provider (Jones, Castle, etc.)
+                    # This grabs "Jones" from the Physicians file AND "Jones" from the TROC file
+                    res = parse_sheet(df, clean_name, 'provider')
+                    if not res.empty:
+                        provider_data.append(res)
+                        debug_log.append(f"Found provider data for {clean_name} in file {filename}")
 
         df_clinic = pd.concat(clinic_data, ignore_index=True) if clinic_data else pd.DataFrame()
         df_provider = pd.concat(provider_data, ignore_index=True) if provider_data else pd.DataFrame()
 
-        # Date Cleaning
-        for d in [df_clinic, df_provider]:
-            if not d.empty:
-                # Force strictly YYYY recognition for 'Jan-25' formats
-                d['Month_Clean'] = pd.to_datetime(d['Month'], format='%b-%y', errors='coerce')
-                mask = d['Month_Clean'].isna()
-                if mask.any():
-                    d.loc[mask, 'Month_Clean'] = pd.to_datetime(d.loc[mask, 'Month'], errors='coerce')
+        # --- DATA CLEANING & AGGREGATION ---
+        
+        # Clinic Date Cleaning
+        if not df_clinic.empty:
+            df_clinic['Month_Clean'] = pd.to_datetime(df_clinic['Month'], format='%b-%y', errors='coerce')
+            mask = df_clinic['Month_Clean'].isna()
+            if mask.any():
+                df_clinic.loc[mask, 'Month_Clean'] = pd.to_datetime(df_clinic.loc[mask, 'Month'], errors='coerce')
+            df_clinic.dropna(subset=['Month_Clean'], inplace=True)
+            df_clinic.sort_values('Month_Clean', inplace=True)
+            df_clinic['Month_Label'] = df_clinic['Month_Clean'].dt.strftime('%b-%y')
 
-                if d['Month_Clean'].isna().all():
-                    debug_log.append("CRITICAL: Date conversion failed.")
-                
-                d.dropna(subset=['Month_Clean'], inplace=True)
-                d.sort_values('Month_Clean', inplace=True)
-                d['Month_Label'] = d['Month_Clean'].dt.strftime('%b-%y')
+        # Provider Date Cleaning & AGGREGATION (The "Jones" Fix)
+        if not df_provider.empty:
+            df_provider['Month_Clean'] = pd.to_datetime(df_provider['Month'], format='%b-%y', errors='coerce')
+            mask = df_provider['Month_Clean'].isna()
+            if mask.any():
+                df_provider.loc[mask, 'Month_Clean'] = pd.to_datetime(df_provider.loc[mask, 'Month'], errors='coerce')
+            df_provider.dropna(subset=['Month_Clean'], inplace=True)
+            
+            # --- AGGREGATION STEP ---
+            # Group by Name/Month to combine data from multiple files (Physician + TROC + LROC)
+            # We take the MAX of FTE (assuming it's the same constant) and SUM of Total RVUs
+            df_provider = df_provider.groupby(['Name', 'ID', 'Month_Clean'], as_index=False).agg({
+                'Total RVUs': 'sum',
+                'FTE': 'max', # Use the configured FTE (should be same across files)
+                'Month': 'first'
+            })
+            
+            # Re-calculate RVU per FTE based on new Grand Totals
+            df_provider['RVU per FTE'] = df_provider.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
+            
+            df_provider.sort_values('Month_Clean', inplace=True)
+            df_provider['Month_Label'] = df_provider['Month_Clean'].dt.strftime('%b-%y')
 
         return df_clinic, df_provider, debug_log
 
@@ -254,7 +266,7 @@ if check_password():
                         top = latest_c.loc[latest_c['RVU per FTE'].idxmax()]
                         c3.metric("Top Clinic", top['Name'], f"{top['RVU per FTE']:,.0f}")
 
-                    st.markdown("#### 📈 Longitudinal Trends")
+                    st.markdown("#### 📈 Trends")
                     sel_c = st.multiselect("Select Clinics", df_clinic['Name'].unique(), default=df_clinic['Name'].unique())
                     fig2 = px.line(df_clinic[df_clinic['Name'].isin(sel_c)], x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
                     st.plotly_chart(fig2, use_container_width=True)
@@ -285,36 +297,27 @@ if check_password():
                     else: sub = scen_df
 
                     if not sub.empty:
-                        # 1. LAST 12 MONTHS TREND
-                        st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
-                        
-                        # Get data for last 12 months only
                         max_date = sub['Month_Clean'].max()
                         min_date = max_date - pd.DateOffset(months=11)
-                        l12m_df = sub[sub['Month_Clean'] >= min_date].sort_values('Month_Clean')
                         
+                        # 1. TRENDS
+                        st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
+                        l12m_df = sub[sub['Month_Clean'] >= min_date].sort_values('Month_Clean')
                         fig_trend = px.line(l12m_df, x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
                         st.plotly_chart(fig_trend, use_container_width=True)
 
-                        # 2. YEAR TO DATE TOTALS
+                        # 2. YTD
                         st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({max_date.year})")
                         ytd_df = sub[sub['Month_Clean'].dt.year == max_date.year]
                         ytd_sum = ytd_df.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
-                        
                         fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
                         st.plotly_chart(fig_ytd, use_container_width=True)
 
-                        # 3. CHRONOLOGICAL TABLE
+                        # 3. TABLE
                         st.markdown("#### 🔢 Detailed Data Table")
-                        # Pivot the data
                         piv = sub.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
                         
-                        # FORCE CHRONOLOGICAL SORTING OF COLUMNS
-                        # Get unique months from data, sort them by date, then extract label
                         sorted_months = sub[['Month_Clean', 'Month_Label']].drop_duplicates().sort_values('Month_Clean')['Month_Label'].tolist()
-                        
-                        # Reorder pivot columns to match chronological order
-                        # Filter to only include columns that actually exist in the pivot (safety check)
                         existing_cols = [m for m in sorted_months if m in piv.columns]
                         piv = piv[existing_cols]
                         
