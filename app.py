@@ -167,12 +167,10 @@ if check_password():
                         s_upper = "FRIEDMAN"
 
                     # CLINIC DETECTION LOGIC
-                    # Explicitly catch LROC and TROC from their filenames if the sheet name isn't perfect
                     is_lroc = "LROC" in filename and ("LROC" in s_upper or "POS" in s_upper)
                     is_troc = "TROC" in filename and ("TROC" in s_upper or "POS" in s_upper)
                     
                     if clean_name in CLINIC_CONFIG or is_lroc or is_troc:
-                        # Normalize ID for LROC/TROC
                         clinic_id = clean_name
                         if is_lroc: clinic_id = "LROC"
                         if is_troc: clinic_id = "TROC"
@@ -200,7 +198,6 @@ if check_password():
                 df_clinic.loc[mask, 'Month_Clean'] = pd.to_datetime(df_clinic.loc[mask, 'Month'], errors='coerce')
             df_clinic.dropna(subset=['Month_Clean'], inplace=True)
             
-            # Aggregate Clinics (Fixes duplicates if LROC appears in multiple files)
             df_clinic = df_clinic.groupby(['Name', 'ID', 'Month_Clean'], as_index=False).agg({
                 'Total RVUs': 'sum',
                 'FTE': 'max',
@@ -219,7 +216,6 @@ if check_password():
                 df_provider.loc[mask, 'Month_Clean'] = pd.to_datetime(df_provider.loc[mask, 'Month'], errors='coerce')
             df_provider.dropna(subset=['Month_Clean'], inplace=True)
             
-            # GLOBAL AGGREGATION
             df_provider = df_provider.groupby(['Name', 'ID', 'Month_Clean'], as_index=False).agg({
                 'Total RVUs': 'sum',
                 'FTE': 'max', 
@@ -227,7 +223,6 @@ if check_password():
             })
             df_provider['RVU per FTE'] = df_provider.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
             
-            # ADD QUARTER COLUMN
             df_provider['Quarter'] = df_provider['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
             
             df_provider.sort_values('Month_Clean', inplace=True)
@@ -253,7 +248,6 @@ if check_password():
                 for line in debug_log:
                     st.write(line)
         else:
-            # --- SPLIT DATA INTO MDs AND APPs ---
             if not df_provider.empty:
                 df_apps = df_provider[df_provider['Name'].isin(APP_LIST)]
                 df_mds = df_provider[~df_provider['Name'].isin(APP_LIST)]
@@ -261,7 +255,6 @@ if check_password():
                 df_apps = pd.DataFrame()
                 df_mds = pd.DataFrame()
 
-            # --- NEW TAB STRUCTURE ---
             tab_c, tab_md, tab_app = st.tabs(["🏥 Clinic Analytics", "👨‍⚕️ MD Analytics", "👩‍⚕️ APP Analytics"])
 
             # 1. CLINICS
@@ -270,8 +263,6 @@ if check_password():
                     st.info("No Clinic data found.")
                 else:
                     max_date = df_clinic['Month_Clean'].max()
-                    
-                    # Top Metrics
                     c1, c2 = st.columns(2)
                     latest_val = df_clinic[df_clinic['Month_Clean'] == max_date]['Total RVUs'].sum()
                     c1.metric("Total Division Volume", f"{latest_val:,.0f}", f"{max_date.strftime('%b %Y')}")
@@ -283,6 +274,7 @@ if check_password():
                     min_date = max_date - pd.DateOffset(months=11)
                     l12m_c = df_clinic[df_clinic['Month_Clean'] >= min_date].sort_values('Month_Clean')
                     fig_trend = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
+                    fig_trend.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_trend, use_container_width=True)
 
                     # YTD Bar
@@ -290,6 +282,7 @@ if check_password():
                     ytd_c = df_clinic[df_clinic['Month_Clean'].dt.year == max_date.year]
                     ytd_sum = ytd_c.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
                     fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Magma', text_auto='.2s')
+                    fig_ytd.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_ytd, use_container_width=True)
 
                     # MONTHLY TABLE
@@ -315,7 +308,8 @@ if check_password():
                                    title=f"Most Recent Quarter Leaders ({latest_q_label})",
                                    category_orders={"Name": total_per_clinic},
                                    text_auto='.2s',
-                                   color_discrete_sequence=['#C0392B']) # Professional Red
+                                   color_discrete_sequence=['#C0392B'])
+                    fig_q.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_q, use_container_width=True)
 
                     # 2. Quarterly Table
@@ -339,12 +333,14 @@ if check_password():
                     
                     st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
                     fig_trend = px.line(l12m_df, x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
+                    fig_trend.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_trend, use_container_width=True)
 
                     st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({max_date.year})")
                     ytd_df = df_mds[df_mds['Month_Clean'].dt.year == max_date.year]
                     ytd_sum = ytd_df.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
                     fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
+                    fig_ytd.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_ytd, use_container_width=True)
 
                     # MONTHLY TABLE
@@ -360,7 +356,6 @@ if check_password():
                     st.markdown("---")
                     st.markdown("#### 📆 MD Quarterly Data")
                     
-                    # 1. Latest Quarter Chart
                     q_chart_df = df_mds.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
                     latest_q_label = f"Q{max_date.quarter} {max_date.year}"
                     latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
@@ -370,10 +365,10 @@ if check_password():
                                    title=f"Most Recent Quarter Leaders ({latest_q_label})",
                                    category_orders={"Name": total_per_prov},
                                    text_auto='.2s',
-                                   color_discrete_sequence=['#2E86C1']) # Professional Blue
+                                   color_discrete_sequence=['#2E86C1'])
+                    fig_q.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_q, use_container_width=True)
 
-                    # 2. Quarterly Table
                     piv_q = df_mds.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                     sorted_quarters = df_mds[['Month_Clean', 'Quarter']].drop_duplicates().sort_values('Month_Clean')['Quarter'].unique().tolist()
                     existing_q_cols = [q for q in sorted_quarters if q in piv_q.columns]
@@ -394,12 +389,14 @@ if check_password():
                     
                     st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
                     fig_trend = px.line(l12m_df, x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
+                    fig_trend.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_trend, use_container_width=True)
 
                     st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({max_date.year})")
                     ytd_df = df_apps[df_apps['Month_Clean'].dt.year == max_date.year]
                     ytd_sum = ytd_df.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
                     fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Teal', text_auto='.2s')
+                    fig_ytd.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_ytd, use_container_width=True)
 
                     # MONTHLY TABLE
@@ -415,7 +412,6 @@ if check_password():
                     st.markdown("---")
                     st.markdown("#### 📆 APP Quarterly Data")
                     
-                    # 1. Latest Quarter Chart
                     q_chart_df = df_apps.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
                     latest_q_label = f"Q{max_date.quarter} {max_date.year}"
                     latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
@@ -425,10 +421,10 @@ if check_password():
                                    title=f"Most Recent Quarter Leaders ({latest_q_label})",
                                    category_orders={"Name": total_per_prov},
                                    text_auto='.2s',
-                                   color_discrete_sequence=['#27AE60']) # Professional Green
+                                   color_discrete_sequence=['#27AE60'])
+                    fig_q.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_q, use_container_width=True)
 
-                    # 2. Quarterly Table
                     piv_q = df_apps.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                     sorted_quarters = df_apps[['Month_Clean', 'Quarter']].drop_duplicates().sort_values('Month_Clean')['Quarter'].unique().tolist()
                     existing_q_cols = [q for q in sorted_quarters if q in piv_q.columns]
