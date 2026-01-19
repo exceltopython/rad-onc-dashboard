@@ -41,10 +41,10 @@ if check_password():
         "TOPC": {"name": "TN Proton Center", "fte": 0.0}
     }
 
-    # KNOWN PROVIDERS (Updated to "Friedman")
+    # KNOWN PROVIDERS
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
-        "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedman": 1.0, # Corrected Spelling
+        "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedman": 1.0, # Correct Spelling
         "Gray": 1.0, "Jones": 1.0, "Lee": 1.0, "Lewis": 1.0,
         "Lipscomb": 0.6, "Lydon": 1.0, "Mayo": 1.0, "Mondschein": 1.0,
         "Nguyen": 1.0, "Osborne": 1.0, "Phillips": 1.0, "Sidrys": 1.0,
@@ -133,8 +133,7 @@ if check_password():
                         continue
                     
                     clean_name = sheet_name.strip()
-                    
-                    # --- AUTO-CORRECT MISSPELLING ---
+                    # AUTO-CORRECT MISSPELLING
                     if clean_name.upper() == "FRIEDMEN": clean_name = "Friedman"
                     
                     res = parse_sheet(df, clean_name, 'provider')
@@ -164,10 +163,11 @@ if check_password():
                     clean_name = sheet_name.strip()
                     s_upper = clean_name.upper()
                     
-                    # --- AUTO-CORRECT MISSPELLING ---
-                    if clean_name.upper() == "FRIEDMEN": clean_name = "Friedman"
-                    s_upper = clean_name.upper() # Update uppercase check too
-                    
+                    # AUTO-CORRECT MISSPELLING
+                    if clean_name.upper() == "FRIEDMEN": 
+                        clean_name = "Friedman"
+                        s_upper = "FRIEDMAN"
+
                     if clean_name in CLINIC_CONFIG or ("LROC" in s_upper and "LROC" in filename) or ("TROC" in s_upper and "TROC" in filename):
                         res = parse_sheet(df, clean_name, 'clinic')
                         if not res.empty: clinic_data.append(res)
@@ -295,14 +295,26 @@ if check_password():
                     piv["Total"] = piv.sum(axis=1)
                     st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
 
-                    # QUARTERLY TABLE
+                    # QUARTERLY SECTION
+                    st.markdown("---")
                     st.markdown("#### 📆 MD Quarterly Data")
+                    
+                    # 1. Quarterly Chart (Stacked)
+                    q_chart_df = df_mds.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
+                    # Sort logic: Get Total per Provider to order the X-axis
+                    total_per_prov = q_chart_df.groupby('Name')['Total RVUs'].sum().sort_values(ascending=False).index.tolist()
+                    
+                    fig_q = px.bar(q_chart_df, x='Name', y='Total RVUs', color='Quarter', 
+                                   title="Quarterly Breakdown (Highest to Lowest)",
+                                   category_orders={"Name": total_per_prov},
+                                   color_discrete_sequence=px.colors.qualitative.Prism)
+                    st.plotly_chart(fig_q, use_container_width=True)
+
+                    # 2. Quarterly Table
                     piv_q = df_mds.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                    # Sort quarters chronologically
                     sorted_quarters = df_mds[['Month_Clean', 'Quarter']].drop_duplicates().sort_values('Month_Clean')['Quarter'].unique().tolist()
                     existing_q_cols = [q for q in sorted_quarters if q in piv_q.columns]
                     piv_q = piv_q[existing_q_cols]
-                    
                     piv_q["Total"] = piv_q.sum(axis=1)
                     st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples"))
 
@@ -336,13 +348,25 @@ if check_password():
                     piv["Total"] = piv.sum(axis=1)
                     st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Greens"))
 
-                    # QUARTERLY TABLE
+                    # QUARTERLY SECTION
+                    st.markdown("---")
                     st.markdown("#### 📆 APP Quarterly Data")
+                    
+                    # 1. Quarterly Chart (Stacked)
+                    q_chart_df = df_apps.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
+                    total_per_prov = q_chart_df.groupby('Name')['Total RVUs'].sum().sort_values(ascending=False).index.tolist()
+                    
+                    fig_q = px.bar(q_chart_df, x='Name', y='Total RVUs', color='Quarter', 
+                                   title="Quarterly Breakdown (Highest to Lowest)",
+                                   category_orders={"Name": total_per_prov},
+                                   color_discrete_sequence=px.colors.qualitative.Prism)
+                    st.plotly_chart(fig_q, use_container_width=True)
+
+                    # 2. Quarterly Table
                     piv_q = df_apps.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                     sorted_quarters = df_apps[['Month_Clean', 'Quarter']].drop_duplicates().sort_values('Month_Clean')['Quarter'].unique().tolist()
                     existing_q_cols = [q for q in sorted_quarters if q in piv_q.columns]
                     piv_q = piv_q[existing_q_cols]
-                    
                     piv_q["Total"] = piv_q.sum(axis=1)
                     st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
 
