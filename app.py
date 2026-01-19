@@ -41,6 +41,8 @@ if check_password():
         "TOPC": {"name": "TN Proton Center", "fte": 0.0}
     }
 
+    # KNOWN PROVIDERS (Used for specific FTEs)
+    # New providers will default to 1.0 FTE automatically
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
         "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedmen": 1.0,
@@ -62,6 +64,9 @@ if check_password():
     }
 
     TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
+    
+    # IGNORE THESE SHEETS IN AUTO-DETECT MODE
+    IGNORED_SHEETS = ["PRODUCTIVITY TREND", "RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS"]
 
     # --- HELPER: ROBUST MONTH FINDER ---
     def find_date_row(df):
@@ -85,6 +90,7 @@ if check_password():
             fte = config['fte']
         else:
             name = sheet_name 
+            # Use configured FTE, or default to 1.0 if new provider found
             fte = forced_fte if forced_fte else PROVIDER_CONFIG.get(sheet_name, 1.0)
         
         # Clean Column A
@@ -133,7 +139,6 @@ if check_password():
                     if "PRODUCTIVITY" in s_upper or "PROTON" in s_upper or "COVER" in s_upper:
                         continue
                     
-                    # Clean sheet name (remove extra spaces)
                     clean_name = sheet_name.strip()
                     res = parse_sheet(df, clean_name, 'provider')
                     if not res.empty:
@@ -156,18 +161,25 @@ if check_password():
                          })
                     clinic_data.append(pd.DataFrame(topc_records))
 
-            # 2. PHYSICIAN FILE - LOOK FOR "PHYSICIAN" IN UPPERCASE FILENAME
+            # 2. PHYSICIAN FILE - "AUTO DETECT" MODE
             elif "PHYSICIAN" in filename:
                 for sheet_name, df in xls.items():
                     clean_name = sheet_name.strip()
-                    if clean_name in PROVIDER_CONFIG:
-                        res = parse_sheet(df, clean_name, 'provider')
-                        if not res.empty: 
-                            provider_data.append(res)
-                        else:
-                            debug_log.append(f"Sheet '{clean_name}' matched config but returned no data.")
+                    s_upper = clean_name.upper()
+                    
+                    # Skip known summary sheets
+                    is_summary = any(x in s_upper for x in IGNORED_SHEETS)
+                    if is_summary:
+                         debug_log.append(f"Skipped summary sheet: {clean_name}")
+                         continue
+
+                    # Assume it is a provider!
+                    res = parse_sheet(df, clean_name, 'provider')
+                    if not res.empty: 
+                        provider_data.append(res)
+                        debug_log.append(f"Successfully loaded provider: {clean_name}")
                     else:
-                        debug_log.append(f"Sheet '{clean_name}' ignored (not in Provider Config).")
+                        debug_log.append(f"Sheet '{clean_name}' was processed as a provider but contained no data.")
 
             # 3. CLINIC/POS FILE
             elif "POS" in filename or "LROC" in filename or "TROC" in filename:
@@ -219,7 +231,6 @@ if check_password():
                         st.write(line)
                 else:
                     st.write("File matched category but no sheets contained valid data structure.")
-                    st.write("Check: 1) Are tabs named correctly? 2) Do rows 1-10 contain 'Jan', 'Feb', etc.?")
         else:
             tab_c, tab_p = st.tabs(["🏥 Clinic Analytics", "👨‍⚕️ Provider Analytics"])
 
@@ -289,7 +300,7 @@ if check_password():
                         st.markdown("#### 📅 Quarterly Table")
                         piv = sub.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
                         piv["Total"] = piv.sum(axis=1)
-                        # Requires matplotlib in requirements.txt
+                        # The .style call below requires matplotlib!
                         st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
     else:
         st.info("👋 Ready. Upload files containing 'Physicians', 'POS', 'PROTON', 'LROC', or 'TROC'.")
