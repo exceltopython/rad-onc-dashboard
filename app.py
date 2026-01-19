@@ -350,9 +350,9 @@ if check_password():
                         else:
                             df_view = df_clinic[df_clinic['ID'] == clinic_filter]
                             target_tag = clinic_filter
-                            if clinic_filter == "LROC": view_title = "LROC (LaVergne)"
+                            if clinic_filter == "LROC": view_title = "LROC (Lebanon)"
                             elif clinic_filter == "TOPC": view_title = "TN Proton Center"
-                            elif clinic_filter == "TROC": view_title = "TROC (Franklin)"
+                            elif clinic_filter == "TROC": view_title = "TROC (Tullahoma)"
 
                         if df_view.empty:
                             st.warning(f"No data available for {view_title}.")
@@ -367,14 +367,14 @@ if check_password():
                                 l12m_c = df_view[df_view['Month_Clean'] >= min_date].sort_values('Month_Clean')
                                 fig_trend = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
                                 fig_trend.update_layout(font=dict(size=14))
+                                # FORCE Y-AXIS TO START AT 0
+                                fig_trend.update_yaxes(rangemode="tozero")
                                 st.plotly_chart(fig_trend, use_container_width=True)
 
-                            # 2. PROVIDER BREAKDOWN PIE CHART (New!)
-                            # Only show if a specific clinic is selected (filtering raw data by tag)
+                            # 2. PROVIDER BREAKDOWN PIE CHART
                             if target_tag and not df_provider_raw.empty:
                                 clinic_prov_df = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
                                 if not clinic_prov_df.empty:
-                                    # Filter last 12 months
                                     min_pie_date = max_date - pd.DateOffset(months=11)
                                     pie_df = clinic_prov_df[clinic_prov_df['Month_Clean'] >= min_pie_date]
                                     pie_agg = pie_df.groupby('Name')[['Total RVUs']].sum().reset_index()
