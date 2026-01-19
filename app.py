@@ -44,7 +44,7 @@ if check_password():
     # KNOWN PROVIDERS
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
-        "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedman": 1.0, # Correct Spelling
+        "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedman": 1.0,
         "Gray": 1.0, "Jones": 1.0, "Lee": 1.0, "Lewis": 1.0,
         "Lipscomb": 0.6, "Lydon": 1.0, "Mayo": 1.0, "Mondschein": 1.0,
         "Nguyen": 1.0, "Osborne": 1.0, "Phillips": 1.0, "Sidrys": 1.0,
@@ -299,15 +299,24 @@ if check_password():
                     st.markdown("---")
                     st.markdown("#### 📆 MD Quarterly Data")
                     
-                    # 1. Quarterly Chart (Stacked)
+                    # 1. Latest Quarter Chart
                     q_chart_df = df_mds.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
-                    # Sort logic: Get Total per Provider to order the X-axis
-                    total_per_prov = q_chart_df.groupby('Name')['Total RVUs'].sum().sort_values(ascending=False).index.tolist()
                     
-                    fig_q = px.bar(q_chart_df, x='Name', y='Total RVUs', color='Quarter', 
-                                   title="Quarterly Breakdown (Highest to Lowest)",
+                    # Find Latest Quarter Logic
+                    latest_q_date = df_mds['Month_Clean'].max()
+                    latest_q_label = f"Q{latest_q_date.quarter} {latest_q_date.year}"
+                    
+                    # Filter for only the latest quarter
+                    latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
+                    
+                    # Sort for the chart
+                    total_per_prov = latest_q_data.groupby('Name')['Total RVUs'].sum().sort_values(ascending=False).index.tolist()
+                    
+                    fig_q = px.bar(latest_q_data, x='Name', y='Total RVUs',
+                                   title=f"Most Recent Quarter Leaders ({latest_q_label})",
                                    category_orders={"Name": total_per_prov},
-                                   color_discrete_sequence=px.colors.qualitative.Prism)
+                                   text_auto='.2s',
+                                   color_discrete_sequence=['#2E86C1']) # Professional Blue
                     st.plotly_chart(fig_q, use_container_width=True)
 
                     # 2. Quarterly Table
@@ -352,14 +361,20 @@ if check_password():
                     st.markdown("---")
                     st.markdown("#### 📆 APP Quarterly Data")
                     
-                    # 1. Quarterly Chart (Stacked)
+                    # 1. Latest Quarter Chart
                     q_chart_df = df_apps.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
-                    total_per_prov = q_chart_df.groupby('Name')['Total RVUs'].sum().sort_values(ascending=False).index.tolist()
                     
-                    fig_q = px.bar(q_chart_df, x='Name', y='Total RVUs', color='Quarter', 
-                                   title="Quarterly Breakdown (Highest to Lowest)",
+                    latest_q_date = df_apps['Month_Clean'].max()
+                    latest_q_label = f"Q{latest_q_date.quarter} {latest_q_date.year}"
+                    latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
+                    
+                    total_per_prov = latest_q_data.groupby('Name')['Total RVUs'].sum().sort_values(ascending=False).index.tolist()
+                    
+                    fig_q = px.bar(latest_q_data, x='Name', y='Total RVUs',
+                                   title=f"Most Recent Quarter Leaders ({latest_q_label})",
                                    category_orders={"Name": total_per_prov},
-                                   color_discrete_sequence=px.colors.qualitative.Prism)
+                                   text_auto='.2s',
+                                   color_discrete_sequence=['#27AE60']) # Professional Green
                     st.plotly_chart(fig_q, use_container_width=True)
 
                     # 2. Quarterly Table
