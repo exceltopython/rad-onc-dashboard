@@ -65,29 +65,16 @@ if check_password():
 
     # --- HELPER: ROBUST MONTH FINDER ---
     def find_date_row(df):
-        """
-        Scans first 10 rows for month abbreviations (JAN, FEB, etc).
-        Returns the row index that has the most matches.
-        """
         months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
         best_row = 0
         max_matches = 0
-        
-        # Scan first 10 rows
         for r in range(min(10, len(df))):
-            # Get row values as a single string
             row_str = str(df.iloc[r].values).upper()
-            # Count how many month names appear in this row
             matches = sum(1 for m in months if m in row_str)
-            
             if matches > max_matches:
                 max_matches = matches
                 best_row = r
-                
-        # Fallback: If no months found, assume row 2 (index 1) as per standard format
-        if max_matches == 0:
-            return 1 
-            
+        if max_matches == 0: return 1 
         return best_row
 
     # --- PARSING LOGIC ---
@@ -109,21 +96,13 @@ if check_password():
         data_rows = filtered_df.copy()
         
         records = []
-        
-        # DYNAMICALLY FIND HEADER ROW
         header_row_idx = find_date_row(df)
         
-        # Iterate columns starting at E (index 4)
         if len(df.columns) > 4:
             for col in df.columns[4:]:
-                # Grab the date header from the discovered row
                 header_val = df.iloc[header_row_idx, col]
-                
                 if pd.isna(header_val): continue
-                
-                # Convert sum to numeric
                 col_sum = pd.to_numeric(data_rows[col], errors='coerce').sum()
-                
                 records.append({
                     "Type": entity_type,
                     "ID": sheet_name,
@@ -140,23 +119,26 @@ if check_password():
         provider_data = []
 
         for file in files:
+            # CONVERT FILENAME TO UPPERCASE FOR MATCHING
             filename = file.name.upper()
             xls = pd.read_excel(file, sheet_name=None, header=None)
             
-            # --- ROUTING LOGIC ---
-            
-            # 1. PROTON FILE (Split logic: ignores summary, sums providers for clinic)
+            # 1. PROTON FILE
             if "PROTON" in filename or "TOPC" in filename:
                 proton_providers = []
                 for sheet_name, df in xls.items():
-                    if "PRODUCTIVITY" in sheet_name.upper() or "PROTON" in sheet_name.upper() or "COVER" in sheet_name.upper():
+                    # Check partial matches for summary tabs to skip them
+                    s_upper = sheet_name.upper()
+                    if "PRODUCTIVITY" in s_upper or "PROTON" in s_upper or "COVER" in s_upper:
                         continue
-                    res = parse_sheet(df, sheet_name, 'provider')
+                    
+                    # Clean sheet name (remove extra spaces)
+                    clean_name = sheet_name.strip()
+                    res = parse_sheet(df, clean_name, 'provider')
                     if not res.empty:
                         provider_data.append(res)
                         proton_providers.append(res)
                 
-                # Aggregate Proton Providers into one "Clinic" entry
                 if proton_providers:
                     combined_proton = pd.concat(proton_providers)
                     topc_grp = combined_proton.groupby('Month', as_index=False)[['Total RVUs', 'FTE']].sum()
@@ -173,27 +155,26 @@ if check_password():
                          })
                     clinic_data.append(pd.DataFrame(topc_records))
 
-            # 2. PHYSICIAN FILE
-            # Looks for "PHYSICIAN" or "PHYSICIANS" in the filename (which is now all UPPERCASE)
+            # 2. PHYSICIAN FILE - LOOK FOR "PHYSICIAN" IN UPPERCASE FILENAME
+            # This captures "Physicians", "PHYSICIAN", "physician", etc.
             elif "PHYSICIAN" in filename:
                 for sheet_name, df in xls.items():
-                    # Process every sheet as a provider if it matches our config OR isn't a summary sheet
-                    if sheet_name in PROVIDER_CONFIG:
-                        res = parse_sheet(df, sheet_name, 'provider')
+                    clean_name = sheet_name.strip()
+                    if clean_name in PROVIDER_CONFIG:
+                        res = parse_sheet(df, clean_name, 'provider')
                         if not res.empty: provider_data.append(res)
 
-            # 3. CLINIC/POS FILE (Explicitly labeled "POS" or specific clinic names)
+            # 3. CLINIC/POS FILE
             elif "POS" in filename or "LROC" in filename or "TROC" in filename:
                 for sheet_name, df in xls.items():
-                    # Check known clinics
-                    if sheet_name in CLINIC_CONFIG:
-                        res = parse_sheet(df, sheet_name, 'clinic')
+                    clean_name = sheet_name.strip()
+                    if clean_name in CLINIC_CONFIG:
+                        res = parse_sheet(df, clean_name, 'clinic')
                         if not res.empty: clinic_data.append(res)
-                    # Fallback for LROC/TROC if sheet name varies slightly
-                    elif "LROC" in filename and "LROC" in sheet_name.upper():
+                    elif "LROC" in filename and "LROC" in clean_name.upper():
                          res = parse_sheet(df, "LROC", 'clinic')
                          if not res.empty: clinic_data.append(res)
-                    elif "TROC" in filename and "TROC" in sheet_name.upper():
+                    elif "TROC" in filename and "TROC" in clean_name.upper():
                          res = parse_sheet(df, "TROC", 'clinic')
                          if not res.empty: clinic_data.append(res)
 
@@ -223,7 +204,8 @@ if check_password():
             df_clinic, df_provider = process_files(uploaded_files)
 
         if df_clinic.empty and df_provider.empty:
-            st.error("No valid data found. Please check that files contain 'Physicians', 'POS', 'PROTON', 'LROC', or 'TROC' in the filename.")
+            st.error("No valid data found. Please ensure your file names contain 'Physician', 'POS', 'Proton', 'LROC', or 'TROC'.")
+            st.write("Debug Hint: Filenames detected: " + ", ".join([f.name for f in uploaded_files]))
         else:
             tab_c, tab_p = st.tabs(["🏥 Clinic Analytics", "👨‍⚕️ Provider Analytics"])
 
@@ -293,7 +275,7 @@ if check_password():
                         st.markdown("#### 📅 Quarterly Table")
                         piv = sub.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
                         piv["Total"] = piv.sum(axis=1)
-                        # The .style call below requires matplotlib!
+                        # Requires matplotlib in requirements.txt
                         st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
     else:
         st.info("👋 Ready. Upload files containing 'Physicians', 'POS', 'PROTON', 'LROC', or 'TROC'.")
