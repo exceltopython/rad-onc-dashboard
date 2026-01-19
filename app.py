@@ -173,8 +173,9 @@ if check_password():
                          })
                     clinic_data.append(pd.DataFrame(topc_records))
 
-            # 2. PHYSICIAN FILE (Explicitly labeled "PHYSICIAN")
-            elif "Physicians" in filename:
+            # 2. PHYSICIAN FILE
+            # Looks for "PHYSICIAN" or "PHYSICIANS" in the filename (which is now all UPPERCASE)
+            elif "PHYSICIAN" in filename:
                 for sheet_name, df in xls.items():
                     # Process every sheet as a provider if it matches our config OR isn't a summary sheet
                     if sheet_name in PROVIDER_CONFIG:
@@ -182,7 +183,7 @@ if check_password():
                         if not res.empty: provider_data.append(res)
 
             # 3. CLINIC/POS FILE (Explicitly labeled "POS" or specific clinic names)
-            elif "RAD POS" in filename or "LROC" in filename or "TROC" in filename:
+            elif "POS" in filename or "LROC" in filename or "TROC" in filename:
                 for sheet_name, df in xls.items():
                     # Check known clinics
                     if sheet_name in CLINIC_CONFIG:
@@ -296,5 +297,3 @@ if check_password():
                         st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
     else:
         st.info("👋 Ready. Upload files containing 'Physicians', 'POS', 'PROTON', 'LROC', or 'TROC'.")
-
-
