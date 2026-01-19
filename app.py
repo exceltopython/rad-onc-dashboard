@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 # --- PASSWORD CONFIGURATION ---
-APP_PASSWORD = "RadOnc2026" 
+APP_PASSWORD = "RadOnc2026"
 
 def check_password():
     """Returns `True` if the user had the correct password."""
@@ -45,7 +45,6 @@ if check_password():
     }
 
     # 2. PROVIDER CONFIGURATION
-    # Default FTE is 1.0 if not listed here
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
         "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedmen": 1.0,
@@ -63,7 +62,7 @@ if check_password():
     PROVIDER_GROUPS = {
         "Photon Sites": ["Chen", "Cooper", "Friedmen", "Jones", "Lee", "Nguyen", "Osborne", "Phillips", "Sittig", "Strickler", "Wakefield", "Wendt"],
         "APPs": ["Burke", "Ellis", "Lewis", "Lydon"],
-        "Proton Center": ["Escott", "Gray", "Mondschein"] # Auto-detected from Proton file
+        "Proton Center": ["Escott", "Gray", "Mondschein"]
     }
 
     TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
@@ -71,16 +70,12 @@ if check_password():
     # --- PROCESSING LOGIC ---
 
     def parse_sheet(df, sheet_name, entity_type, forced_fte=None):
-        """
-        Parses a sheet for either a Clinic or a Provider.
-        """
         if entity_type == 'clinic':
             config = CLINIC_CONFIG.get(sheet_name, {"name": sheet_name, "fte": 1.0})
             name = config['name']
             fte = config['fte']
         else:
             name = sheet_name 
-            # Use configured FTE, or default to 1.0 if new provider found in Proton file
             fte = forced_fte if forced_fte else PROVIDER_CONFIG.get(sheet_name, 1.0)
         
         # Data Cleaning
@@ -92,7 +87,6 @@ if check_password():
         records = []
         for col in df.columns[4:]: # Columns starting at E
             header_val = df.iloc[1, col] # Date Row
-            
             if pd.isna(header_val): continue
             
             col_sum = pd.to_numeric(data_rows[col], errors='coerce').sum()
@@ -120,25 +114,21 @@ if check_password():
             if "PROTON" in filename or "TOPC" in filename:
                 proton_providers = []
                 for sheet_name, df in xls.items():
-                    # Skip the summary tabs to avoid double counting
                     if "PRODUCTIVITY" in sheet_name.upper() or "PROTON" in sheet_name.upper() or "COVER" in sheet_name.upper():
                         continue
                     
-                    # Process as Provider
                     res = parse_sheet(df, sheet_name, 'provider')
                     if not res.empty:
                         provider_data.append(res)
                         proton_providers.append(res)
                 
-                # Create "TOPC" Clinic Entry by summing these providers
                 if proton_providers:
                     combined_proton = pd.concat(proton_providers)
-                    # Group by Month to create a "Clinic" total
                     topc_clinic = combined_proton.groupby('Month').apply(lambda x: pd.Series({
                         "Type": "clinic",
                         "ID": "TOPC",
                         "Name": "TN Proton Center",
-                        "FTE": x['FTE'].sum(), # Sum of provider FTEs
+                        "FTE": x['FTE'].sum(),
                         "Total RVUs": x['Total RVUs'].sum(),
                         "RVU per FTE": x['Total RVUs'].sum() / x['FTE'].sum() if x['FTE'].sum() > 0 else 0
                     })).reset_index()
@@ -147,29 +137,22 @@ if check_password():
             # --- SCENARIO 2: STANDARD or LROC/TROC FILES ---
             else:
                 for sheet_name, df in xls.items():
-                    # Check for Clinic Match
-                    # We handle "LROC" and "TROC" here because they are in CLINIC_CONFIG
                     if sheet_name in CLINIC_CONFIG:
                         res = parse_sheet(df, sheet_name, 'clinic')
                         if not res.empty: clinic_data.append(res)
-                    
-                    # Check for Provider Match
                     elif sheet_name in PROVIDER_CONFIG:
                         res = parse_sheet(df, sheet_name, 'provider')
                         if not res.empty: provider_data.append(res)
-                    
-                    # Fallback: If filename is LROC/TROC but sheet name is slightly different (e.g. "LROC POS")
                     elif "LROC" in filename and "LROC" in sheet_name.upper():
-                         res = parse_sheet(df, "LROC", 'clinic') # Force ID to LROC
+                         res = parse_sheet(df, "LROC", 'clinic')
                          if not res.empty: clinic_data.append(res)
                     elif "TROC" in filename and "TROC" in sheet_name.upper():
-                         res = parse_sheet(df, "TROC", 'clinic') # Force ID to TROC
+                         res = parse_sheet(df, "TROC", 'clinic')
                          if not res.empty: clinic_data.append(res)
 
         df_clinic = pd.concat(clinic_data, ignore_index=True) if clinic_data else pd.DataFrame()
         df_provider = pd.concat(provider_data, ignore_index=True) if provider_data else pd.DataFrame()
 
-        # Date Cleaning
         for d in [df_clinic, df_provider]:
             if not d.empty:
                 d['Month_Clean'] = pd.to_datetime(d['Month'], errors='coerce')
@@ -184,7 +167,7 @@ if check_password():
 
     with st.sidebar:
         st.header("Data Import")
-        uploaded_files = st.file_uploader("Upload Excel Reports", type=['xlsx'], accept_multiple_files=True)
+        uploaded_files = st.file_uploader("Upload Excel Reports", type=['xlsx', 'xls'], accept_multiple_files=True)
         st.info("System recognizes PROTON, LROC, TROC, and Master files automatically.")
 
     if uploaded_files:
@@ -212,7 +195,6 @@ if check_password():
                 c1.metric("Division Total RVUs", f"{latest_c['Total RVUs'].sum():,.0f}", f"{latest_mo.strftime('%b %Y')}")
                 c2.metric("Market Avg RVU/FTE", f"{clinic_mkt[clinic_mkt['Month_Clean']==latest_mo]['Avg RVU/FTE'].values[0]:,.0f}")
                 
-                # Check if dataframe is empty before accessing idxmax
                 if not latest_c.empty:
                     top_clinic = latest_c.loc[latest_c['RVU per FTE'].idxmax()]
                     c3.metric("Top Clinic", top_clinic['Name'], f"{top_clinic['RVU per FTE']:,.0f} RVU/FTE")
@@ -233,7 +215,6 @@ if check_password():
             if df_provider.empty:
                 st.warning("No Provider data found.")
             else:
-                # Market Avg (Inclusion List)
                 df_included = df_provider[df_provider['ID'].isin(MARKET_AVG_INCLUSION)]
                 prov_mkt = df_included.groupby('Month_Clean').apply(lambda x: pd.Series({
                     'Market RVU': x['Total RVUs'].sum(),
@@ -242,7 +223,6 @@ if check_password():
                 })).reset_index()
                 df_provider = df_provider.merge(prov_mkt[['Month_Clean', 'Avg RVU/FTE']], on='Month_Clean', how='left')
 
-                # Scenario Planner
                 st.sidebar.markdown("### 🔮 Scenario Planner")
                 scenario_prov = st.sidebar.selectbox("Select Provider", df_provider['Name'].unique())
                 current_fte = PROVIDER_CONFIG.get(scenario_prov, 1.0)
