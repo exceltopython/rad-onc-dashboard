@@ -3,10 +3,11 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+import os
 
 # --- PASSWORD CONFIGURATION ---
-# Access the password from Streamlit Secrets
-APP_PASSWORD = st.secrets["db_password"]
+# To secure this properly, move to st.secrets later
+APP_PASSWORD = "RadOnc2026"
 
 def check_password():
     def password_entered():
@@ -42,7 +43,6 @@ if check_password():
         "TOPC": {"name": "TN Proton Center", "fte": 0.0}
     }
 
-    # KNOWN PROVIDERS
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
         "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedman": 1.0, 
@@ -57,26 +57,34 @@ if check_password():
         "Osborne", "Phillips", "Sittig", "Strickler", "Wakefield", "Wendt"
     ]
 
-    # DEFINING THE GROUPS
     APP_LIST = ["Burke", "Ellis", "Lewis", "Lydon"]
     
     TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
     
     IGNORED_SHEETS = ["PRODUCTIVITY TREND", "RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
+    
+    # FOLDER FOR PERMANENT FILES (Create a folder named 'reports' in GitHub and upload files there)
+    SERVER_DIR = "Reports"
 
+    # --- HELPER CLASSES ---
+    # Wrapper to make local files look like Streamlit UploadedFiles
+    class LocalFile:
+        def __init__(self, path):
+            self.path = path
+            self.name = os.path.basename(path).upper()
+        # Pandas read_excel handles paths natively, so we just pass the path
+        
     # --- HELPER: ROBUST MONTH FINDER ---
     def find_date_row(df):
         months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
         best_row = 1 
         max_score = 0
-        
         for r in range(min(10, len(df))):
             row_vals = df.iloc[r, 4:16]
             str_vals = [str(v).upper() for v in row_vals if pd.notna(v)]
             text_matches = sum(1 for v in str_vals if any(m in v for m in months))
             dt_matches = sum(1 for v in row_vals if isinstance(v, (datetime, pd.Timestamp)))
             total_score = text_matches + (dt_matches * 2) 
-            
             if total_score > max_score:
                 max_score = total_score
                 best_row = r
@@ -116,14 +124,21 @@ if check_password():
                 })
         return pd.DataFrame(records)
 
-    def process_files(files):
+    def process_files(file_objects):
         clinic_data = []
         provider_data = []
         debug_log = []
 
-        for file in files:
-            filename = file.name.upper()
-            xls = pd.read_excel(file, sheet_name=None, header=None)
+        for file_obj in file_objects:
+            # Determine if it's a local file wrapper or a streamlit upload
+            if isinstance(file_obj, LocalFile):
+                filename = file_obj.name
+                # Read local path
+                xls = pd.read_excel(file_obj.path, sheet_name=None, header=None)
+            else:
+                filename = file_obj.name.upper()
+                # Read byte stream
+                xls = pd.read_excel(file_obj, sheet_name=None, header=None)
             
             # 1. PROTON FILE
             if "PROTON" in filename or "TOPC" in filename:
@@ -167,8 +182,6 @@ if check_password():
                         clean_name = "Friedman"
                         s_upper = "FRIEDMAN"
 
-                    # --- STEP 1: CLINIC DETECTION ---
-                    # Check Config OR LROC/TROC filenames
                     is_lroc = "LROC" in filename and ("LROC" in s_upper or "POS" in s_upper)
                     is_troc = "TROC" in filename and ("TROC" in s_upper or "POS" in s_upper)
                     
@@ -176,22 +189,13 @@ if check_password():
                         clinic_id = clean_name
                         if is_lroc: clinic_id = "LROC"
                         if is_troc: clinic_id = "TROC"
-                        
                         res = parse_sheet(df, clinic_id, 'clinic')
                         if not res.empty: clinic_data.append(res)
                         continue
 
-                    # --- STEP 2: SUMMARY SHEET BLOCKER ---
-                    if any(ignored in s_upper for ignored in IGNORED_SHEETS):
-                        continue
+                    if any(ignored in s_upper for ignored in IGNORED_SHEETS): continue
+                    if clean_name.lower().endswith(" prov"): continue
 
-                    # --- STEP 3: "PROV" SHEET BLOCKER (New) ---
-                    # Explicitly ignore sheets ending in " prov" (e.g. "CENT prov")
-                    # unless they were already caught as LROC/TROC above.
-                    if clean_name.lower().endswith(" prov"):
-                        continue
-
-                    # --- STEP 4: PROVIDER DETECTION ---
                     res = parse_sheet(df, clean_name, 'provider')
                     if not res.empty:
                         provider_data.append(res)
@@ -209,12 +213,9 @@ if check_password():
             df_clinic.dropna(subset=['Month_Clean'], inplace=True)
             
             df_clinic = df_clinic.groupby(['Name', 'ID', 'Month_Clean'], as_index=False).agg({
-                'Total RVUs': 'sum',
-                'FTE': 'max',
-                'Month': 'first'
+                'Total RVUs': 'sum', 'FTE': 'max', 'Month': 'first'
             })
             df_clinic['RVU per FTE'] = df_clinic.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
-            
             df_clinic['Quarter'] = df_clinic['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
             df_clinic.sort_values('Month_Clean', inplace=True)
             df_clinic['Month_Label'] = df_clinic['Month_Clean'].dt.strftime('%b-%y')
@@ -227,14 +228,10 @@ if check_password():
             df_provider.dropna(subset=['Month_Clean'], inplace=True)
             
             df_provider = df_provider.groupby(['Name', 'ID', 'Month_Clean'], as_index=False).agg({
-                'Total RVUs': 'sum',
-                'FTE': 'max', 
-                'Month': 'first'
+                'Total RVUs': 'sum', 'FTE': 'max', 'Month': 'first'
             })
             df_provider['RVU per FTE'] = df_provider.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
-            
             df_provider['Quarter'] = df_provider['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
-            
             df_provider.sort_values('Month_Clean', inplace=True)
             df_provider['Month_Label'] = df_provider['Month_Clean'].dt.strftime('%b-%y')
 
@@ -244,21 +241,36 @@ if check_password():
     st.set_page_config(page_title="RadOnc Analytics", layout="wide", page_icon="🩺")
     st.title("🩺 Radiation Oncology Division Analytics")
 
+    # LOAD SERVER FILES (From GitHub 'reports' folder)
+    server_files = []
+    if os.path.exists(SERVER_DIR):
+        for f in os.listdir(SERVER_DIR):
+            if f.endswith(".xlsx") or f.endswith(".xls"):
+                server_files.append(LocalFile(os.path.join(SERVER_DIR, f)))
+
     with st.sidebar:
         st.header("Data Import")
-        uploaded_files = st.file_uploader("Upload Excel Reports", type=['xlsx', 'xls'], accept_multiple_files=True)
+        
+        # Show status of server files
+        if server_files:
+            st.success(f"✅ Loaded {len(server_files)} master files from server.")
+        else:
+            st.info("ℹ️ No master files found on server.")
 
-    if uploaded_files:
+        uploaded_files = st.file_uploader("Add Temporary Files (Session Only)", type=['xlsx', 'xls'], accept_multiple_files=True)
+    
+    # COMBINE FILES
+    all_files = server_files + (uploaded_files if uploaded_files else [])
+
+    if all_files:
         with st.spinner("Analyzing files..."):
-            df_clinic, df_provider, debug_log = process_files(uploaded_files)
+            df_clinic, df_provider, debug_log = process_files(all_files)
 
         if df_clinic.empty and df_provider.empty:
             st.error("No valid data found.")
             with st.expander("🕵️ Debugging Details"):
-                for line in debug_log:
-                    st.write(line)
+                for line in debug_log: st.write(line)
         else:
-            # --- SPLIT DATA INTO MDs AND APPs ---
             if not df_provider.empty:
                 df_apps = df_provider[df_provider['Name'].isin(APP_LIST)]
                 df_mds = df_provider[~df_provider['Name'].isin(APP_LIST)]
@@ -268,7 +280,7 @@ if check_password():
 
             tab_c, tab_md, tab_app = st.tabs(["🏥 Clinic Analytics", "👨‍⚕️ MD Analytics", "👩‍⚕️ APP Analytics"])
 
-            # 1. CLINICS
+            # --- 1. CLINICS ---
             with tab_c:
                 if df_clinic.empty:
                     st.info("No Clinic data found.")
@@ -280,7 +292,6 @@ if check_password():
                     
                     st.markdown("### 🏥 Clinic Performance")
                     
-                    # Trend Chart
                     st.markdown("#### 📅 Last 12 Months Trend (Total RVUs)")
                     min_date = max_date - pd.DateOffset(months=11)
                     l12m_c = df_clinic[df_clinic['Month_Clean'] >= min_date].sort_values('Month_Clean')
@@ -288,7 +299,6 @@ if check_password():
                     fig_trend.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_trend, use_container_width=True)
 
-                    # YTD Bar
                     st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({max_date.year})")
                     ytd_c = df_clinic[df_clinic['Month_Clean'].dt.year == max_date.year]
                     ytd_sum = ytd_c.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
@@ -296,7 +306,6 @@ if check_password():
                     fig_ytd.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_ytd, use_container_width=True)
 
-                    # MONTHLY TABLE
                     st.markdown("#### 🔢 Clinic Monthly Data")
                     piv = df_clinic.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
                     sorted_months = df_clinic[['Month_Clean', 'Month_Label']].drop_duplicates().sort_values('Month_Clean')['Month_Label'].tolist()
@@ -305,11 +314,9 @@ if check_password():
                     piv["Total"] = piv.sum(axis=1)
                     st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds"))
 
-                    # QUARTERLY SECTION
                     st.markdown("---")
                     st.markdown("#### 📆 Clinic Quarterly Data")
                     
-                    # 1. Latest Quarter Chart
                     q_chart_df = df_clinic.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
                     latest_q_label = f"Q{max_date.quarter} {max_date.year}"
                     latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
@@ -318,12 +325,10 @@ if check_password():
                     fig_q = px.bar(latest_q_data, x='Name', y='Total RVUs',
                                    title=f"Most Recent Quarter Leaders ({latest_q_label})",
                                    category_orders={"Name": total_per_clinic},
-                                   text_auto='.2s',
-                                   color_discrete_sequence=['#C0392B'])
+                                   text_auto='.2s', color_discrete_sequence=['#C0392B'])
                     fig_q.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_q, use_container_width=True)
 
-                    # 2. Quarterly Table
                     piv_q = df_clinic.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                     sorted_quarters = df_clinic[['Month_Clean', 'Quarter']].drop_duplicates().sort_values('Month_Clean')['Quarter'].unique().tolist()
                     existing_q_cols = [q for q in sorted_quarters if q in piv_q.columns]
@@ -331,13 +336,12 @@ if check_password():
                     piv_q["Total"] = piv_q.sum(axis=1)
                     st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
 
-            # 2. MD ANALYTICS
+            # --- 2. MD ANALYTICS ---
             with tab_md:
                 if df_mds.empty:
                     st.info("No MD data found.")
                 else:
                     st.markdown("### Physician Performance")
-                    
                     max_date = df_mds['Month_Clean'].max()
                     min_date = max_date - pd.DateOffset(months=11)
                     l12m_df = df_mds[df_mds['Month_Clean'] >= min_date].sort_values('Month_Clean')
@@ -354,7 +358,6 @@ if check_password():
                     fig_ytd.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_ytd, use_container_width=True)
 
-                    # MONTHLY TABLE
                     st.markdown("#### 🔢 MD Monthly Data")
                     piv = df_mds.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
                     sorted_months = df_mds[['Month_Clean', 'Month_Label']].drop_duplicates().sort_values('Month_Clean')['Month_Label'].tolist()
@@ -363,10 +366,8 @@ if check_password():
                     piv["Total"] = piv.sum(axis=1)
                     st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
 
-                    # QUARTERLY SECTION
                     st.markdown("---")
                     st.markdown("#### 📆 MD Quarterly Data")
-                    
                     q_chart_df = df_mds.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
                     latest_q_label = f"Q{max_date.quarter} {max_date.year}"
                     latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
@@ -375,8 +376,7 @@ if check_password():
                     fig_q = px.bar(latest_q_data, x='Name', y='Total RVUs',
                                    title=f"Most Recent Quarter Leaders ({latest_q_label})",
                                    category_orders={"Name": total_per_prov},
-                                   text_auto='.2s',
-                                   color_discrete_sequence=['#2E86C1'])
+                                   text_auto='.2s', color_discrete_sequence=['#2E86C1'])
                     fig_q.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_q, use_container_width=True)
 
@@ -387,13 +387,12 @@ if check_password():
                     piv_q["Total"] = piv_q.sum(axis=1)
                     st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples"))
 
-            # 3. APP ANALYTICS
+            # --- 3. APP ANALYTICS ---
             with tab_app:
                 if df_apps.empty:
                     st.info("No APP data found.")
                 else:
                     st.markdown("### APP Performance")
-                    
                     max_date = df_apps['Month_Clean'].max()
                     min_date = max_date - pd.DateOffset(months=11)
                     l12m_df = df_apps[df_apps['Month_Clean'] >= min_date].sort_values('Month_Clean')
@@ -410,7 +409,6 @@ if check_password():
                     fig_ytd.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_ytd, use_container_width=True)
 
-                    # MONTHLY TABLE
                     st.markdown("#### 🔢 APP Monthly Data")
                     piv = df_apps.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
                     sorted_months = df_apps[['Month_Clean', 'Month_Label']].drop_duplicates().sort_values('Month_Clean')['Month_Label'].tolist()
@@ -419,10 +417,8 @@ if check_password():
                     piv["Total"] = piv.sum(axis=1)
                     st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Greens"))
 
-                    # QUARTERLY SECTION
                     st.markdown("---")
                     st.markdown("#### 📆 APP Quarterly Data")
-                    
                     q_chart_df = df_apps.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
                     latest_q_label = f"Q{max_date.quarter} {max_date.year}"
                     latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
@@ -431,8 +427,7 @@ if check_password():
                     fig_q = px.bar(latest_q_data, x='Name', y='Total RVUs',
                                    title=f"Most Recent Quarter Leaders ({latest_q_label})",
                                    category_orders={"Name": total_per_prov},
-                                   text_auto='.2s',
-                                   color_discrete_sequence=['#27AE60'])
+                                   text_auto='.2s', color_discrete_sequence=['#27AE60'])
                     fig_q.update_layout(font=dict(size=14))
                     st.plotly_chart(fig_q, use_container_width=True)
 
@@ -442,7 +437,5 @@ if check_password():
                     piv_q = piv_q[existing_q_cols]
                     piv_q["Total"] = piv_q.sum(axis=1)
                     st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
-
     else:
-        st.info("👋 Ready. Upload files containing 'Physicians', 'POS', 'PROTON', 'LROC', or 'TROC'.")
-
+        st.info("👋 Ready. View Only Mode: Add files to 'reports' folder in GitHub to update data.")
