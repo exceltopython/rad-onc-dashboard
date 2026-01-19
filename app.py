@@ -124,15 +124,22 @@ if check_password():
                 
                 if proton_providers:
                     combined_proton = pd.concat(proton_providers)
-                    topc_clinic = combined_proton.groupby('Month').apply(lambda x: pd.Series({
-                        "Type": "clinic",
-                        "ID": "TOPC",
-                        "Name": "TN Proton Center",
-                        "FTE": x['FTE'].sum(),
-                        "Total RVUs": x['Total RVUs'].sum(),
-                        "RVU per FTE": x['Total RVUs'].sum() / x['FTE'].sum() if x['FTE'].sum() > 0 else 0
-                    })).reset_index()
-                    clinic_data.append(topc_clinic)
+                    # Sum provider data to create clinic total
+                    topc_grp = combined_proton.groupby('Month')[['Total RVUs', 'FTE']].sum().reset_index()
+                    
+                    # Reconstruct the clinic record format
+                    topc_records = []
+                    for idx, row in topc_grp.iterrows():
+                         topc_records.append({
+                            "Type": "clinic",
+                            "ID": "TOPC",
+                            "Name": "TN Proton Center",
+                            "FTE": row['FTE'],
+                            "Month": row['Month'],
+                            "Total RVUs": row['Total RVUs'],
+                            "RVU per FTE": row['Total RVUs'] / row['FTE'] if row['FTE'] > 0 else 0
+                         })
+                    clinic_data.append(pd.DataFrame(topc_records))
 
             # --- SCENARIO 2: STANDARD or LROC/TROC FILES ---
             else:
@@ -181,19 +188,22 @@ if check_password():
             if df_clinic.empty:
                 st.warning("No Clinic data found.")
             else:
-                clinic_mkt = df_clinic.groupby('Month_Clean').apply(lambda x: pd.Series({
-                    'Market RVU': x['Total RVUs'].sum(),
-                    'Market FTE': x['FTE'].sum(),
-                    'Avg RVU/FTE': x['Total RVUs'].sum() / x['FTE'].sum()
-                })).reset_index()
-                df_clinic = df_clinic.merge(clinic_mkt[['Month_Clean', 'Avg RVU/FTE']], on='Month_Clean', how='left')
+                # SAFE CALCULATION: Group by month, sum values, then calculate ratio
+                clinic_grp = df_clinic.groupby('Month_Clean')[['Total RVUs', 'FTE']].sum().reset_index()
+                clinic_grp['Avg RVU/FTE'] = clinic_grp['Total RVUs'] / clinic_grp['FTE']
+                
+                # Merge back
+                df_clinic = df_clinic.merge(clinic_grp[['Month_Clean', 'Avg RVU/FTE']], on='Month_Clean', how='left')
 
                 latest_mo = df_clinic['Month_Clean'].max()
                 latest_c = df_clinic[df_clinic['Month_Clean'] == latest_mo]
                 
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Division Total RVUs", f"{latest_c['Total RVUs'].sum():,.0f}", f"{latest_mo.strftime('%b %Y')}")
-                c2.metric("Market Avg RVU/FTE", f"{clinic_mkt[clinic_mkt['Month_Clean']==latest_mo]['Avg RVU/FTE'].values[0]:,.0f}")
+                
+                mkt_val = clinic_grp[clinic_grp['Month_Clean']==latest_mo]['Avg RVU/FTE'].values
+                if len(mkt_val) > 0:
+                    c2.metric("Market Avg RVU/FTE", f"{mkt_val[0]:,.0f}")
                 
                 if not latest_c.empty:
                     top_clinic = latest_c.loc[latest_c['RVU per FTE'].idxmax()]
@@ -207,7 +217,7 @@ if check_password():
                 st.markdown("#### 📈 Longitudinal Trends")
                 selected_clinics = st.multiselect("Select Clinics", df_clinic['Name'].unique(), default=df_clinic['Name'].unique())
                 fig_line = px.line(df_clinic[df_clinic['Name'].isin(selected_clinics)], x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
-                fig_line.add_trace(go.Scatter(x=clinic_mkt['Month_Clean'], y=clinic_mkt['Avg RVU/FTE'], name='Market Avg', line=dict(color='black', width=3, dash='dot')))
+                fig_line.add_trace(go.Scatter(x=clinic_grp['Month_Clean'], y=clinic_grp['Avg RVU/FTE'], name='Market Avg', line=dict(color='black', width=3, dash='dot')))
                 st.plotly_chart(fig_line, use_container_width=True)
 
         # === TAB 2: PROVIDERS ===
@@ -216,12 +226,12 @@ if check_password():
                 st.warning("No Provider data found.")
             else:
                 df_included = df_provider[df_provider['ID'].isin(MARKET_AVG_INCLUSION)]
-                prov_mkt = df_included.groupby('Month_Clean').apply(lambda x: pd.Series({
-                    'Market RVU': x['Total RVUs'].sum(),
-                    'Market FTE': x['FTE'].sum(),
-                    'Avg RVU/FTE': x['Total RVUs'].sum() / x['FTE'].sum()
-                })).reset_index()
-                df_provider = df_provider.merge(prov_mkt[['Month_Clean', 'Avg RVU/FTE']], on='Month_Clean', how='left')
+                
+                # SAFE CALCULATION for Providers
+                prov_grp = df_included.groupby('Month_Clean')[['Total RVUs', 'FTE']].sum().reset_index()
+                prov_grp['Avg RVU/FTE'] = prov_grp['Total RVUs'] / prov_grp['FTE']
+                
+                df_provider = df_provider.merge(prov_grp[['Month_Clean', 'Avg RVU/FTE']], on='Month_Clean', how='left')
 
                 st.sidebar.markdown("### 🔮 Scenario Planner")
                 scenario_prov = st.sidebar.selectbox("Select Provider", df_provider['Name'].unique())
@@ -244,9 +254,12 @@ if check_password():
                     latest_p_data = subset[subset['Month_Clean'] == latest_p_mo].sort_values("RVU per FTE", ascending=False)
                     
                     fig_bar = px.bar(latest_p_data, x='Name', y='RVU per FTE', color='RVU per FTE', title="RVU per FTE (Latest Month)", color_continuous_scale='Viridis')
-                    if not prov_mkt.empty and latest_p_mo in prov_mkt['Month_Clean'].values:
-                        mkt_val = prov_mkt[prov_mkt['Month_Clean'] == latest_p_mo]['Avg RVU/FTE'].values[0]
-                        fig_bar.add_hline(y=mkt_val, line_dash="dot", annotation_text="Market Avg", annotation_position="top right")
+                    
+                    # Add Market Line if data exists
+                    mkt_val_p = prov_grp[prov_grp['Month_Clean'] == latest_p_mo]['Avg RVU/FTE'].values
+                    if len(mkt_val_p) > 0:
+                         fig_bar.add_hline(y=mkt_val_p[0], line_dash="dot", annotation_text="Market Avg", annotation_position="top right")
+                    
                     st.plotly_chart(fig_bar, use_container_width=True)
 
                     st.markdown("#### 📅 Quarterly Performance")
