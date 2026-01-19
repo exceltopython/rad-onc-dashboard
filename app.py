@@ -41,10 +41,10 @@ if check_password():
         "TOPC": {"name": "TN Proton Center", "fte": 0.0}
     }
 
-    # KNOWN PROVIDERS (Used for specific FTEs)
+    # KNOWN PROVIDERS (Updated to "Friedman")
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
-        "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedmen": 1.0,
+        "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedman": 1.0, # Corrected Spelling
         "Gray": 1.0, "Jones": 1.0, "Lee": 1.0, "Lewis": 1.0,
         "Lipscomb": 0.6, "Lydon": 1.0, "Mayo": 1.0, "Mondschein": 1.0,
         "Nguyen": 1.0, "Osborne": 1.0, "Phillips": 1.0, "Sidrys": 1.0,
@@ -52,7 +52,7 @@ if check_password():
     }
 
     MARKET_AVG_INCLUSION = [
-        "Castle", "Chen", "Cooper", "Friedmen", "Jones", "Lee", "Nguyen", 
+        "Castle", "Chen", "Cooper", "Friedman", "Jones", "Lee", "Nguyen", 
         "Osborne", "Phillips", "Sittig", "Strickler", "Wakefield", "Wendt"
     ]
 
@@ -133,6 +133,10 @@ if check_password():
                         continue
                     
                     clean_name = sheet_name.strip()
+                    
+                    # --- AUTO-CORRECT MISSPELLING ---
+                    if clean_name.upper() == "FRIEDMEN": clean_name = "Friedman"
+                    
                     res = parse_sheet(df, clean_name, 'provider')
                     if not res.empty:
                         provider_data.append(res) 
@@ -159,6 +163,10 @@ if check_password():
                 for sheet_name, df in xls.items():
                     clean_name = sheet_name.strip()
                     s_upper = clean_name.upper()
+                    
+                    # --- AUTO-CORRECT MISSPELLING ---
+                    if clean_name.upper() == "FRIEDMEN": clean_name = "Friedman"
+                    s_upper = clean_name.upper() # Update uppercase check too
                     
                     if clean_name in CLINIC_CONFIG or ("LROC" in s_upper and "LROC" in filename) or ("TROC" in s_upper and "TROC" in filename):
                         res = parse_sheet(df, clean_name, 'clinic')
