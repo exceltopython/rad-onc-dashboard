@@ -6,7 +6,6 @@ from datetime import datetime
 import os
 
 # --- PASSWORD CONFIGURATION ---
-# To secure this properly, move to st.secrets later
 APP_PASSWORD = "RadOnc2026"
 
 def check_password():
@@ -52,27 +51,19 @@ if check_password():
         "Sittig": 1.0, "Strickler": 1.0, "Wakefield": 1.0, "Wendt": 1.0, "Whitaker": 1.0
     }
 
-    MARKET_AVG_INCLUSION = [
-        "Castle", "Chen", "Cooper", "Friedman", "Jones", "Lee", "Nguyen", 
-        "Osborne", "Phillips", "Sittig", "Strickler", "Wakefield", "Wendt"
-    ]
-
     APP_LIST = ["Burke", "Ellis", "Lewis", "Lydon"]
     
     TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
     
     IGNORED_SHEETS = ["PRODUCTIVITY TREND", "RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
     
-    # FOLDER FOR PERMANENT FILES (Create a folder named 'reports' in GitHub and upload files there)
     SERVER_DIR = "Reports"
 
     # --- HELPER CLASSES ---
-    # Wrapper to make local files look like Streamlit UploadedFiles
     class LocalFile:
         def __init__(self, path):
             self.path = path
             self.name = os.path.basename(path).upper()
-        # Pandas read_excel handles paths natively, so we just pass the path
         
     # --- HELPER: ROBUST MONTH FINDER ---
     def find_date_row(df):
@@ -89,6 +80,40 @@ if check_password():
                 max_score = total_score
                 best_row = r
         return best_row
+
+    # --- HELPER: INSIGHT GENERATOR ---
+    def generate_narrative(df, entity_type="Provider"):
+        if df.empty: return "No data available."
+        
+        latest_date = df['Month_Clean'].max()
+        latest_df = df[df['Month_Clean'] == latest_date]
+        total_vol = latest_df['Total RVUs'].sum()
+        avg_vol = latest_df['RVU per FTE'].mean()
+        
+        # Safe check for empty latest data
+        if latest_df.empty: return "Data processed but current month is empty."
+        
+        top_perf = latest_df.loc[latest_df['RVU per FTE'].idxmax()]
+        
+        prev_date = latest_date - pd.DateOffset(months=1)
+        prev_df = df[df['Month_Clean'] == prev_date]
+        
+        trend_text = ""
+        if not prev_df.empty:
+            prev_total = prev_df['Total RVUs'].sum()
+            growth = ((total_vol - prev_total) / prev_total) * 100 if prev_total > 0 else 0
+            direction = "increased" if growth > 0 else "decreased"
+            trend_text = f"Total volume **{direction} by {abs(growth):.1f}%** compared to last month."
+        
+        narrative = f"""
+        **🤖 Automated Analysis ({latest_date.strftime('%B %Y')}):**
+        
+        The {entity_type} group generated a total of **{total_vol:,.0f} wRVUs** this month. {trend_text}
+        
+        * **🏆 Top Performer:** **{top_perf['Name']}** led with **{top_perf['RVU per FTE']:,.0f} wRVUs/FTE**.
+        * **📊 Group Average:** The average productivity was **{avg_vol:,.0f} wRVUs/FTE**.
+        """
+        return narrative
 
     # --- PARSING LOGIC ---
     def parse_sheet(df, sheet_name, entity_type, forced_fte=None):
@@ -130,14 +155,11 @@ if check_password():
         debug_log = []
 
         for file_obj in file_objects:
-            # Determine if it's a local file wrapper or a streamlit upload
             if isinstance(file_obj, LocalFile):
                 filename = file_obj.name
-                # Read local path
                 xls = pd.read_excel(file_obj.path, sheet_name=None, header=None)
             else:
                 filename = file_obj.name.upper()
-                # Read byte stream
                 xls = pd.read_excel(file_obj, sheet_name=None, header=None)
             
             # 1. PROTON FILE
@@ -239,9 +261,13 @@ if check_password():
 
     # --- UI ---
     st.set_page_config(page_title="RadOnc Analytics", layout="wide", page_icon="🩺")
+    
+    # 1. UPDATED TITLE WITH SUBTITLE
     st.title("🩺 Radiation Oncology Division Analytics")
+    st.markdown("##### by Dr. Jones")
+    st.markdown("---")
 
-    # LOAD SERVER FILES (From GitHub 'reports' folder)
+    # LOAD SERVER FILES
     server_files = []
     if os.path.exists(SERVER_DIR):
         for f in os.listdir(SERVER_DIR):
@@ -250,8 +276,6 @@ if check_password():
 
     with st.sidebar:
         st.header("Data Import")
-        
-        # Show status of server files
         if server_files:
             st.success(f"✅ Loaded {len(server_files)} master files from server.")
         else:
@@ -259,7 +283,6 @@ if check_password():
 
         uploaded_files = st.file_uploader("Add Temporary Files (Session Only)", type=['xlsx', 'xls'], accept_multiple_files=True)
     
-    # COMBINE FILES
     all_files = server_files + (uploaded_files if uploaded_files else [])
 
     if all_files:
@@ -268,8 +291,6 @@ if check_password():
 
         if df_clinic.empty and df_provider.empty:
             st.error("No valid data found.")
-            with st.expander("🕵️ Debugging Details"):
-                for line in debug_log: st.write(line)
         else:
             if not df_provider.empty:
                 df_apps = df_provider[df_provider['Name'].isin(APP_LIST)]
@@ -280,162 +301,195 @@ if check_password():
 
             tab_c, tab_md, tab_app = st.tabs(["🏥 Clinic Analytics", "👨‍⚕️ MD Analytics", "👩‍⚕️ APP Analytics"])
 
-            # --- 1. CLINICS ---
+            # --- 1. CLINICS (With Left Tabs) ---
             with tab_c:
                 if df_clinic.empty:
                     st.info("No Clinic data found.")
                 else:
-                    max_date = df_clinic['Month_Clean'].max()
-                    c1, c2 = st.columns(2)
-                    latest_val = df_clinic[df_clinic['Month_Clean'] == max_date]['Total RVUs'].sum()
-                    c1.metric("Total Division Volume", f"{latest_val:,.0f}", f"{max_date.strftime('%b %Y')}")
+                    # Create Layout: Left Nav (col_nav) and Main Content (col_main)
+                    col_nav, col_main = st.columns([1, 5])
                     
-                    st.markdown("### 🏥 Clinic Performance")
-                    
-                    st.markdown("#### 📅 Last 12 Months Trend (Total RVUs)")
-                    min_date = max_date - pd.DateOffset(months=11)
-                    l12m_c = df_clinic[df_clinic['Month_Clean'] >= min_date].sort_values('Month_Clean')
-                    fig_trend = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
-                    fig_trend.update_layout(font=dict(size=14))
-                    st.plotly_chart(fig_trend, use_container_width=True)
+                    with col_nav:
+                        st.markdown("### 🔍 Filter")
+                        # The "Tab on the Left" simulation
+                        clinic_filter = st.radio(
+                            "Select View:",
+                            ["All", "LROC", "TOPC", "TROC"],
+                            key="clinic_radio"
+                        )
 
-                    st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({max_date.year})")
-                    ytd_c = df_clinic[df_clinic['Month_Clean'].dt.year == max_date.year]
-                    ytd_sum = ytd_c.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
-                    fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Magma', text_auto='.2s')
-                    fig_ytd.update_layout(font=dict(size=14))
-                    st.plotly_chart(fig_ytd, use_container_width=True)
+                    with col_main:
+                        # APPLY FILTER LOGIC
+                        if clinic_filter == "All":
+                            df_view = df_clinic.copy()
+                            view_title = "All Clinics"
+                        elif clinic_filter == "LROC":
+                            df_view = df_clinic[df_clinic['ID'] == 'LROC']
+                            view_title = "LROC (LaVergne)"
+                        elif clinic_filter == "TOPC":
+                            df_view = df_clinic[df_clinic['ID'] == 'TOPC']
+                            view_title = "TN Proton Center"
+                        elif clinic_filter == "TROC":
+                            df_view = df_clinic[df_clinic['ID'] == 'TROC']
+                            view_title = "TROC (Franklin)"
 
-                    st.markdown("#### 🔢 Clinic Monthly Data")
-                    piv = df_clinic.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                    sorted_months = df_clinic[['Month_Clean', 'Month_Label']].drop_duplicates().sort_values('Month_Clean')['Month_Label'].tolist()
-                    existing_cols = [m for m in sorted_months if m in piv.columns]
-                    piv = piv[existing_cols]
-                    piv["Total"] = piv.sum(axis=1)
-                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds"))
+                        if df_view.empty:
+                            st.warning(f"No data available for {view_title}.")
+                        else:
+                            max_date = df_view['Month_Clean'].max()
+                            
+                            # NARRATIVE
+                            st.info(generate_narrative(df_view, f"{view_title} Clinic"))
+                            
+                            # 1. TRENDS
+                            with st.container(border=True):
+                                st.markdown(f"#### 📅 {view_title}: 12-Month Trend")
+                                min_date = max_date - pd.DateOffset(months=11)
+                                l12m_c = df_view[df_view['Month_Clean'] >= min_date].sort_values('Month_Clean')
+                                fig_trend = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
+                                fig_trend.update_layout(font=dict(size=14))
+                                st.plotly_chart(fig_trend, use_container_width=True)
 
-                    st.markdown("---")
-                    st.markdown("#### 📆 Clinic Quarterly Data")
-                    
-                    q_chart_df = df_clinic.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
-                    latest_q_label = f"Q{max_date.quarter} {max_date.year}"
-                    latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
-                    total_per_clinic = latest_q_data.groupby('Name')['Total RVUs'].sum().sort_values(ascending=False).index.tolist()
-                    
-                    fig_q = px.bar(latest_q_data, x='Name', y='Total RVUs',
-                                   title=f"Most Recent Quarter Leaders ({latest_q_label})",
-                                   category_orders={"Name": total_per_clinic},
-                                   text_auto='.2s', color_discrete_sequence=['#C0392B'])
-                    fig_q.update_layout(font=dict(size=14))
-                    st.plotly_chart(fig_q, use_container_width=True)
+                            # 2. YTD
+                            with st.container(border=True):
+                                st.markdown(f"#### 🏆 {view_title}: YTD Total ({max_date.year})")
+                                ytd_c = df_view[df_view['Month_Clean'].dt.year == max_date.year]
+                                # If filtered to 1 clinic, groupby might return 1 bar, which is fine
+                                ytd_sum = ytd_c.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
+                                fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Magma', text_auto='.2s')
+                                fig_ytd.update_layout(font=dict(size=14))
+                                st.plotly_chart(fig_ytd, use_container_width=True)
 
-                    piv_q = df_clinic.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                    sorted_quarters = df_clinic[['Month_Clean', 'Quarter']].drop_duplicates().sort_values('Month_Clean')['Quarter'].unique().tolist()
-                    existing_q_cols = [q for q in sorted_quarters if q in piv_q.columns]
-                    piv_q = piv_q[existing_q_cols]
-                    piv_q["Total"] = piv_q.sum(axis=1)
-                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
+                            # 3. QUARTERLY
+                            with st.container(border=True):
+                                q_chart_df = df_view.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
+                                latest_q_label = f"Q{max_date.quarter} {max_date.year}"
+                                latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
+                                total_per_clinic = latest_q_data.groupby('Name')['Total RVUs'].sum().sort_values(ascending=False).index.tolist()
+                                
+                                fig_q = px.bar(latest_q_data, x='Name', y='Total RVUs',
+                                            title=f"Most Recent Quarter ({latest_q_label})",
+                                            category_orders={"Name": total_per_clinic},
+                                            text_auto='.2s', color_discrete_sequence=['#C0392B'])
+                                fig_q.update_layout(font=dict(size=14))
+                                st.plotly_chart(fig_q, use_container_width=True)
+
+                            # 4. TABLES
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                with st.container(border=True):
+                                    st.markdown("#### 🔢 Monthly Data")
+                                    piv = df_view.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                                    piv["Total"] = piv.sum(axis=1)
+                                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds"))
+                            
+                            with c2:
+                                with st.container(border=True):
+                                    st.markdown("#### 📆 Quarterly Data")
+                                    piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                                    piv_q["Total"] = piv_q.sum(axis=1)
+                                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
 
             # --- 2. MD ANALYTICS ---
             with tab_md:
                 if df_mds.empty:
                     st.info("No MD data found.")
                 else:
-                    st.markdown("### Physician Performance")
                     max_date = df_mds['Month_Clean'].max()
-                    min_date = max_date - pd.DateOffset(months=11)
-                    l12m_df = df_mds[df_mds['Month_Clean'] >= min_date].sort_values('Month_Clean')
                     
-                    st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
-                    fig_trend = px.line(l12m_df, x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
-                    fig_trend.update_layout(font=dict(size=14))
-                    st.plotly_chart(fig_trend, use_container_width=True)
+                    st.info(generate_narrative(df_mds, "Physician"))
 
-                    st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({max_date.year})")
-                    ytd_df = df_mds[df_mds['Month_Clean'].dt.year == max_date.year]
-                    ytd_sum = ytd_df.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
-                    fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
-                    fig_ytd.update_layout(font=dict(size=14))
-                    st.plotly_chart(fig_ytd, use_container_width=True)
+                    with st.container(border=True):
+                        st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
+                        min_date = max_date - pd.DateOffset(months=11)
+                        l12m_df = df_mds[df_mds['Month_Clean'] >= min_date].sort_values('Month_Clean')
+                        fig_trend = px.line(l12m_df, x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
+                        fig_trend.update_layout(font=dict(size=14))
+                        st.plotly_chart(fig_trend, use_container_width=True)
 
-                    st.markdown("#### 🔢 MD Monthly Data")
-                    piv = df_mds.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                    sorted_months = df_mds[['Month_Clean', 'Month_Label']].drop_duplicates().sort_values('Month_Clean')['Month_Label'].tolist()
-                    existing_cols = [m for m in sorted_months if m in piv.columns]
-                    piv = piv[existing_cols]
-                    piv["Total"] = piv.sum(axis=1)
-                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
+                    with st.container(border=True):
+                        st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({max_date.year})")
+                        ytd_df = df_mds[df_mds['Month_Clean'].dt.year == max_date.year]
+                        ytd_sum = ytd_df.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
+                        fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
+                        fig_ytd.update_layout(font=dict(size=14))
+                        st.plotly_chart(fig_ytd, use_container_width=True)
 
-                    st.markdown("---")
-                    st.markdown("#### 📆 MD Quarterly Data")
-                    q_chart_df = df_mds.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
-                    latest_q_label = f"Q{max_date.quarter} {max_date.year}"
-                    latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
-                    total_per_prov = latest_q_data.groupby('Name')['Total RVUs'].sum().sort_values(ascending=False).index.tolist()
-                    
-                    fig_q = px.bar(latest_q_data, x='Name', y='Total RVUs',
-                                   title=f"Most Recent Quarter Leaders ({latest_q_label})",
-                                   category_orders={"Name": total_per_prov},
-                                   text_auto='.2s', color_discrete_sequence=['#2E86C1'])
-                    fig_q.update_layout(font=dict(size=14))
-                    st.plotly_chart(fig_q, use_container_width=True)
+                    with st.container(border=True):
+                        q_chart_df = df_mds.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
+                        latest_q_label = f"Q{max_date.quarter} {max_date.year}"
+                        latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
+                        total_per_prov = latest_q_data.groupby('Name')['Total RVUs'].sum().sort_values(ascending=False).index.tolist()
+                        fig_q = px.bar(latest_q_data, x='Name', y='Total RVUs',
+                                    title=f"Most Recent Quarter Leaders ({latest_q_label})",
+                                    category_orders={"Name": total_per_prov},
+                                    text_auto='.2s', color_discrete_sequence=['#2E86C1'])
+                        fig_q.update_layout(font=dict(size=14))
+                        st.plotly_chart(fig_q, use_container_width=True)
 
-                    piv_q = df_mds.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                    sorted_quarters = df_mds[['Month_Clean', 'Quarter']].drop_duplicates().sort_values('Month_Clean')['Quarter'].unique().tolist()
-                    existing_q_cols = [q for q in sorted_quarters if q in piv_q.columns]
-                    piv_q = piv_q[existing_q_cols]
-                    piv_q["Total"] = piv_q.sum(axis=1)
-                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples"))
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        with st.container(border=True):
+                            st.markdown("#### 🔢 Monthly Data")
+                            piv = df_mds.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                            piv["Total"] = piv.sum(axis=1)
+                            st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
+                    with c2:
+                        with st.container(border=True):
+                            st.markdown("#### 📆 Quarterly Data")
+                            piv_q = df_mds.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                            piv_q["Total"] = piv_q.sum(axis=1)
+                            st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples"))
 
             # --- 3. APP ANALYTICS ---
             with tab_app:
                 if df_apps.empty:
                     st.info("No APP data found.")
                 else:
-                    st.markdown("### APP Performance")
                     max_date = df_apps['Month_Clean'].max()
-                    min_date = max_date - pd.DateOffset(months=11)
-                    l12m_df = df_apps[df_apps['Month_Clean'] >= min_date].sort_values('Month_Clean')
                     
-                    st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
-                    fig_trend = px.line(l12m_df, x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
-                    fig_trend.update_layout(font=dict(size=14))
-                    st.plotly_chart(fig_trend, use_container_width=True)
+                    st.info(generate_narrative(df_apps, "APP"))
 
-                    st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({max_date.year})")
-                    ytd_df = df_apps[df_apps['Month_Clean'].dt.year == max_date.year]
-                    ytd_sum = ytd_df.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
-                    fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Teal', text_auto='.2s')
-                    fig_ytd.update_layout(font=dict(size=14))
-                    st.plotly_chart(fig_ytd, use_container_width=True)
+                    with st.container(border=True):
+                        st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
+                        min_date = max_date - pd.DateOffset(months=11)
+                        l12m_df = df_apps[df_apps['Month_Clean'] >= min_date].sort_values('Month_Clean')
+                        fig_trend = px.line(l12m_df, x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
+                        fig_trend.update_layout(font=dict(size=14))
+                        st.plotly_chart(fig_trend, use_container_width=True)
 
-                    st.markdown("#### 🔢 APP Monthly Data")
-                    piv = df_apps.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                    sorted_months = df_apps[['Month_Clean', 'Month_Label']].drop_duplicates().sort_values('Month_Clean')['Month_Label'].tolist()
-                    existing_cols = [m for m in sorted_months if m in piv.columns]
-                    piv = piv[existing_cols]
-                    piv["Total"] = piv.sum(axis=1)
-                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Greens"))
+                    with st.container(border=True):
+                        st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({max_date.year})")
+                        ytd_df = df_apps[df_apps['Month_Clean'].dt.year == max_date.year]
+                        ytd_sum = ytd_df.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
+                        fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Teal', text_auto='.2s')
+                        fig_ytd.update_layout(font=dict(size=14))
+                        st.plotly_chart(fig_ytd, use_container_width=True)
 
-                    st.markdown("---")
-                    st.markdown("#### 📆 APP Quarterly Data")
-                    q_chart_df = df_apps.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
-                    latest_q_label = f"Q{max_date.quarter} {max_date.year}"
-                    latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
-                    total_per_prov = latest_q_data.groupby('Name')['Total RVUs'].sum().sort_values(ascending=False).index.tolist()
-                    
-                    fig_q = px.bar(latest_q_data, x='Name', y='Total RVUs',
-                                   title=f"Most Recent Quarter Leaders ({latest_q_label})",
-                                   category_orders={"Name": total_per_prov},
-                                   text_auto='.2s', color_discrete_sequence=['#27AE60'])
-                    fig_q.update_layout(font=dict(size=14))
-                    st.plotly_chart(fig_q, use_container_width=True)
+                    with st.container(border=True):
+                        q_chart_df = df_apps.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
+                        latest_q_label = f"Q{max_date.quarter} {max_date.year}"
+                        latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
+                        total_per_prov = latest_q_data.groupby('Name')['Total RVUs'].sum().sort_values(ascending=False).index.tolist()
+                        fig_q = px.bar(latest_q_data, x='Name', y='Total RVUs',
+                                    title=f"Most Recent Quarter Leaders ({latest_q_label})",
+                                    category_orders={"Name": total_per_prov},
+                                    text_auto='.2s', color_discrete_sequence=['#27AE60'])
+                        fig_q.update_layout(font=dict(size=14))
+                        st.plotly_chart(fig_q, use_container_width=True)
 
-                    piv_q = df_apps.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                    sorted_quarters = df_apps[['Month_Clean', 'Quarter']].drop_duplicates().sort_values('Month_Clean')['Quarter'].unique().tolist()
-                    existing_q_cols = [q for q in sorted_quarters if q in piv_q.columns]
-                    piv_q = piv_q[existing_q_cols]
-                    piv_q["Total"] = piv_q.sum(axis=1)
-                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        with st.container(border=True):
+                            st.markdown("#### 🔢 Monthly Data")
+                            piv = df_apps.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                            piv["Total"] = piv.sum(axis=1)
+                            st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Greens"))
+                    with c2:
+                        with st.container(border=True):
+                            st.markdown("#### 📆 Quarterly Data")
+                            piv_q = df_apps.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                            piv_q["Total"] = piv_q.sum(axis=1)
+                            st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
     else:
         st.info("👋 Ready. View Only Mode: Add files to 'reports' folder in GitHub to update data.")
