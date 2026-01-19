@@ -59,9 +59,6 @@ if check_password():
     # DEFINING THE GROUPS
     APP_LIST = ["Burke", "Ellis", "Lewis", "Lydon"]
     
-    # MDs are everyone else in the config who isn't an APP
-    MD_LIST = [p for p in PROVIDER_CONFIG.keys() if p not in APP_LIST]
-
     TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
     
     IGNORED_SHEETS = ["PRODUCTIVITY TREND", "RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
@@ -203,6 +200,10 @@ if check_password():
                 'Month': 'first'
             })
             df_provider['RVU per FTE'] = df_provider.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
+            
+            # ADD QUARTER COLUMN
+            df_provider['Quarter'] = df_provider['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
+            
             df_provider.sort_values('Month_Clean', inplace=True)
             df_provider['Month_Label'] = df_provider['Month_Clean'].dt.strftime('%b-%y')
 
@@ -229,7 +230,6 @@ if check_password():
             # --- SPLIT DATA INTO MDs AND APPs ---
             if not df_provider.empty:
                 df_apps = df_provider[df_provider['Name'].isin(APP_LIST)]
-                # MDs are everyone NOT in the APP list
                 df_mds = df_provider[~df_provider['Name'].isin(APP_LIST)]
             else:
                 df_apps = pd.DataFrame()
@@ -264,7 +264,6 @@ if check_password():
                 else:
                     st.markdown("### Physician Performance")
                     
-                    # Trend Chart
                     max_date = df_mds['Month_Clean'].max()
                     min_date = max_date - pd.DateOffset(months=11)
                     l12m_df = df_mds[df_mds['Month_Clean'] >= min_date].sort_values('Month_Clean')
@@ -273,21 +272,31 @@ if check_password():
                     fig_trend = px.line(l12m_df, x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
                     st.plotly_chart(fig_trend, use_container_width=True)
 
-                    # YTD Bar
                     st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({max_date.year})")
                     ytd_df = df_mds[df_mds['Month_Clean'].dt.year == max_date.year]
                     ytd_sum = ytd_df.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
                     fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
                     st.plotly_chart(fig_ytd, use_container_width=True)
 
-                    # Data Table
-                    st.markdown("#### 🔢 MD Quarterly Data")
+                    # MONTHLY TABLE
+                    st.markdown("#### 🔢 MD Monthly Data")
                     piv = df_mds.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
                     sorted_months = df_mds[['Month_Clean', 'Month_Label']].drop_duplicates().sort_values('Month_Clean')['Month_Label'].tolist()
                     existing_cols = [m for m in sorted_months if m in piv.columns]
                     piv = piv[existing_cols]
                     piv["Total"] = piv.sum(axis=1)
                     st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
+
+                    # QUARTERLY TABLE
+                    st.markdown("#### 📆 MD Quarterly Data")
+                    piv_q = df_mds.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                    # Sort quarters chronologically
+                    sorted_quarters = df_mds[['Month_Clean', 'Quarter']].drop_duplicates().sort_values('Month_Clean')['Quarter'].unique().tolist()
+                    existing_q_cols = [q for q in sorted_quarters if q in piv_q.columns]
+                    piv_q = piv_q[existing_q_cols]
+                    
+                    piv_q["Total"] = piv_q.sum(axis=1)
+                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples"))
 
             # 3. APP ANALYTICS
             with tab_app:
@@ -296,7 +305,6 @@ if check_password():
                 else:
                     st.markdown("### APP Performance")
                     
-                    # Trend Chart
                     max_date = df_apps['Month_Clean'].max()
                     min_date = max_date - pd.DateOffset(months=11)
                     l12m_df = df_apps[df_apps['Month_Clean'] >= min_date].sort_values('Month_Clean')
@@ -305,21 +313,30 @@ if check_password():
                     fig_trend = px.line(l12m_df, x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
                     st.plotly_chart(fig_trend, use_container_width=True)
 
-                    # YTD Bar
                     st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({max_date.year})")
                     ytd_df = df_apps[df_apps['Month_Clean'].dt.year == max_date.year]
                     ytd_sum = ytd_df.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
                     fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Teal', text_auto='.2s')
                     st.plotly_chart(fig_ytd, use_container_width=True)
 
-                    # Data Table
-                    st.markdown("#### 🔢 APP Quarterly Data")
+                    # MONTHLY TABLE
+                    st.markdown("#### 🔢 APP Monthly Data")
                     piv = df_apps.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
                     sorted_months = df_apps[['Month_Clean', 'Month_Label']].drop_duplicates().sort_values('Month_Clean')['Month_Label'].tolist()
                     existing_cols = [m for m in sorted_months if m in piv.columns]
                     piv = piv[existing_cols]
                     piv["Total"] = piv.sum(axis=1)
                     st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Greens"))
+
+                    # QUARTERLY TABLE
+                    st.markdown("#### 📆 APP Quarterly Data")
+                    piv_q = df_apps.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                    sorted_quarters = df_apps[['Month_Clean', 'Quarter']].drop_duplicates().sort_values('Month_Clean')['Quarter'].unique().tolist()
+                    existing_q_cols = [q for q in sorted_quarters if q in piv_q.columns]
+                    piv_q = piv_q[existing_q_cols]
+                    
+                    piv_q["Total"] = piv_q.sum(axis=1)
+                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
 
     else:
         st.info("👋 Ready. Upload files containing 'Physicians', 'POS', 'PROTON', 'LROC', or 'TROC'.")
