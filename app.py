@@ -5,7 +5,8 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 # --- PASSWORD CONFIGURATION ---
-APP_PASSWORD = "RadOnc2026"
+# Access the password from Streamlit Secrets
+APP_PASSWORD = st.secrets["db_password"]
 
 def check_password():
     def password_entered():
@@ -444,3 +445,4 @@ if check_password():
 
     else:
         st.info("👋 Ready. Upload files containing 'Physicians', 'POS', 'PROTON', 'LROC', or 'TROC'.")
+
