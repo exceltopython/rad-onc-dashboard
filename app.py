@@ -42,9 +42,9 @@ if check_password():
     }
 
     # KNOWN PROVIDERS (Used for specific FTEs)
-    # New providers will default to 1.0 FTE automatically
+    # Added "Castle" at 0.6 FTE
     PROVIDER_CONFIG = {
-        "Burke": 1.0, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
+        "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
         "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedmen": 1.0,
         "Gray": 1.0, "Jones": 1.0, "Lee": 1.0, "Lewis": 1.0,
         "Lipscomb": 0.6, "Lydon": 1.0, "Mayo": 1.0, "Mondschein": 1.0,
@@ -53,12 +53,12 @@ if check_password():
     }
 
     MARKET_AVG_INCLUSION = [
-        "Chen", "Cooper", "Friedmen", "Jones", "Lee", "Nguyen", 
+        "Castle", "Chen", "Cooper", "Friedmen", "Jones", "Lee", "Nguyen", 
         "Osborne", "Phillips", "Sittig", "Strickler", "Wakefield", "Wendt"
     ]
 
     PROVIDER_GROUPS = {
-        "Photon Sites": ["Chen", "Cooper", "Friedmen", "Jones", "Lee", "Nguyen", "Osborne", "Phillips", "Sittig", "Strickler", "Wakefield", "Wendt"],
+        "Photon Sites": ["Castle", "Chen", "Cooper", "Friedmen", "Jones", "Lee", "Nguyen", "Osborne", "Phillips", "Sittig", "Strickler", "Wakefield", "Wendt"],
         "APPs": ["Burke", "Ellis", "Lewis", "Lydon"],
         "Proton Center": ["Escott", "Gray", "Mondschein"]
     }
@@ -66,7 +66,7 @@ if check_password():
     TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
     
     # IGNORE THESE SHEETS IN AUTO-DETECT MODE
-    IGNORED_SHEETS = ["PRODUCTIVITY TREND", "RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS"]
+    IGNORED_SHEETS = ["PRODUCTIVITY TREND", "RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
 
     # --- HELPER: ROBUST MONTH FINDER ---
     def find_date_row(df):
@@ -90,7 +90,7 @@ if check_password():
             fte = config['fte']
         else:
             name = sheet_name 
-            # Use configured FTE, or default to 1.0 if new provider found
+            # Use configured FTE (e.g. Castle=0.6), or default to 1.0 if new provider found
             fte = forced_fte if forced_fte else PROVIDER_CONFIG.get(sheet_name, 1.0)
         
         # Clean Column A
@@ -136,7 +136,7 @@ if check_password():
                 for sheet_name, df in xls.items():
                     # Check partial matches for summary tabs to skip them
                     s_upper = sheet_name.upper()
-                    if "PRODUCTIVITY" in s_upper or "PROTON" in s_upper or "COVER" in s_upper:
+                    if any(ignored in s_upper for ignored in IGNORED_SHEETS) or "PROTON POS" in s_upper:
                         continue
                     
                     clean_name = sheet_name.strip()
@@ -168,12 +168,15 @@ if check_password():
                     s_upper = clean_name.upper()
                     
                     # Skip known summary sheets
-                    is_summary = any(x in s_upper for x in IGNORED_SHEETS)
+                    is_summary = any(ignored in s_upper for ignored in IGNORED_SHEETS)
+                    
                     if is_summary:
                          debug_log.append(f"Skipped summary sheet: {clean_name}")
                          continue
 
                     # Assume it is a provider!
+                    # If they are in the config (like Castle=0.6), they get their specific FTE.
+                    # If NOT in the config, they default to 1.0 FTE.
                     res = parse_sheet(df, clean_name, 'provider')
                     if not res.empty: 
                         provider_data.append(res)
@@ -300,7 +303,7 @@ if check_password():
                         st.markdown("#### 📅 Quarterly Table")
                         piv = sub.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
                         piv["Total"] = piv.sum(axis=1)
-                        # The .style call below requires matplotlib!
+                        # Requires matplotlib in requirements.txt
                         st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
     else:
         st.info("👋 Ready. Upload files containing 'Physicians', 'POS', 'PROTON', 'LROC', or 'TROC'.")
