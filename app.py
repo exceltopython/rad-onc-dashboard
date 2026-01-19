@@ -42,7 +42,6 @@ if check_password():
     }
 
     # KNOWN PROVIDERS (Used for specific FTEs)
-    # New providers NOT on this list will default to 1.0 FTE automatically
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
         "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedmen": 1.0,
@@ -68,33 +67,22 @@ if check_password():
     # IGNORE THESE SHEETS IN AUTO-DETECT MODE
     IGNORED_SHEETS = ["PRODUCTIVITY TREND", "RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
 
-    # --- HELPER: HYBRID DATE FINDER ---
+    # --- HELPER: ROBUST MONTH FINDER ---
     def find_date_row(df):
-        """
-        Scans first 10 rows for either Month Strings (JAN, FEB) OR valid Excel Datetime objects.
-        Returns the row index with the highest confidence score.
-        """
         months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
         best_row = 1 # Default to Row 2
         max_score = 0
         
         for r in range(min(10, len(df))):
-            # Grab columns E-P (indices 4-15)
             row_vals = df.iloc[r, 4:16]
-            
-            # Score 1: Text Matches
             str_vals = [str(v).upper() for v in row_vals if pd.notna(v)]
             text_matches = sum(1 for v in str_vals if any(m in v for m in months))
-            
-            # Score 2: Datetime Object Matches
             dt_matches = sum(1 for v in row_vals if isinstance(v, (datetime, pd.Timestamp)))
-            
-            total_score = text_matches + (dt_matches * 2) # Weight actual dates higher
+            total_score = text_matches + (dt_matches * 2) 
             
             if total_score > max_score:
                 max_score = total_score
                 best_row = r
-                
         return best_row
 
     # --- PARSING LOGIC ---
@@ -105,13 +93,9 @@ if check_password():
             fte = config['fte']
         else:
             name = sheet_name 
-            # Use configured FTE (e.g. Castle=0.6), or default to 1.0 if new provider found
             fte = forced_fte if forced_fte else PROVIDER_CONFIG.get(sheet_name, 1.0)
         
-        # Clean Column A
         df.iloc[:, 0] = df.iloc[:, 0].astype(str).str.strip().str.upper()
-        
-        # Filter for Target Rows
         mask = df.iloc[:, 0].isin(TARGET_CATEGORIES)
         filtered_df = df[mask]
         data_rows = filtered_df.copy()
@@ -131,8 +115,7 @@ if check_password():
                     "FTE": fte,
                     "Month": header_val,
                     "Total RVUs": col_sum,
-                    "RVU per FTE": col_sum / fte if fte > 0 else 0,
-                    "Debug_Source_Row": header_row_idx
+                    "RVU per FTE": col_sum / fte if fte > 0 else 0
                 })
         return pd.DataFrame(records)
 
@@ -190,12 +173,6 @@ if check_password():
                     res = parse_sheet(df, clean_name, 'provider')
                     if not res.empty: 
                         provider_data.append(res)
-                        # Log header detection for the first provider to help debug
-                        if len(provider_data) == 1:
-                            r_idx = res.iloc[0]['Debug_Source_Row']
-                            sample_date = res.iloc[0]['Month']
-                            debug_log.append(f"Header Check: Using Row {r_idx+1} for dates. Sample: {sample_date}")
-                        debug_log.append(f"Loaded provider: {clean_name}")
                     else:
                         debug_log.append(f"Sheet '{clean_name}' processed but no data found.")
 
@@ -219,15 +196,20 @@ if check_password():
         df_clinic = pd.concat(clinic_data, ignore_index=True) if clinic_data else pd.DataFrame()
         df_provider = pd.concat(provider_data, ignore_index=True) if provider_data else pd.DataFrame()
 
-        # Date Cleaning
+        # Date Cleaning - NEW LOGIC TO FORCE 'Jan-25' RECOGNITION
         for d in [df_clinic, df_provider]:
             if not d.empty:
-                d['Month_Clean'] = pd.to_datetime(d['Month'], errors='coerce')
+                # Attempt 1: Strict format for "Jan-25" type strings
+                d['Month_Clean'] = pd.to_datetime(d['Month'], format='%b-%y', errors='coerce')
                 
+                # Attempt 2: If strict failed (NaT), try general parser
+                mask = d['Month_Clean'].isna()
+                if mask.any():
+                    d.loc[mask, 'Month_Clean'] = pd.to_datetime(d.loc[mask, 'Month'], errors='coerce')
+
                 # Check for failure
                 if d['Month_Clean'].isna().all():
-                    debug_log.append("CRITICAL: Date conversion failed for all rows. Showing raw 'Month' data in debug.")
-                    debug_log.append(f"Raw Month Data Sample: {d['Month'].unique()[:5]}")
+                    debug_log.append("CRITICAL: Date conversion failed. The dates might be in an unusual format.")
                 
                 d.dropna(subset=['Month_Clean'], inplace=True)
                 d.sort_values('Month_Clean', inplace=True)
