@@ -44,7 +44,7 @@ if check_password():
     # KNOWN PROVIDERS
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
-        "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedman": 1.0,
+        "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedman": 1.0, 
         "Gray": 1.0, "Jones": 1.0, "Lee": 1.0, "Lewis": 1.0,
         "Lipscomb": 0.6, "Lydon": 1.0, "Mayo": 1.0, "Mondschein": 1.0,
         "Nguyen": 1.0, "Osborne": 1.0, "Phillips": 1.0, "Sidrys": 1.0,
@@ -133,7 +133,6 @@ if check_password():
                         continue
                     
                     clean_name = sheet_name.strip()
-                    # AUTO-CORRECT MISSPELLING
                     if clean_name.upper() == "FRIEDMEN": clean_name = "Friedman"
                     
                     res = parse_sheet(df, clean_name, 'provider')
@@ -163,13 +162,22 @@ if check_password():
                     clean_name = sheet_name.strip()
                     s_upper = clean_name.upper()
                     
-                    # AUTO-CORRECT MISSPELLING
                     if clean_name.upper() == "FRIEDMEN": 
                         clean_name = "Friedman"
                         s_upper = "FRIEDMAN"
 
-                    if clean_name in CLINIC_CONFIG or ("LROC" in s_upper and "LROC" in filename) or ("TROC" in s_upper and "TROC" in filename):
-                        res = parse_sheet(df, clean_name, 'clinic')
+                    # CLINIC DETECTION LOGIC
+                    # Explicitly catch LROC and TROC from their filenames if the sheet name isn't perfect
+                    is_lroc = "LROC" in filename and ("LROC" in s_upper or "POS" in s_upper)
+                    is_troc = "TROC" in filename and ("TROC" in s_upper or "POS" in s_upper)
+                    
+                    if clean_name in CLINIC_CONFIG or is_lroc or is_troc:
+                        # Normalize ID for LROC/TROC
+                        clinic_id = clean_name
+                        if is_lroc: clinic_id = "LROC"
+                        if is_troc: clinic_id = "TROC"
+                        
+                        res = parse_sheet(df, clinic_id, 'clinic')
                         if not res.empty: clinic_data.append(res)
                         continue
 
@@ -191,6 +199,16 @@ if check_password():
             if mask.any():
                 df_clinic.loc[mask, 'Month_Clean'] = pd.to_datetime(df_clinic.loc[mask, 'Month'], errors='coerce')
             df_clinic.dropna(subset=['Month_Clean'], inplace=True)
+            
+            # Aggregate Clinics (Fixes duplicates if LROC appears in multiple files)
+            df_clinic = df_clinic.groupby(['Name', 'ID', 'Month_Clean'], as_index=False).agg({
+                'Total RVUs': 'sum',
+                'FTE': 'max',
+                'Month': 'first'
+            })
+            df_clinic['RVU per FTE'] = df_clinic.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
+            
+            df_clinic['Quarter'] = df_clinic['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
             df_clinic.sort_values('Month_Clean', inplace=True)
             df_clinic['Month_Label'] = df_clinic['Month_Clean'].dt.strftime('%b-%y')
 
@@ -251,19 +269,62 @@ if check_password():
                 if df_clinic.empty:
                     st.info("No Clinic data found.")
                 else:
-                    clinic_grp = df_clinic.groupby('Month_Clean', as_index=False)[['Total RVUs', 'FTE']].sum()
-                    clinic_grp['Avg RVU/FTE'] = clinic_grp['Total RVUs'] / clinic_grp['FTE']
-                    df_clinic = df_clinic.merge(clinic_grp[['Month_Clean', 'Avg RVU/FTE']], on='Month_Clean', how='left')
-
-                    latest = df_clinic['Month_Clean'].max()
-                    c1, c2 = st.columns(2)
-                    latest_val = df_clinic[df_clinic['Month_Clean'] == latest]['Total RVUs'].sum()
-                    c1.metric("Total Division Volume", f"{latest_val:,.0f}", f"{latest.strftime('%b %Y')}")
+                    max_date = df_clinic['Month_Clean'].max()
                     
-                    st.markdown("#### 📈 Clinic Trends")
-                    sel_c = st.multiselect("Select Clinics", df_clinic['Name'].unique(), default=df_clinic['Name'].unique())
-                    fig2 = px.line(df_clinic[df_clinic['Name'].isin(sel_c)], x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
-                    st.plotly_chart(fig2, use_container_width=True)
+                    # Top Metrics
+                    c1, c2 = st.columns(2)
+                    latest_val = df_clinic[df_clinic['Month_Clean'] == max_date]['Total RVUs'].sum()
+                    c1.metric("Total Division Volume", f"{latest_val:,.0f}", f"{max_date.strftime('%b %Y')}")
+                    
+                    st.markdown("### 🏥 Clinic Performance")
+                    
+                    # Trend Chart
+                    st.markdown("#### 📅 Last 12 Months Trend (Total RVUs)")
+                    min_date = max_date - pd.DateOffset(months=11)
+                    l12m_c = df_clinic[df_clinic['Month_Clean'] >= min_date].sort_values('Month_Clean')
+                    fig_trend = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
+                    st.plotly_chart(fig_trend, use_container_width=True)
+
+                    # YTD Bar
+                    st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({max_date.year})")
+                    ytd_c = df_clinic[df_clinic['Month_Clean'].dt.year == max_date.year]
+                    ytd_sum = ytd_c.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
+                    fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Magma', text_auto='.2s')
+                    st.plotly_chart(fig_ytd, use_container_width=True)
+
+                    # MONTHLY TABLE
+                    st.markdown("#### 🔢 Clinic Monthly Data")
+                    piv = df_clinic.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                    sorted_months = df_clinic[['Month_Clean', 'Month_Label']].drop_duplicates().sort_values('Month_Clean')['Month_Label'].tolist()
+                    existing_cols = [m for m in sorted_months if m in piv.columns]
+                    piv = piv[existing_cols]
+                    piv["Total"] = piv.sum(axis=1)
+                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds"))
+
+                    # QUARTERLY SECTION
+                    st.markdown("---")
+                    st.markdown("#### 📆 Clinic Quarterly Data")
+                    
+                    # 1. Latest Quarter Chart
+                    q_chart_df = df_clinic.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
+                    latest_q_label = f"Q{max_date.quarter} {max_date.year}"
+                    latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
+                    total_per_clinic = latest_q_data.groupby('Name')['Total RVUs'].sum().sort_values(ascending=False).index.tolist()
+                    
+                    fig_q = px.bar(latest_q_data, x='Name', y='Total RVUs',
+                                   title=f"Most Recent Quarter Leaders ({latest_q_label})",
+                                   category_orders={"Name": total_per_clinic},
+                                   text_auto='.2s',
+                                   color_discrete_sequence=['#C0392B']) # Professional Red
+                    st.plotly_chart(fig_q, use_container_width=True)
+
+                    # 2. Quarterly Table
+                    piv_q = df_clinic.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                    sorted_quarters = df_clinic[['Month_Clean', 'Quarter']].drop_duplicates().sort_values('Month_Clean')['Quarter'].unique().tolist()
+                    existing_q_cols = [q for q in sorted_quarters if q in piv_q.columns]
+                    piv_q = piv_q[existing_q_cols]
+                    piv_q["Total"] = piv_q.sum(axis=1)
+                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
 
             # 2. MD ANALYTICS
             with tab_md:
@@ -301,15 +362,8 @@ if check_password():
                     
                     # 1. Latest Quarter Chart
                     q_chart_df = df_mds.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
-                    
-                    # Find Latest Quarter Logic
-                    latest_q_date = df_mds['Month_Clean'].max()
-                    latest_q_label = f"Q{latest_q_date.quarter} {latest_q_date.year}"
-                    
-                    # Filter for only the latest quarter
+                    latest_q_label = f"Q{max_date.quarter} {max_date.year}"
                     latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
-                    
-                    # Sort for the chart
                     total_per_prov = latest_q_data.groupby('Name')['Total RVUs'].sum().sort_values(ascending=False).index.tolist()
                     
                     fig_q = px.bar(latest_q_data, x='Name', y='Total RVUs',
@@ -363,11 +417,8 @@ if check_password():
                     
                     # 1. Latest Quarter Chart
                     q_chart_df = df_apps.groupby(['Name', 'Quarter'])[['Total RVUs']].sum().reset_index()
-                    
-                    latest_q_date = df_apps['Month_Clean'].max()
-                    latest_q_label = f"Q{latest_q_date.quarter} {latest_q_date.year}"
+                    latest_q_label = f"Q{max_date.quarter} {max_date.year}"
                     latest_q_data = q_chart_df[q_chart_df['Quarter'] == latest_q_label]
-                    
                     total_per_prov = latest_q_data.groupby('Name')['Total RVUs'].sum().sort_values(ascending=False).index.tolist()
                     
                     fig_q = px.bar(latest_q_data, x='Name', y='Total RVUs',
