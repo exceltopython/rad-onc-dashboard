@@ -62,50 +62,35 @@ def check_password():
     else:
         return True
 
-# --- CUSTOM CSS FOR PROFESSIONAL STYLING ---
+# --- CUSTOM CSS ---
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* TAB CONTAINER */
+        /* TABS */
         .stTabs [data-baseweb="tab-list"] {
-            gap: 20px; 
+            gap: 24px; 
             background-color: transparent;
             padding-bottom: 15px;
+            border-bottom: 1px solid #ddd;
         }
-
-        /* INACTIVE TABS */
         .stTabs [data-baseweb="tab-list"] button {
             background-color: #FFFFFF;
-            border: 1px solid #E0E0E0;
-            border-radius: 8px;
-            color: #4A4A4A; 
-            padding: 12px 25px;
-            transition: all 0.3s ease;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border: 1px solid #D1D5DB;
+            border-radius: 6px;
+            color: #4B5563; 
+            padding: 14px 30px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
-        
-        /* INCREASED FONT SIZE FOR TAB TEXT */
         .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
-            font-size: 1.5rem; /* Larger Font */
-            font-weight: 700;   /* Bolder */
+            font-size: 20px !important; 
+            font-weight: 700 !important;
             margin: 0px;
         }
-        
-        /* HOVER STATE */
-        .stTabs [data-baseweb="tab-list"] button:hover {
-            border-color: #2C3E50;
-            color: #2C3E50;
-        }
-
-        /* ACTIVE TAB (PROFESSIONAL NAVY BLUE) */
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
-            background-color: #2C3E50;
+            background-color: #1E3A8A !important; /* Navy Blue */
             color: #FFFFFF !important;
-            border-color: #2C3E50;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border-color: #1E3A8A;
         }
-        
-        /* REMOVE DEFAULT STREAMLIT TAB LINE */
         .stTabs [data-baseweb="tab-highlight"] {
             background-color: transparent !important;
         }
@@ -134,6 +119,7 @@ if check_password():
     TRISTAR_IDS = ["CENT", "Skyline", "Dickson", "Summit", "Stonecrest"]
     ASCENSION_IDS = ["STW", "Midtown", "MURF"]
 
+    # PROVIDER CONFIG (Keys used for matching, Values for FTE)
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
         "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedman": 1.0, 
@@ -142,6 +128,9 @@ if check_password():
         "Nguyen": 1.0, "Osborne": 1.0, "Phillips": 1.0, "Sidrys": 1.0,
         "Sittig": 1.0, "Strickler": 1.0, "Wakefield": 1.0, "Wendt": 1.0, "Whitaker": 1.0
     }
+    
+    # Create a set of UPPERCASE keys for case-insensitive matching
+    PROVIDER_KEYS_UPPER = {k.upper(): k for k in PROVIDER_CONFIG.keys()}
 
     APP_LIST = ["Burke", "Ellis", "Lewis", "Lydon"]
     
@@ -155,7 +144,6 @@ if check_password():
             self.path = path
             self.name = os.path.basename(path).upper()
         
-    # --- HELPER: ROBUST MONTH FINDER ---
     def find_date_row(df):
         months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
         best_row = 1 
@@ -171,7 +159,6 @@ if check_password():
                 best_row = r
         return best_row
 
-    # --- HELPER: DATE FROM FILENAME ---
     def get_date_from_filename(filename):
         match = re.search(r'(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s*(\d{2,4})', filename, re.IGNORECASE)
         if match:
@@ -181,7 +168,6 @@ if check_password():
             return pd.to_datetime(f"{month_str} {year_str}")
         return datetime.now()
 
-    # --- HELPER: SAFE NUMBER PARSER ---
     def clean_number(val):
         if pd.isna(val): return None
         try:
@@ -193,20 +179,38 @@ if check_password():
         except:
             return None
 
-    # --- HELPER: CLEAN NAMES ---
-    def clean_provider_name(name_str):
+    # --- NAME CLEANER (RETURNS UPPERCASE MATCH KEY) ---
+    def match_provider(name_str):
         try:
-            if not isinstance(name_str, str): return ""
+            if not isinstance(name_str, str): return None
             name_str = name_str.strip()
-            if not name_str: return ""
-            if "," in name_str: return name_str.split(",")[0].strip()
-            parts = name_str.split()
-            if not parts: return ""
-            return parts[0].strip()
+            if not name_str: return None
+            
+            # Clean: "Castle MD, Katherine" -> "Castle"
+            if "," in name_str: 
+                base = name_str.split(",")[0].strip()
+            else:
+                base = name_str
+            
+            # Split titles: "Castle MD" -> "Castle"
+            parts = base.split()
+            if not parts: return None
+            last_name = parts[0].strip().upper() # Convert to UPPER for matching
+            
+            if last_name in PROVIDER_KEYS_UPPER:
+                return PROVIDER_KEYS_UPPER[last_name] # Return the canonical Case-Sensitive Key
+            return None
         except:
-            return ""
+            return None
 
-    # --- HELPER: GET HISTORICAL DATAFRAME ---
+    # --- CLEAN NAME FOR DISPLAY ---
+    def clean_provider_name_display(name_str):
+        match = match_provider(name_str)
+        if match: return match
+        # Fallback cleaner
+        if "," in name_str: return name_str.split(",")[0].strip().split()[0]
+        return name_str.split()[0]
+
     def get_historical_df():
         records = []
         for year, data in HISTORICAL_DATA.items():
@@ -221,15 +225,11 @@ if check_password():
                     })
         return pd.DataFrame(records)
 
-    # --- HELPER: INSIGHT GENERATOR ---
     def generate_narrative(df, entity_type="Provider", metric_col="Total RVUs", unit="wRVUs"):
         if df.empty: return "No data available."
-        
         latest_date = df['Month_Clean'].max()
         latest_df = df[df['Month_Clean'] == latest_date]
-        
         if latest_df.empty: return "Data processed but current month is empty."
-        
         total_vol = latest_df[metric_col].sum()
         
         if metric_col == "Total RVUs":
@@ -241,26 +241,14 @@ if check_password():
             top_val = top_perf[metric_col]
             top_metric = unit
 
-        prev_date = latest_date - pd.DateOffset(months=1)
-        prev_df = df[df['Month_Clean'] == prev_date]
-        
         trend_text = ""
-        if not prev_df.empty:
-            prev_total = prev_df[metric_col].sum()
-            growth = ((total_vol - prev_total) / prev_total) * 100 if prev_total > 0 else 0
-            direction = "increased" if growth > 0 else "decreased"
-            trend_text = f"Total volume **{direction} by {abs(growth):.1f}%** compared to last month."
-        
         narrative = f"""
         **🤖 Automated Analysis ({latest_date.strftime('%B %Y')}):**
-        
         The {entity_type} group generated a total of **{total_vol:,.0f} {unit}** this month. {trend_text}
-        
-        * **🏆 Top Performer:** **{clean_provider_name(top_perf['Name'])}** led with **{top_val:,.0f} {top_metric}**.
+        * **🏆 Top Performer:** **{clean_provider_name_display(top_perf['Name'])}** led with **{top_val:,.0f} {top_metric}**.
         """
         return narrative
 
-    # --- PARSING LOGIC ---
     def parse_rvu_sheet(df, sheet_name, entity_type, clinic_tag="General", forced_fte=None):
         if entity_type == 'clinic':
             config = CLINIC_CONFIG.get(sheet_name, {"name": sheet_name, "fte": 1.0})
@@ -300,7 +288,6 @@ if check_password():
         local_logs = []
         
         try:
-            # 1. FIND START ROW
             data_start_row = -1
             for i in range(min(20, len(df))):
                 row_vals = [str(v).strip().upper() for v in df.iloc[i].values]
@@ -311,66 +298,49 @@ if check_password():
             
             if data_start_row == -1: 
                 data_start_row = 8
-                local_logs.append("No Anchor Found. Defaulting to Row 8.")
+                local_logs.append("No Anchor. Default to 8.")
 
-            # 2. ITERATE & NUMBER HUNT (ADAPTIVE LOGIC)
             for i in range(data_start_row, len(df)):
                 row = df.iloc[i].values
                 
-                # Check for Name (Scan first 5 columns)
-                clean_name = None
+                # NAME MATCHING (First 5 cols)
+                matched_name = None
                 for c in range(min(5, len(row))): 
                     val = str(row[c]).strip()
-                    potential = clean_provider_name(val)
-                    if potential in PROVIDER_CONFIG:
-                        clean_name = potential
-                        break
+                    matched_name = match_provider(val) # Returns canonical name if match
+                    if matched_name: break
                 
-                if not clean_name: continue
+                if not matched_name: continue
 
-                # Harvest ALL numbers in the row
+                # NUMBER HARVESTING
                 numbers = []
                 for val in row:
                     num = clean_number(val)
                     if num is not None:
                         numbers.append(num)
                 
-                # --- ADAPTIVE ASSIGNMENT ---
-                # Default values
+                # LOGIC: 6 Numbers Expected
+                # 1: Curr Visit (0) | 2: Diff (1) | 3: Prior (2) | 4: Curr NP (3) | 5: Diff NP (4) | 6: Prior NP (5)
+                
                 visits = 0
                 visits_diff = 0
                 new_patients = 0
                 np_diff = 0
                 
-                if len(numbers) >= 6:
-                    # Full Data: [Curr, Diff, Prior, CurrNP, DiffNP, PriorNP]
-                    visits = numbers[0]
-                    visits_diff = numbers[1]
-                    new_patients = numbers[3]
-                    np_diff = numbers[4]
-                elif len(numbers) >= 4:
-                    # Partial Data: [Curr, Diff, ... CurrNP]
-                    visits = numbers[0]
-                    visits_diff = numbers[1]
-                    new_patients = numbers[-1] # Assume last valid number is NP
-                elif len(numbers) >= 1:
-                    # Minimal Data: Just one number? Assume it's Visits.
-                    visits = numbers[0]
-                    if len(numbers) >= 2:
-                        new_patients = numbers[-1] # If 2 numbers, 2nd is NP
+                if len(numbers) >= 1: visits = numbers[0]
+                if len(numbers) >= 2: visits_diff = numbers[1]
+                if len(numbers) >= 4: new_patients = numbers[3]
+                if len(numbers) >= 5: np_diff = numbers[4]
+                
+                # Fallback for Partial Data (e.g. only 4 numbers found)
+                if len(numbers) == 4:
+                     # Assume: Visit, Diff, Prior, Curr NP (missing NP diff/prior)
+                     new_patients = numbers[3]
 
-                # Log for Debugger
-                log_entry = {
-                    "Row": i,
-                    "Provider": clean_name,
-                    "Numbers Found": numbers,
-                    "Extracted Visits": visits,
-                    "Extracted NP": new_patients
-                }
-                local_logs.append(log_entry)
+                local_logs.append(f"Row {i} ({matched_name}): Found {len(numbers)} numbers. V={visits}, NP={new_patients}")
 
                 records.append({
-                    "Name": clean_name,
+                    "Name": matched_name,
                     "Month_Clean": filename_date,
                     "Total Visits": visits,
                     "Visits_Diff": visits_diff,
@@ -380,7 +350,7 @@ if check_password():
                     "Month_Label": filename_date.strftime('%b-%y')
                 })
         except Exception as e:
-            local_logs.append(f"CRITICAL ERROR: {str(e)}")
+            local_logs.append(f"Error: {str(e)}")
             return pd.DataFrame(), local_logs
             
         return pd.DataFrame(records), local_logs
@@ -409,12 +379,7 @@ if check_password():
                 for sheet_name, df in xls.items():
                     if "PHYS YTD OV" in sheet_name.upper():
                         res, logs = parse_visits_sheet(df, file_date)
-                        
-                        # Format logs for display
-                        for l in logs:
-                            if isinstance(l, dict): debug_log.append(f"Row {l['Row']}: {l['Provider']} -> found {len(l['Numbers Found'])} nums: {l['Numbers Found']}")
-                            else: debug_log.append(str(l))
-                            
+                        debug_log.extend(logs)
                         if not res.empty: 
                             visit_data.append(res)
                 continue 
@@ -589,13 +554,12 @@ if check_password():
                             max_date = df_view['Month_Clean'].max()
                             st.info(generate_narrative(df_view, f"{view_title} Clinic"))
                             
-                            # 1. TRENDS (Aggregate if Group)
+                            # 1. TRENDS
                             with st.container(border=True):
                                 st.markdown(f"#### 📅 {view_title}: 12-Month Trend")
                                 min_date = max_date - pd.DateOffset(months=11)
                                 l12m_c = df_view[df_view['Month_Clean'] >= min_date].sort_values('Month_Clean')
                                 
-                                # If Group (TriStar/Ascension), show aggregate line
                                 if clinic_filter in ["TriStar", "Ascension", "All"]:
                                     agg_trend = l12m_c.groupby('Month_Clean')[['Total RVUs']].sum().reset_index()
                                     fig_trend = px.line(agg_trend, x='Month_Clean', y='Total RVUs', markers=True, title="Aggregate Trend")
@@ -606,7 +570,7 @@ if check_password():
                                 fig_trend.update_yaxes(rangemode="tozero")
                                 st.plotly_chart(fig_trend, use_container_width=True)
 
-                            # 2. INDIVIDUAL LINES (For Groups)
+                            # 2. INDIVIDUAL LINES
                             if clinic_filter in ["TriStar", "Ascension", "All"]:
                                 with st.container(border=True):
                                     st.markdown(f"#### 📈 {view_title}: Individual Clinic Trends")
@@ -614,15 +578,12 @@ if check_password():
                                     fig_ind.update_layout(font=dict(size=14))
                                     st.plotly_chart(fig_ind, use_container_width=True)
 
-                            # 3. HISTORICAL TREND (2019-Present)
+                            # 3. HISTORICAL TREND
                             if clinic_filter in ["TriStar", "Ascension", "All", "LROC", "TOPC", "TROC"]:
                                 with st.container(border=True):
                                     st.markdown(f"#### 📈 Long-Term History ({view_title})")
-                                    
-                                    # Get Historical Data Frame
                                     df_hist = get_historical_df()
                                     
-                                    # Filter for current view
                                     if clinic_filter == "TriStar":
                                         df_hist_view = df_hist[df_hist['ID'].isin(TRISTAR_IDS)]
                                     elif clinic_filter == "Ascension":
@@ -633,27 +594,21 @@ if check_password():
                                         target_id = 'LROC' if 'LROC' in clinic_filter else ('TOPC' if 'Proton' in view_title else 'TROC')
                                         df_hist_view = df_hist[df_hist['ID'] == target_id]
                                     
-                                    # Group by Year
                                     if not df_hist_view.empty:
                                         hist_trend = df_hist_view.groupby('Year')[['Total RVUs']].sum().reset_index()
-                                        
-                                        # Add current year data if available
                                         if not df_view.empty:
                                             current_year = max_date.year
                                             ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
-                                            
-                                            # Append current year (projection or actual)
                                             if ytd_curr > 0:
                                                 new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
                                                 hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
-                                        
                                         fig_long = px.bar(hist_trend, x='Year', y='Total RVUs', text_auto='.2s')
                                         fig_long.update_layout(font=dict(size=14))
                                         st.plotly_chart(fig_long, use_container_width=True)
                                     else:
-                                        st.info("No historical data available for this selection.")
+                                        st.info("No historical data available.")
 
-                            # 4. PIE CHART (Only for Single Clinics)
+                            # 4. PIE CHARTS
                             if target_tag and not df_provider_raw.empty:
                                 clinic_prov_df = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
                                 if not clinic_prov_df.empty:
@@ -666,19 +621,17 @@ if check_password():
                                     pie_agg_q = pie_q.groupby('Name')[['Total RVUs']].sum().reset_index()
 
                                     with st.container(border=True):
-                                        st.markdown(f"#### 🍰 Work Breakdown: Who performed the work?")
+                                        st.markdown(f"#### 🍰 Work Breakdown")
                                         col_pie1, col_pie2 = st.columns(2)
                                         with col_pie1:
                                             if not pie_agg_12m.empty:
                                                 fig_p1 = px.pie(pie_agg_12m, values='Total RVUs', names='Name', hole=0.4, title="Last 12 Months")
                                                 fig_p1.update_traces(textposition='inside', textinfo='percent+label')
-                                                fig_p1.update_layout(font=dict(size=14))
                                                 st.plotly_chart(fig_p1, use_container_width=True)
                                         with col_pie2:
                                             if not pie_agg_q.empty:
                                                 fig_p2 = px.pie(pie_agg_q, values='Total RVUs', names='Name', hole=0.4, title=f"Most Recent Quarter ({latest_q})")
                                                 fig_p2.update_traces(textposition='inside', textinfo='percent+label')
-                                                fig_p2.update_layout(font=dict(size=14))
                                                 st.plotly_chart(fig_p2, use_container_width=True)
                             
                             # 5. TABLES
@@ -742,7 +695,7 @@ if check_password():
                         if df_visits.empty:
                             st.warning("No Office Visit data found. Please upload a file containing 'New Patients' in the filename.")
                             if debug_log:
-                                with st.expander("🛠️ Debug: Data Inspection Log"):
+                                with st.expander("🛠️ Debug: View Raw Data"):
                                     for l in debug_log: st.write(l)
                         else:
                             latest_v_date = df_visits['Month_Clean'].max()
