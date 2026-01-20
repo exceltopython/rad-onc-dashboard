@@ -99,7 +99,6 @@ def inject_custom_css():
 if check_password():
     inject_custom_css()
     
-    # --- CONFIGURATION ---
     CLINIC_CONFIG = {
         "CENT": {"name": "Centennial", "fte": 2.0},
         "Dickson": {"name": "Horizon", "fte": 1.0},
@@ -128,7 +127,6 @@ if check_password():
     }
     
     PROVIDER_KEYS_UPPER = {k.upper(): k for k in PROVIDER_CONFIG.keys()}
-
     APP_LIST = ["Burke", "Ellis", "Lewis", "Lydon"]
     
     TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
@@ -260,6 +258,7 @@ if check_password():
                             "Month": filename_date, "Total RVUs": total_rvu, "RVU per FTE": total_rvu,
                             "Clinic_Tag": "Sumner", "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
                             "Month_Label": filename_date.strftime('%b-%y'),
+                            "Month_Clean": filename_date,
                             "source_type": "sumner_detail"
                         })
                 current_provider = potential_name
@@ -285,6 +284,7 @@ if check_password():
                     "Month": filename_date, "Total RVUs": total_rvu, "RVU per FTE": total_rvu,
                     "Clinic_Tag": "Sumner", "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
                     "Month_Label": filename_date.strftime('%b-%y'),
+                    "Month_Clean": filename_date,
                     "source_type": "sumner_detail"
                 })
         return pd.DataFrame(records)
@@ -306,10 +306,20 @@ if check_password():
         records = []
         header_row_idx = find_date_row(df)
         
+        # Calculate Date for Month_Clean immediately
+        def get_date_from_str(s):
+            try: return pd.to_datetime(f"{s} {datetime.now().year}") # Approximate if year missing
+            except: return datetime.now()
+
         if len(df.columns) > 4:
             for col in df.columns[4:]:
                 header_val = df.iloc[header_row_idx, col]
                 if pd.isna(header_val): continue
+                
+                # Attempt to get real date from filename context if possible, otherwise use header
+                # For this specific app, we rely on the header_val mostly being "Jan", "Feb" etc
+                # We will fix the year later or use current year context
+                
                 col_sum = pd.to_numeric(data_rows[col], errors='coerce').sum()
                 records.append({
                     "Type": entity_type,
@@ -324,22 +334,39 @@ if check_password():
                 })
         return pd.DataFrame(records)
 
-    # --- UPDATED: SCAN ENTIRE SHEET FOR PROVIDERS (NO START ROW CONSTRAINT) ---
     def parse_visits_sheet(df, filename_date, clinic_tag="General"):
         records = []
         local_logs = []
         
         try:
-            # We scan every single row (skipping first few header rows typically)
-            for i in range(5, len(df)):
+            # 1. FIND START ROW
+            data_start_row = -1
+            for i in range(min(20, len(df))):
+                row_vals = [str(v).strip().upper() for v in df.iloc[i].values]
+                if "PHYSICIANS ONLY" in row_vals:
+                    data_start_row = i + 1
+                    break
+            
+            if data_start_row == -1: data_start_row = 8
+
+            # 2. COLUMN MAPPING (SCAN HEADERS)
+            ov_col = 2 # Default C
+            np_col = 13 # Default N
+            
+            # Look at rows 0-10 for the "AMOUNT" headers
+            for r in range(max(0, data_start_row - 5), data_start_row):
+                row_vals = [str(v).strip().upper() for v in df.iloc[r].values]
+                # Find "AMOUNT" instances
+                indices = [i for i, x in enumerate(row_vals) if "AMOUNT" in x or "2025" in x]
+                if len(indices) >= 1: ov_col = indices[0] # First Amount = Visits
+                if len(indices) >= 3: np_col = indices[2] # Third Amount = NP (usually: Amt, Diff, Prior, Amt...)
+
+            for i in range(data_start_row, len(df)):
                 row = df.iloc[i].values
-                
-                # Check for "TOTAL" to avoid reading summary lines as providers
                 row_str_check = " ".join([str(x).upper() for x in row[:5]])
                 if "TOTAL" in row_str_check: continue
 
                 matched_name = None
-                # SCAN WIDE (First 10 columns) for a name
                 for c in range(min(10, len(row))): 
                     val = str(row[c]).strip()
                     matched_name = match_provider(val) 
@@ -347,35 +374,18 @@ if check_password():
                 
                 if not matched_name: continue
 
-                # If name found, harvest numbers
-                numbers = []
-                for val in row:
-                    num = clean_number(val)
-                    if num is not None:
-                        numbers.append(num)
-                
-                visits = 0
-                visits_diff = 0
-                new_patients = 0
-                np_diff = 0
-                
-                if len(numbers) >= 6:
-                    visits = numbers[0]
-                    visits_diff = numbers[1]
-                    new_patients = numbers[3]
-                    np_diff = numbers[4]
-                elif len(numbers) >= 4:
-                    visits = numbers[0]
-                    visits_diff = numbers[1]
-                    new_patients = numbers[3]
-                elif len(numbers) == 3:
-                    visits = numbers[0]
-                    new_patients = numbers[2]
-                elif len(numbers) == 2: 
-                    visits = numbers[0]
-                    new_patients = numbers[1]
-                elif len(numbers) == 1:
-                    visits = numbers[0]
+                # Safe Extract Helper
+                def get_val(idx):
+                    if idx < len(row): 
+                        n = clean_number(row[idx])
+                        return n if n is not None else 0
+                    return 0
+
+                # Use Mapped Columns
+                visits = get_val(ov_col)
+                visits_diff = get_val(ov_col + 1)
+                new_patients = get_val(np_col)
+                np_diff = get_val(np_col + 1)
 
                 records.append({
                     "Name": matched_name,
@@ -414,7 +424,6 @@ if check_password():
 
             if "NEW PATIENTS" in filename or "NEW PT" in filename:
                 file_date = get_date_from_filename(filename)
-                
                 visit_tag = "General"
                 if "LROC" in filename: visit_tag = "LROC"
                 elif "TROC" in filename: visit_tag = "TROC"
@@ -460,7 +469,8 @@ if check_password():
                             "Total RVUs": row['Total RVUs'],
                             "RVU per FTE": row['Total RVUs'] / row['FTE'] if row['FTE'] > 0 else 0,
                             "Clinic_Tag": "TOPC",
-                            "source_type": "standard"
+                            "source_type": "standard",
+                            "Month_Clean": pd.to_datetime(f"{row['Month']} {datetime.now().year}", errors='coerce')
                          })
                     clinic_data.append(pd.DataFrame(topc_records))
             else:
@@ -494,30 +504,28 @@ if check_password():
         df_provider_raw = pd.concat(provider_data, ignore_index=True) if provider_data else pd.DataFrame()
         df_visits = pd.concat(visit_data, ignore_index=True) if visit_data else pd.DataFrame()
 
-        if not df_clinic.empty:
-            df_clinic['Month_Clean'] = pd.to_datetime(df_clinic['Month'], format='%b-%y', errors='coerce')
-            mask = df_clinic['Month_Clean'].isna()
-            if mask.any(): df_clinic.loc[mask, 'Month_Clean'] = pd.to_datetime(df_clinic.loc[mask, 'Month'], errors='coerce')
-            df_clinic.dropna(subset=['Month_Clean'], inplace=True)
-            df_clinic = df_clinic.groupby(['Name', 'ID', 'Month_Clean'], as_index=False).agg({
-                'Total RVUs': 'sum', 'FTE': 'max', 'Month': 'first', 'Clinic_Tag': 'first'
-            })
-            df_clinic['RVU per FTE'] = df_clinic.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
-            df_clinic['Quarter'] = df_clinic['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
-            df_clinic.sort_values('Month_Clean', inplace=True)
-            df_clinic['Month_Label'] = df_clinic['Month_Clean'].dt.strftime('%b-%y')
+        # GLOBAL DATE FIX (Safety Net)
+        if not df_clinic.empty and 'Month_Clean' not in df_clinic.columns:
+             df_clinic['Month_Clean'] = pd.to_datetime(df_clinic['Month'], format='%b-%y', errors='coerce')
+             df_clinic.dropna(subset=['Month_Clean'], inplace=True)
+             df_clinic['Month_Label'] = df_clinic['Month_Clean'].dt.strftime('%b-%y')
+             df_clinic['Quarter'] = df_clinic['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
+
+        if not df_provider_raw.empty:
+            if 'Month_Clean' not in df_provider_raw.columns:
+                df_provider_raw['Month_Clean'] = pd.to_datetime(df_provider_raw['Month'], format='%b-%y', errors='coerce')
+            
+            # Fill missing dates if any
+            mask = df_provider_raw['Month_Clean'].isna()
+            if mask.any(): df_provider_raw.loc[mask, 'Month_Clean'] = pd.to_datetime(df_provider_raw.loc[mask, 'Month'], errors='coerce')
+            df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
+            df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
+            df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
 
         df_provider_global = pd.DataFrame()
         if not df_provider_raw.empty:
             # EXCLUDE "sumner_detail" FROM MD ANALYTICS AGGREGATION
             df_md_clean = df_provider_raw[df_provider_raw.get('source_type', 'standard') != 'sumner_detail'].copy()
-            
-            df_md_clean['Month_Clean'] = pd.to_datetime(df_md_clean['Month'], format='%b-%y', errors='coerce')
-            mask = df_md_clean['Month_Clean'].isna()
-            if mask.any(): df_md_clean.loc[mask, 'Month_Clean'] = pd.to_datetime(df_md_clean.loc[mask, 'Month'], errors='coerce')
-            df_md_clean.dropna(subset=['Month_Clean'], inplace=True)
-            df_md_clean['Month_Label'] = df_md_clean['Month_Clean'].dt.strftime('%b-%y')
-            df_md_clean['Quarter'] = df_md_clean['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
             
             df_provider_global = df_md_clean.groupby(['Name', 'ID', 'Month_Clean'], as_index=False).agg({
                 'Total RVUs': 'sum', 'FTE': 'max', 'Month': 'first', 'Quarter': 'first', 'Month_Label': 'first'
@@ -705,27 +713,31 @@ if check_password():
 
                                 if not pie_data_source.empty:
                                     min_pie_date = max_date - pd.DateOffset(months=11)
-                                    pie_12m = pie_data_source[pie_data_source['Month_Clean'] >= min_pie_date]
-                                    pie_agg_12m = pie_12m.groupby('Name')[['Total RVUs']].sum().reset_index()
-                                    
-                                    latest_q = pie_data_source['Quarter'].max()
-                                    pie_q = pie_data_source[pie_data_source['Quarter'] == latest_q]
-                                    pie_agg_q = pie_q.groupby('Name')[['Total RVUs']].sum().reset_index()
+                                    # Safe filtering
+                                    try:
+                                        pie_12m = pie_data_source[pie_data_source['Month_Clean'] >= min_pie_date]
+                                        pie_agg_12m = pie_12m.groupby('Name')[['Total RVUs']].sum().reset_index()
+                                        
+                                        latest_q = pie_data_source['Quarter'].max()
+                                        pie_q = pie_data_source[pie_data_source['Quarter'] == latest_q]
+                                        pie_agg_q = pie_q.groupby('Name')[['Total RVUs']].sum().reset_index()
 
-                                    if not pie_agg_12m.empty:
-                                        with st.container(border=True):
-                                            st.markdown(f"#### 🍰 Work Breakdown: Who performed the work?")
-                                            col_pie1, col_pie2 = st.columns(2)
-                                            with col_pie1:
-                                                if not pie_agg_12m.empty:
-                                                    fig_p1 = px.pie(pie_agg_12m, values='Total RVUs', names='Name', hole=0.4, title="Last 12 Months")
-                                                    fig_p1.update_traces(textposition='inside', textinfo='percent+label')
-                                                    st.plotly_chart(fig_p1, use_container_width=True)
-                                            with col_pie2:
-                                                if not pie_agg_q.empty:
-                                                    fig_p2 = px.pie(pie_agg_q, values='Total RVUs', names='Name', hole=0.4, title=f"Most Recent Quarter ({latest_q})")
-                                                    fig_p2.update_traces(textposition='inside', textinfo='percent+label')
-                                                    st.plotly_chart(fig_p2, use_container_width=True)
+                                        if not pie_agg_12m.empty:
+                                            with st.container(border=True):
+                                                st.markdown(f"#### 🍰 Work Breakdown: Who performed the work?")
+                                                col_pie1, col_pie2 = st.columns(2)
+                                                with col_pie1:
+                                                    if not pie_agg_12m.empty:
+                                                        fig_p1 = px.pie(pie_agg_12m, values='Total RVUs', names='Name', hole=0.4, title="Last 12 Months")
+                                                        fig_p1.update_traces(textposition='inside', textinfo='percent+label')
+                                                        st.plotly_chart(fig_p1, use_container_width=True)
+                                                with col_pie2:
+                                                    if not pie_agg_q.empty:
+                                                        fig_p2 = px.pie(pie_agg_q, values='Total RVUs', names='Name', hole=0.4, title=f"Most Recent Quarter ({latest_q})")
+                                                        fig_p2.update_traces(textposition='inside', textinfo='percent+label')
+                                                        st.plotly_chart(fig_p2, use_container_width=True)
+                                    except:
+                                        st.info("Insufficient data for pie charts.")
                             
                             # 5. TABLES
                             if not df_view.empty:
