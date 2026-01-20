@@ -9,6 +9,18 @@ import re
 # --- PASSWORD CONFIGURATION ---
 APP_PASSWORD = "RadOnc2026"
 
+# --- HISTORICAL DATA STORAGE (2019-2024) ---
+# Update this dictionary with your actual year-end totals.
+# Format: "Year": {"Clinic Code": wRVU_Value, ...}
+HISTORICAL_DATA = {
+    2019: {"CENT": 0, "Skyline": 0, "Dickson": 0, "Summit": 0, "Stonecrest": 0, "STW": 0, "Midtown": 0, "MURF": 0, "LROC": 0, "TROC": 0},
+    2020: {"CENT": 0, "Skyline": 0, "Dickson": 0, "Summit": 0, "Stonecrest": 0, "STW": 0, "Midtown": 0, "MURF": 0, "LROC": 0, "TROC": 0},
+    2021: {"CENT": 0, "Skyline": 0, "Dickson": 0, "Summit": 0, "Stonecrest": 0, "STW": 0, "Midtown": 0, "MURF": 0, "LROC": 0, "TROC": 0},
+    2022: {"CENT": 0, "Skyline": 0, "Dickson": 0, "Summit": 0, "Stonecrest": 0, "STW": 0, "Midtown": 0, "MURF": 0, "LROC": 0, "TROC": 0},
+    2023: {"CENT": 0, "Skyline": 0, "Dickson": 0, "Summit": 0, "Stonecrest": 0, "STW": 0, "Midtown": 0, "MURF": 0, "LROC": 0, "TROC": 0},
+    2024: {"CENT": 0, "Skyline": 0, "Dickson": 0, "Summit": 0, "Stonecrest": 0, "STW": 0, "Midtown": 0, "MURF": 0, "LROC": 0, "TROC": 0}
+}
+
 def check_password():
     def password_entered():
         if st.session_state["password"] == APP_PASSWORD:
@@ -43,7 +55,6 @@ if check_password():
         "TOPC": {"name": "TN Proton Center", "fte": 0.0}
     }
 
-    # --- GROUPS FOR CLINIC ANALYTICS ---
     TRISTAR_IDS = ["CENT", "Skyline", "Dickson", "Summit", "Stonecrest"]
     ASCENSION_IDS = ["STW", "Midtown", "MURF"]
 
@@ -94,16 +105,6 @@ if check_password():
             return pd.to_datetime(f"{month_str} {year_str}")
         return datetime.now()
 
-    # --- HELPER: SAFE NUMBER PARSER ---
-    def clean_number(val):
-        if pd.isna(val): return None
-        try:
-            if isinstance(val, str):
-                val = val.replace(',', '').strip()
-            return float(val)
-        except:
-            return None
-
     # --- HELPER: CLEAN NAMES ---
     def clean_provider_name(name_str):
         try:
@@ -116,6 +117,31 @@ if check_password():
             return parts[0].strip()
         except:
             return ""
+
+    # --- HELPER: SAFE NUMBER PARSER ---
+    def clean_number(val):
+        if pd.isna(val): return None
+        try:
+            if isinstance(val, str):
+                val = val.replace(',', '').strip()
+            return float(val)
+        except:
+            return None
+
+    # --- HELPER: GENERATE HISTORICAL DATAFRAME ---
+    def get_historical_df():
+        records = []
+        for year, data in HISTORICAL_DATA.items():
+            for clinic_id, rvu in data.items():
+                if clinic_id in CLINIC_CONFIG:
+                    records.append({
+                        "ID": clinic_id,
+                        "Name": CLINIC_CONFIG[clinic_id]["name"],
+                        "Year": year,
+                        "Total RVUs": rvu,
+                        "Source": "Historical"
+                    })
+        return pd.DataFrame(records)
 
     # --- HELPER: INSIGHT GENERATOR ---
     def generate_narrative(df, entity_type="Provider", metric_col="Total RVUs", unit="wRVUs"):
@@ -193,64 +219,70 @@ if check_password():
 
     def parse_visits_sheet(df, filename_date):
         records = []
-        year_target = str(filename_date.year) 
         
-        # 1. SMART HEADER SCAN
-        ov_col_idx = None
-        np_col_idx = None
+        # 1. FIND THE "PHYSICIANS ONLY" ANCHOR ROW
         data_start_row = -1
         
         for i in range(min(20, len(df))):
-            row_vals = [str(v).strip() for v in df.iloc[i].values]
-            # Identify columns matching the Target Year
-            year_indices = [idx for idx, val in enumerate(row_vals) if year_target in val]
-            if len(year_indices) >= 1:
-                ov_col_idx = year_indices[0] # First occurence -> Total Visits
-                if len(year_indices) >= 2:
-                    np_col_idx = year_indices[1] # Second occurrence -> New Patients
-                data_start_row = i + 1 
+            row_vals = [str(v).strip().upper() for v in df.iloc[i].values]
+            # Check for the literal string "PHYSICIANS ONLY" in the first few columns
+            if "PHYSICIANS ONLY" in row_vals[0:5]:
+                data_start_row = i + 1 # Data starts one row below
                 break
-
-        # 2. FALLBACK DEFAULTS (Based on files)
-        if ov_col_idx is None: ov_col_idx = 2 # Column C
-        if np_col_idx is None: np_col_idx = 9 # Column J (approx)
-        if data_start_row == -1: data_start_row = 8
         
-        # 3. EXTRACT DATA WITH SAFE FETCH
+        # Fallback if anchor not found (use provider scan)
+        if data_start_row == -1:
+            for i in range(min(20, len(df))):
+                val = str(df.iloc[i, 1]).strip() # Check Col B
+                if clean_provider_name(val) in PROVIDER_CONFIG:
+                    data_start_row = i
+                    break
+        
+        if data_start_row == -1: return pd.DataFrame()
+
+        # 2. EXTRACT DATA
+        # Hardcoded indices based on user file analysis:
+        # Name = Col 1 (B)
+        # Visits = Col 2 (C)
+        # New Pts = Col 13 (N) - typically
+        
+        ov_idx = 2
+        np_idx = 13
+
         for i in range(data_start_row, len(df)):
             row = df.iloc[i]
             
-            # --- SAFE FETCH HELPER ---
-            def safe_get(idx):
-                if idx < 0 or idx >= len(row): return None
-                return row[idx]
+            # Helper to safely get value from row
+            def get_val(idx):
+                if idx < len(row): return row[idx]
+                return None
 
-            # CHECK NAME (Try Col A and Col B)
-            prov_name_raw = str(safe_get(1)).strip()
+            # Check Name in Column B (index 1)
+            prov_name_raw = str(get_val(1)).strip()
             
-            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'none', 'physician', 'amount', 'none']: 
+            # Skip invalid rows
+            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'none', 'physician', 'amount', 'total']: 
                 continue
             
+            # Stop if we hit a "Total" row
             if "Total" in prov_name_raw: 
                 break 
                 
             clean_name = clean_provider_name(prov_name_raw)
             if not clean_name or clean_name not in PROVIDER_CONFIG: continue
 
-            # GET VALUES (With index protection)
+            # Get Visits (Check Col C and neighbors)
             visits = 0
-            new_patients = 0
-            
-            # Scan neighbors for data (handles merged cell offsets)
             for offset in [0, 1, -1]:
-                val = clean_number(safe_get(ov_col_idx + offset))
-                if val is not None:
+                val = clean_number(get_val(ov_idx + offset))
+                if val is not None: 
                     visits = val
                     break
             
-            for offset in [0, 1, -1, 2, 3, 4]: # Wide net for New Patients
-                target = np_col_idx if np_col_idx else 10
-                val = clean_number(safe_get(target + offset))
+            # Get New Patients (Check Col N and neighbors)
+            new_patients = 0
+            for offset in [0, 1, -1, 2]:
+                val = clean_number(get_val(np_idx + offset))
                 if val is not None:
                     new_patients = val
                     break
@@ -287,15 +319,11 @@ if check_password():
 
             if "NEW PATIENTS" in filename or "NEW PT" in filename:
                 file_date = get_date_from_filename(filename)
-                found_sheet = False
                 for sheet_name, df in xls.items():
                     if "PHYS YTD OV" in sheet_name.upper():
                         res = parse_visits_sheet(df, file_date)
                         if not res.empty: 
                             visit_data.append(res)
-                            found_sheet = True
-                if not found_sheet:
-                    debug_log.append(f"Found 'New Patients' file {filename} but could not find/parse 'PHYS YTD OV' sheet.")
                 continue 
 
             if file_tag == "TOPC":
@@ -493,7 +521,34 @@ if check_password():
                                     fig_ind.update_layout(font=dict(size=14))
                                     st.plotly_chart(fig_ind, use_container_width=True)
 
-                            # 3. PIE CHART (Only for Single Clinics)
+                            # 3. HISTORICAL TREND (2019-Present)
+                            if clinic_filter in ["TriStar", "Ascension"]:
+                                with st.container(border=True):
+                                    st.markdown("#### 📈 Long-Term History (2019-Present)")
+                                    
+                                    # Get Historical Data Frame
+                                    df_hist = get_historical_df()
+                                    
+                                    # Filter for current view (TriStar or Ascension)
+                                    target_ids = TRISTAR_IDS if clinic_filter == "TriStar" else ASCENSION_IDS
+                                    df_hist_view = df_hist[df_hist['ID'].isin(target_ids)]
+                                    
+                                    # Group by Year
+                                    hist_trend = df_hist_view.groupby('Year')[['Total RVUs']].sum().reset_index()
+                                    
+                                    # Add current year data if available
+                                    current_year = max_date.year
+                                    ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
+                                    
+                                    # Append current year (projection or actual)
+                                    new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
+                                    full_trend = pd.concat([hist_trend, new_row], ignore_index=True)
+                                    
+                                    fig_long = px.bar(full_trend, x='Year', y='Total RVUs', text_auto='.2s', title=f"{view_title} Annual Volume")
+                                    fig_long.update_layout(font=dict(size=14))
+                                    st.plotly_chart(fig_long, use_container_width=True)
+
+                            # 4. PIE CHART (Only for Single Clinics)
                             if target_tag and not df_provider_raw.empty:
                                 clinic_prov_df = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
                                 if not clinic_prov_df.empty:
@@ -508,7 +563,7 @@ if check_password():
                                             fig_pie.update_layout(font=dict(size=14))
                                             st.plotly_chart(fig_pie, use_container_width=True)
                             
-                            # 4. TABLES (Show for ALL views now)
+                            # 5. TABLES (Show for ALL views now)
                             c1, c2 = st.columns(2)
                             with c1:
                                 with st.container(border=True):
