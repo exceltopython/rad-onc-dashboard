@@ -244,56 +244,63 @@ if check_password():
     def parse_visits_sheet(df, filename_date):
         records = []
         
-        # 1. FIND "PHYSICIANS ONLY" ANCHOR
+        # 1. LANDMARK SEARCH (Find Header Row & Columns by Text)
         data_start_row = -1
-        name_col_idx = 1 # Default Col B
+        name_col_idx = 1 # Default
+        ov_col_idx = None
+        np_col_idx = None
         
+        # Scan top 20 rows for keywords
         for i in range(min(20, len(df))):
             row_vals = [str(v).strip().upper() for v in df.iloc[i].values]
+            
+            # Anchor 1: "PHYSICIANS ONLY" (Data starts below this)
             if "PHYSICIANS ONLY" in row_vals:
                 data_start_row = i + 1
-                try: name_col_idx = row_vals.index("PHYSICIANS ONLY")
-                except: pass
-                break
-        
-        # Fallback
-        if data_start_row == -1: 
-            data_start_row = 8
-            name_col_idx = 1
+            
+            # Anchor 2: "YTD OFFICE VISITS" (Col Index)
+            # Find closest 'Amount' or Year column to this header
+            for idx, val in enumerate(row_vals):
+                if "OFFICE VISITS" in val:
+                    # Look 1-2 cols right for the data column
+                    ov_col_idx = idx + 1 
+                if "NEW PATIENTS" in val:
+                    # Look 1-2 cols right for the data column
+                    np_col_idx = idx + 1
 
-        # 2. COLUMNS (Based on standard layout: Name=B, Visits=C, NP=N)
-        ov_col_idx = 2
-        np_col_idx = 13
+        # Fallback Defaults if scanning fails
+        if data_start_row == -1: data_start_row = 8
+        if ov_col_idx is None: ov_col_idx = 2 # Col C
+        if np_col_idx is None: np_col_idx = 13 # Col N
 
-        # 3. EXTRACT
+        # 2. EXTRACT DATA
         for i in range(data_start_row, len(df)):
             row = df.iloc[i]
             
-            # Helper to safe get
             def get_safe(idx):
                 if idx < 0 or idx >= len(row): return None
                 return row[idx]
 
-            # Check Name
-            prov_name_raw = str(get_safe(name_col_idx)).strip()
+            # Check Name (Col B / Index 1)
+            prov_name_raw = str(get_safe(1)).strip()
             
             if not prov_name_raw or prov_name_raw.lower() in ['nan', 'none', 'physician', 'amount', 'total']: 
                 continue
-            
             if "Total" in prov_name_raw: 
                 break 
                 
             clean_name = clean_provider_name(prov_name_raw)
             if not clean_name or clean_name not in PROVIDER_CONFIG: continue
 
-            # Get Values (with neighbor scanning for merged cells)
+            # Get Visits (Check target & neighbors)
             visits = 0
             for offset in [0, 1, -1]:
                 val = clean_number(get_safe(ov_col_idx + offset))
-                if val is not None:
+                if val is not None: 
                     visits = val
                     break
             
+            # Get New Patients (Check target & neighbors)
             new_patients = 0
             for offset in [0, 1, -1, 2]:
                 val = clean_number(get_safe(np_col_idx + offset))
@@ -583,42 +590,31 @@ if check_password():
                             if target_tag and not df_provider_raw.empty:
                                 clinic_prov_df = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
                                 if not clinic_prov_df.empty:
-                                    # Create two Pie Charts: Last 12 Months vs Last Quarter
-                                    
-                                    # A. Last 12 Months
                                     min_pie_date = max_date - pd.DateOffset(months=11)
                                     pie_12m = clinic_prov_df[clinic_prov_df['Month_Clean'] >= min_pie_date]
                                     pie_agg_12m = pie_12m.groupby('Name')[['Total RVUs']].sum().reset_index()
                                     
-                                    # B. Last Quarter
                                     latest_q = clinic_prov_df['Quarter'].max()
                                     pie_q = clinic_prov_df[clinic_prov_df['Quarter'] == latest_q]
                                     pie_agg_q = pie_q.groupby('Name')[['Total RVUs']].sum().reset_index()
 
                                     with st.container(border=True):
                                         st.markdown(f"#### 🍰 Work Breakdown: Who performed the work?")
-                                        
                                         col_pie1, col_pie2 = st.columns(2)
-                                        
                                         with col_pie1:
                                             if not pie_agg_12m.empty:
                                                 fig_p1 = px.pie(pie_agg_12m, values='Total RVUs', names='Name', hole=0.4, title="Last 12 Months")
                                                 fig_p1.update_traces(textposition='inside', textinfo='percent+label')
                                                 fig_p1.update_layout(font=dict(size=14))
                                                 st.plotly_chart(fig_p1, use_container_width=True)
-                                            else:
-                                                st.info("No 12-month data.")
-
                                         with col_pie2:
                                             if not pie_agg_q.empty:
                                                 fig_p2 = px.pie(pie_agg_q, values='Total RVUs', names='Name', hole=0.4, title=f"Most Recent Quarter ({latest_q})")
                                                 fig_p2.update_traces(textposition='inside', textinfo='percent+label')
                                                 fig_p2.update_layout(font=dict(size=14))
                                                 st.plotly_chart(fig_p2, use_container_width=True)
-                                            else:
-                                                st.info("No quarterly data.")
                             
-                            # 5. TABLES (Show for ALL views now)
+                            # 5. TABLES
                             if not df_view.empty:
                                 c1, c2 = st.columns(2)
                                 with c1:
@@ -692,7 +688,6 @@ if check_password():
                                     fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), 
                                                     x='Total Visits', y='Name', orientation='h', text_auto=True,
                                                     color='Total Visits', color_continuous_scale='Blues')
-                                    # HEIGHT FIX
                                     fig_ov.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_ov, use_container_width=True)
                             with c_ov2:
@@ -701,7 +696,6 @@ if check_password():
                                     fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), 
                                                     x='New Patients', y='Name', orientation='h', text_auto=True,
                                                     color='New Patients', color_continuous_scale='Greens')
-                                    # HEIGHT FIX
                                     fig_np.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_np, use_container_width=True)
 
