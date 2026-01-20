@@ -90,21 +90,30 @@ if check_password():
             return pd.to_datetime(f"{month_str} {year_str}")
         return datetime.now()
 
-    # --- HELPER: CLEAN NAMES (CRASH PROOF) ---
+    # --- HELPER: CLEAN NAMES ---
     def clean_provider_name(name_str):
         try:
             if not isinstance(name_str, str): return ""
             name_str = name_str.strip()
             if not name_str: return ""
-            # Remove trailing commas or extra titles
-            if "," in name_str:
-                name_str = name_str.split(",")[0].strip()
-            # Extract first word (Last Name)
+            if "," in name_str: return name_str.split(",")[0].strip()
             parts = name_str.split()
             if not parts: return ""
             return parts[0].strip()
         except:
             return ""
+
+    # --- HELPER: SAFE NUMBER PARSER (CRUCIAL FIX) ---
+    def clean_number(val):
+        """Removes commas and handles string numbers before conversion."""
+        if pd.isna(val): return None
+        try:
+            # If it's a string like "1,200.0", strip comma
+            if isinstance(val, str):
+                val = val.replace(',', '').strip()
+            return float(val)
+        except:
+            return None
 
     # --- HELPER: INSIGHT GENERATOR ---
     def generate_narrative(df, entity_type="Provider", metric_col="Total RVUs", unit="wRVUs"):
@@ -185,31 +194,21 @@ if check_password():
         year_target = str(filename_date.year) 
         
         # 1. SMART YEAR SCAN
-        # We look for the YEAR in the first 20 rows.
-        # First finding = Office Visits Column.
-        # Second finding = New Patients Column.
-        
         ov_col_idx = None
         np_col_idx = None
         data_start_row = -1
         
         for i in range(min(20, len(df))):
             row_vals = [str(v).strip() for v in df.iloc[i].values]
-            
-            # Find all columns containing the Target Year
             year_indices = [idx for idx, val in enumerate(row_vals) if year_target in val]
             
             if len(year_indices) >= 1:
-                # Found the header row!
-                ov_col_idx = year_indices[0] # First occurrence = Office Visits
-                if len(year_indices) >= 2:
-                    np_col_idx = year_indices[1] # Second occurrence = New Patients
-                
-                data_start_row = i + 1
+                ov_col_idx = year_indices[0] 
+                if len(year_indices) >= 2: np_col_idx = year_indices[1]
+                data_start_row = i + 1 
                 break
 
         # 2. FALLBACK (Based on your updated info: G & N)
-        # G is index 6. N is index 13.
         if ov_col_idx is None: ov_col_idx = 6  # Col G
         if np_col_idx is None: np_col_idx = 13 # Col N
         if data_start_row == -1: data_start_row = 8 
@@ -217,36 +216,33 @@ if check_password():
         # 3. DATA EXTRACTION
         for i in range(data_start_row, len(df)):
             row = df.iloc[i]
-            
-            # Safety check: Ensure row is long enough
             if len(row) <= max(ov_col_idx, np_col_idx): continue
             
-            # NAME is in Column B (Index 1)
+            # Name in Column B (Index 1)
             prov_name_raw = str(row[1]).strip()
-            
-            # Skip empty/header/footer rows
-            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'physician', 'amount', 'none']: 
-                continue
-            if "Total" in prov_name_raw: 
-                break 
+            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'physician', 'amount', 'none']: continue
+            if "Total" in prov_name_raw: break 
                 
             clean_name = clean_provider_name(prov_name_raw)
             if not clean_name or clean_name not in PROVIDER_CONFIG: continue
 
-            try:
-                # Office Visits
-                ov_val = pd.to_numeric(row[ov_col_idx], errors='coerce')
-                # If merged cell issue (value in left col), try one left
-                if pd.isna(ov_val): ov_val = pd.to_numeric(row[ov_col_idx-1], errors='coerce')
-                visits = ov_val if pd.notna(ov_val) else 0
-                
-                # New Patients
-                np_val = pd.to_numeric(row[np_col_idx], errors='coerce')
-                if pd.isna(np_val): np_val = pd.to_numeric(row[np_col_idx-1], errors='coerce')
-                new_patients = np_val if pd.notna(np_val) else 0
-            except:
-                visits = 0
-                new_patients = 0
+            # READ VALUES (Wide Net + Comma Clean)
+            visits = 0
+            new_patients = 0
+            
+            # Scan OV Column + Left/Right for data
+            for offset in [0, -1, 1]:
+                val = clean_number(row[ov_col_idx + offset])
+                if val is not None:
+                    visits = val
+                    break
+            
+            # Scan NP Column + Left/Right for data
+            for offset in [0, -1, 1]:
+                val = clean_number(row[np_col_idx + offset])
+                if val is not None:
+                    new_patients = val
+                    break
 
             records.append({
                 "Name": clean_name,
@@ -278,12 +274,10 @@ if check_password():
             elif "TROC" in filename: file_tag = "TROC"
             elif "PROTON" in filename or "TOPC" in filename: file_tag = "TOPC"
 
-            # --- VISIT DATA DETECTION ---
             if "NEW PATIENTS" in filename or "NEW PT" in filename:
                 file_date = get_date_from_filename(filename)
                 found_sheet = False
                 for sheet_name, df in xls.items():
-                    # Flexible matching for sheet name
                     if "PHYS YTD OV" in sheet_name.upper():
                         res = parse_visits_sheet(df, file_date)
                         if not res.empty: 
@@ -293,7 +287,6 @@ if check_password():
                     debug_log.append(f"Found 'New Patients' file {filename} but could not find/parse 'PHYS YTD OV' sheet.")
                 continue 
 
-            # --- STANDARD RVU PROCESSING ---
             if file_tag == "TOPC":
                 proton_providers_temp = []
                 for sheet_name, df in xls.items():
@@ -525,7 +518,8 @@ if check_password():
                                     fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), 
                                                     x='Total Visits', y='Name', orientation='h', text_auto=True,
                                                     color='Total Visits', color_continuous_scale='Blues')
-                                    fig_ov.update_layout(font=dict(size=14))
+                                    # CHART HEIGHT FIX
+                                    fig_ov.update_layout(font=dict(size=14), height=800)
                                     st.plotly_chart(fig_ov, use_container_width=True)
                             with c_ov2:
                                 with st.container(border=True):
@@ -533,7 +527,8 @@ if check_password():
                                     fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), 
                                                     x='New Patients', y='Name', orientation='h', text_auto=True,
                                                     color='New Patients', color_continuous_scale='Greens')
-                                    fig_np.update_layout(font=dict(size=14))
+                                    # CHART HEIGHT FIX
+                                    fig_np.update_layout(font=dict(size=14), height=800)
                                     st.plotly_chart(fig_np, use_container_width=True)
 
             with tab_app:
