@@ -31,7 +31,7 @@ if check_password():
     CLINIC_CONFIG = {
         "CENT": {"name": "Centennial", "fte": 2.0},
         "Dickson": {"name": "Horizon", "fte": 1.0},
-        "LROC": {"name": "LROC", "fte": 1.0},
+        "LROC": {"name": "LROC (Lebanon)", "fte": 1.0},
         "Skyline": {"name": "Skyline", "fte": 1.0},
         "Midtown": {"name": "ST Midtown", "fte": 1.6},
         "MURF": {"name": "ST Rutherford", "fte": 3.0},
@@ -39,7 +39,7 @@ if check_password():
         "Stonecrest": {"name": "StoneCrest", "fte": 1.0},
         "Summit": {"name": "Summit", "fte": 1.0},
         "Sumner": {"name": "Sumner", "fte": 1.5},
-        "TROC": {"name": "TROC", "fte": 0.6},
+        "TROC": {"name": "TROC (Tullahoma)", "fte": 0.6},
         "TOPC": {"name": "TN Proton Center", "fte": 0.0}
     }
 
@@ -96,17 +96,14 @@ if check_password():
             if not isinstance(name_str, str): return ""
             name_str = name_str.strip()
             if not name_str: return ""
-            
-            # Remove MD/DO titles and commas
+            # Remove trailing commas or extra titles
             if "," in name_str:
                 name_str = name_str.split(",")[0].strip()
-            
-            # Split by space and take first word (Last Name)
+            # Extract first word (Last Name)
             parts = name_str.split()
             if not parts: return ""
-            
             return parts[0].strip()
-        except Exception:
+        except:
             return ""
 
     # --- HELPER: INSIGHT GENERATOR ---
@@ -187,62 +184,65 @@ if check_password():
         records = []
         year_target = str(filename_date.year) 
         
-        # 1. Header Scan (Dynamic)
+        # 1. SMART YEAR SCAN
+        # We look for the YEAR in the first 20 rows.
+        # First finding = Office Visits Column.
+        # Second finding = New Patients Column.
+        
         ov_col_idx = None
         np_col_idx = None
         data_start_row = -1
         
-        # Scan first 20 rows
         for i in range(min(20, len(df))):
             row_vals = [str(v).strip() for v in df.iloc[i].values]
+            
+            # Find all columns containing the Target Year
             year_indices = [idx for idx, val in enumerate(row_vals) if year_target in val]
             
             if len(year_indices) >= 1:
-                ov_col_idx = year_indices[0] # First hit = Total Visits
-                if len(year_indices) >= 2: 
-                    np_col_idx = year_indices[1] # Second hit = New Patients
+                # Found the header row!
+                ov_col_idx = year_indices[0] # First occurrence = Office Visits
+                if len(year_indices) >= 2:
+                    np_col_idx = year_indices[1] # Second occurrence = New Patients
                 
-                data_start_row = i + 1 
+                data_start_row = i + 1
                 break
 
-        # 2. Fallback: Based on file structure (Name=Col 1, Data=Col 2)
-        if ov_col_idx is None: ov_col_idx = 2  # Column C (Index 2)
-        if np_col_idx is None: np_col_idx = 8  # Column I (Index 8)
+        # 2. FALLBACK (Based on your updated info: G & N)
+        # G is index 6. N is index 13.
+        if ov_col_idx is None: ov_col_idx = 6  # Col G
+        if np_col_idx is None: np_col_idx = 13 # Col N
+        if data_start_row == -1: data_start_row = 8 
         
-        # 3. Iterate Data Rows
-        scan_start = 0 if data_start_row == -1 else data_start_row
-        
-        for i in range(scan_start, len(df)):
+        # 3. DATA EXTRACTION
+        for i in range(data_start_row, len(df)):
             row = df.iloc[i]
             
+            # Safety check: Ensure row is long enough
             if len(row) <= max(ov_col_idx, np_col_idx): continue
             
-            # Name is Column B (Index 1)
+            # NAME is in Column B (Index 1)
             prov_name_raw = str(row[1]).strip()
             
-            # CRASH PREVENTION: Check for empty/invalid names first
+            # Skip empty/header/footer rows
             if not prov_name_raw or prov_name_raw.lower() in ['nan', 'physician', 'amount', 'none']: 
                 continue
-                
             if "Total" in prov_name_raw: 
                 break 
                 
             clean_name = clean_provider_name(prov_name_raw)
             if not clean_name or clean_name not in PROVIDER_CONFIG: continue
 
-            # READ VALUES (With strict error handling)
             try:
                 # Office Visits
                 ov_val = pd.to_numeric(row[ov_col_idx], errors='coerce')
-                # Merge fallback: Check left or right if NaN
-                if pd.isna(ov_val): 
-                    ov_val = pd.to_numeric(row[ov_col_idx-1], errors='coerce')
+                # If merged cell issue (value in left col), try one left
+                if pd.isna(ov_val): ov_val = pd.to_numeric(row[ov_col_idx-1], errors='coerce')
                 visits = ov_val if pd.notna(ov_val) else 0
                 
                 # New Patients
                 np_val = pd.to_numeric(row[np_col_idx], errors='coerce')
-                if pd.isna(np_val):
-                    np_val = pd.to_numeric(row[np_col_idx-1], errors='coerce')
+                if pd.isna(np_val): np_val = pd.to_numeric(row[np_col_idx-1], errors='coerce')
                 new_patients = np_val if pd.notna(np_val) else 0
             except:
                 visits = 0
@@ -278,6 +278,7 @@ if check_password():
             elif "TROC" in filename: file_tag = "TROC"
             elif "PROTON" in filename or "TOPC" in filename: file_tag = "TOPC"
 
+            # --- VISIT DATA DETECTION ---
             if "NEW PATIENTS" in filename or "NEW PT" in filename:
                 file_date = get_date_from_filename(filename)
                 found_sheet = False
@@ -292,6 +293,7 @@ if check_password():
                     debug_log.append(f"Found 'New Patients' file {filename} but could not find/parse 'PHYS YTD OV' sheet.")
                 continue 
 
+            # --- STANDARD RVU PROCESSING ---
             if file_tag == "TOPC":
                 proton_providers_temp = []
                 for sheet_name, df in xls.items():
