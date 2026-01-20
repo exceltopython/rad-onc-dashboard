@@ -12,9 +12,6 @@ APP_PASSWORD = "RadOnc2026"
 # ==========================================
 # --- 1. HISTORICAL DATA ENTRY (2019-2024) ---
 # ==========================================
-# Mapped user inputs to internal IDs:
-# CMC -> CENT, Horizon -> Dickson, West -> STW, STR -> MURF, StoneCrest -> Stonecrest
-
 HISTORICAL_DATA = {
     2019: {
         "CENT": 18430, "Dickson": 11420, "Skyline": 13910, "Summit": 14690, "Stonecrest": 8600,
@@ -515,27 +512,28 @@ if check_password():
                         if df_view.empty and clinic_filter not in ["TriStar", "Ascension"]:
                             st.warning(f"No data available for {view_title}.")
                         else:
+                            max_date = df_view['Month_Clean'].max()
+                            st.info(generate_narrative(df_view, f"{view_title} Clinic"))
+                            
                             # 1. TRENDS (Aggregate if Group)
                             with st.container(border=True):
-                                if not df_view.empty:
-                                    max_date = df_view['Month_Clean'].max()
-                                    st.markdown(f"#### 📅 {view_title}: 12-Month Trend")
-                                    min_date = max_date - pd.DateOffset(months=11)
-                                    l12m_c = df_view[df_view['Month_Clean'] >= min_date].sort_values('Month_Clean')
-                                    
-                                    # If Group (TriStar/Ascension), show aggregate line
-                                    if clinic_filter in ["TriStar", "Ascension", "All"]:
-                                        agg_trend = l12m_c.groupby('Month_Clean')[['Total RVUs']].sum().reset_index()
-                                        fig_trend = px.line(agg_trend, x='Month_Clean', y='Total RVUs', markers=True, title="Aggregate Trend")
-                                    else:
-                                        fig_trend = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
-                                    
-                                    fig_trend.update_layout(font=dict(size=14))
-                                    fig_trend.update_yaxes(rangemode="tozero")
-                                    st.plotly_chart(fig_trend, use_container_width=True)
+                                st.markdown(f"#### 📅 {view_title}: 12-Month Trend")
+                                min_date = max_date - pd.DateOffset(months=11)
+                                l12m_c = df_view[df_view['Month_Clean'] >= min_date].sort_values('Month_Clean')
+                                
+                                # If Group (TriStar/Ascension), show aggregate line
+                                if clinic_filter in ["TriStar", "Ascension", "All"]:
+                                    agg_trend = l12m_c.groupby('Month_Clean')[['Total RVUs']].sum().reset_index()
+                                    fig_trend = px.line(agg_trend, x='Month_Clean', y='Total RVUs', markers=True, title="Aggregate Trend")
+                                else:
+                                    fig_trend = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
+                                
+                                fig_trend.update_layout(font=dict(size=14))
+                                fig_trend.update_yaxes(rangemode="tozero")
+                                st.plotly_chart(fig_trend, use_container_width=True)
 
                             # 2. INDIVIDUAL LINES (For Groups)
-                            if clinic_filter in ["TriStar", "Ascension", "All"] and not df_view.empty:
+                            if clinic_filter in ["TriStar", "Ascension", "All"]:
                                 with st.container(border=True):
                                     st.markdown(f"#### 📈 {view_title}: Individual Clinic Trends")
                                     fig_ind = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
@@ -585,16 +583,40 @@ if check_password():
                             if target_tag and not df_provider_raw.empty:
                                 clinic_prov_df = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
                                 if not clinic_prov_df.empty:
+                                    # Create two Pie Charts: Last 12 Months vs Last Quarter
+                                    
+                                    # A. Last 12 Months
                                     min_pie_date = max_date - pd.DateOffset(months=11)
-                                    pie_df = clinic_prov_df[clinic_prov_df['Month_Clean'] >= min_pie_date]
-                                    pie_agg = pie_df.groupby('Name')[['Total RVUs']].sum().reset_index()
-                                    if not pie_agg.empty:
-                                        with st.container(border=True):
-                                            st.markdown(f"#### 🍰 Work Breakdown: Who performed the work? (Last 12 Months)")
-                                            fig_pie = px.pie(pie_agg, values='Total RVUs', names='Name', hole=0.4)
-                                            fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-                                            fig_pie.update_layout(font=dict(size=14))
-                                            st.plotly_chart(fig_pie, use_container_width=True)
+                                    pie_12m = clinic_prov_df[clinic_prov_df['Month_Clean'] >= min_pie_date]
+                                    pie_agg_12m = pie_12m.groupby('Name')[['Total RVUs']].sum().reset_index()
+                                    
+                                    # B. Last Quarter
+                                    latest_q = clinic_prov_df['Quarter'].max()
+                                    pie_q = clinic_prov_df[clinic_prov_df['Quarter'] == latest_q]
+                                    pie_agg_q = pie_q.groupby('Name')[['Total RVUs']].sum().reset_index()
+
+                                    with st.container(border=True):
+                                        st.markdown(f"#### 🍰 Work Breakdown: Who performed the work?")
+                                        
+                                        col_pie1, col_pie2 = st.columns(2)
+                                        
+                                        with col_pie1:
+                                            if not pie_agg_12m.empty:
+                                                fig_p1 = px.pie(pie_agg_12m, values='Total RVUs', names='Name', hole=0.4, title="Last 12 Months")
+                                                fig_p1.update_traces(textposition='inside', textinfo='percent+label')
+                                                fig_p1.update_layout(font=dict(size=14))
+                                                st.plotly_chart(fig_p1, use_container_width=True)
+                                            else:
+                                                st.info("No 12-month data.")
+
+                                        with col_pie2:
+                                            if not pie_agg_q.empty:
+                                                fig_p2 = px.pie(pie_agg_q, values='Total RVUs', names='Name', hole=0.4, title=f"Most Recent Quarter ({latest_q})")
+                                                fig_p2.update_traces(textposition='inside', textinfo='percent+label')
+                                                fig_p2.update_layout(font=dict(size=14))
+                                                st.plotly_chart(fig_p2, use_container_width=True)
+                                            else:
+                                                st.info("No quarterly data.")
                             
                             # 5. TABLES (Show for ALL views now)
                             if not df_view.empty:
