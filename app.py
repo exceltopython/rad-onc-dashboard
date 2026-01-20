@@ -100,7 +100,7 @@ if check_password():
         except:
             return None
 
-    # --- HELPER: CLEAN NAMES (CRASH PROOF) ---
+    # --- HELPER: CLEAN NAMES ---
     def clean_provider_name(name_str):
         try:
             if not isinstance(name_str, str): return ""
@@ -189,44 +189,68 @@ if check_password():
 
     def parse_visits_sheet(df, filename_date):
         records = []
-        year_target = str(filename_date.year) 
         
-        # 1. SMART DUAL-ANCHOR SCAN
-        # Find FIRST occurance of Year (for Total Visits)
-        # Find LAST occurance of Year (for New Patients)
-        ov_col_idx = None
-        np_col_idx = None
+        # 1. FIND DATA ANCHOR (The row with the first provider)
         data_start_row = -1
+        first_prov_row_vals = []
         
         for i in range(min(20, len(df))):
             row_vals = [str(v).strip() for v in df.iloc[i].values]
-            year_indices = [idx for idx, val in enumerate(row_vals) if year_target in val]
-            
-            if len(year_indices) >= 1:
-                ov_col_idx = year_indices[0] # First hit = Total Visits
-                
-                if len(year_indices) >= 2:
-                    np_col_idx = year_indices[1] # Second hit = New Patients
-                else:
-                    # If we only found one year header on this row, scan next few rows for the second table header
-                    # But typically they are on the same row.
-                    pass
-                
-                data_start_row = i + 1 
+            # Check for a known provider or generic "Castle" check if sorted
+            # Checking for any known provider in the config
+            found_prov = False
+            for val in row_vals:
+                cleaned = clean_provider_name(val)
+                if cleaned in PROVIDER_CONFIG:
+                    data_start_row = i
+                    first_prov_row_vals = df.iloc[i].values
+                    found_prov = True
+                    break
+            if found_prov:
                 break
-
-        # 2. FALLBACK if scan fails (based on G/N logic)
-        if ov_col_idx is None: ov_col_idx = 6 # Col G
-        if np_col_idx is None: np_col_idx = 13 # Col N
-        if data_start_row == -1: data_start_row = 8
         
+        if data_start_row == -1: return pd.DataFrame()
+
+        # 2. DETECT COLUMNS BASED ON DATA (Not Headers)
+        # Scan the first provider's row for numbers.
+        # We expect a pattern: [Name] ... [Visits] ... [gap] ... [NewPts]
+        
+        number_indices = []
+        for idx, val in enumerate(first_prov_row_vals):
+            if idx < 2: continue # Skip Name cols
+            if clean_number(val) is not None:
+                number_indices.append(idx)
+        
+        # We need at least 2 distinct blocks of numbers (Visits and New Patients)
+        ov_col_idx = None
+        np_col_idx = None
+        
+        if number_indices:
+            # 1st number found is Total Visits (2025)
+            ov_col_idx = number_indices[0]
+            
+            # Find the "New Patients" block (Look for a gap in indices)
+            # e.g. indices [3, 4, 5, 10, 11, 12] -> Gap between 5 and 10
+            for i in range(len(number_indices) - 1):
+                if number_indices[i+1] > number_indices[i] + 2: # A gap > 2 columns implies new table
+                    np_col_idx = number_indices[i+1]
+                    break
+            
+            # Fallback: If no clear gap, assume it's the 4th numeric column (Visits, Diff, PrevYear, NewPts)
+            if np_col_idx is None and len(number_indices) >= 4:
+                np_col_idx = number_indices[3] # 4th number
+        
+        # Final Fallback if detection completely fails
+        if ov_col_idx is None: ov_col_idx = 3 # D
+        if np_col_idx is None: np_col_idx = 10 # K
+
         # 3. EXTRACT DATA
         for i in range(data_start_row, len(df)):
             row = df.iloc[i]
-            if len(row) <= max(ov_col_idx, np_col_idx): continue
             
-            # Name Check (Column B / Index 1)
+            # Name Check (Col B / Index 1)
             prov_name_raw = str(row[1]).strip()
+            
             if not prov_name_raw or prov_name_raw.lower() in ['nan', 'physician', 'amount', 'none']: 
                 continue
             if "Total" in prov_name_raw: 
@@ -235,24 +259,17 @@ if check_password():
             clean_name = clean_provider_name(prov_name_raw)
             if not clean_name or clean_name not in PROVIDER_CONFIG: continue
 
-            # Get Values using Clean Number (Handles commas)
-            # Check identified column + 1 neighbor to handle merges
-            
-            # Office Visits
+            # Get Values
             visits = 0
-            for offset in [0, -1, 1]:
-                val = clean_number(row[ov_col_idx + offset])
-                if val is not None:
-                    visits = val
-                    break
-            
-            # New Patients
             new_patients = 0
-            for offset in [0, -1, 1]:
-                val = clean_number(row[np_col_idx + offset])
-                if val is not None:
-                    new_patients = val
-                    break
+            
+            if ov_col_idx < len(row):
+                val = clean_number(row[ov_col_idx])
+                visits = val if val is not None else 0
+            
+            if np_col_idx and np_col_idx < len(row):
+                val = clean_number(row[np_col_idx])
+                new_patients = val if val is not None else 0
 
             records.append({
                 "Name": clean_name,
@@ -284,7 +301,6 @@ if check_password():
             elif "TROC" in filename: file_tag = "TROC"
             elif "PROTON" in filename or "TOPC" in filename: file_tag = "TOPC"
 
-            # --- VISIT DATA DETECTION ---
             if "NEW PATIENTS" in filename or "NEW PT" in filename:
                 file_date = get_date_from_filename(filename)
                 found_sheet = False
@@ -298,7 +314,6 @@ if check_password():
                     debug_log.append(f"Found 'New Patients' file {filename} but could not find/parse 'PHYS YTD OV' sheet.")
                 continue 
 
-            # --- STANDARD RVU PROCESSING ---
             if file_tag == "TOPC":
                 proton_providers_temp = []
                 for sheet_name, df in xls.items():
@@ -531,7 +546,7 @@ if check_password():
                                                     x='Total Visits', y='Name', orientation='h', text_auto=True,
                                                     color='Total Visits', color_continuous_scale='Blues')
                                     # HEIGHT FIX
-                                    fig_ov.update_layout(font=dict(size=14), height=800)
+                                    fig_ov.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_ov, use_container_width=True)
                             with c_ov2:
                                 with st.container(border=True):
@@ -540,7 +555,7 @@ if check_password():
                                                     x='New Patients', y='Name', orientation='h', text_auto=True,
                                                     color='New Patients', color_continuous_scale='Greens')
                                     # HEIGHT FIX
-                                    fig_np.update_layout(font=dict(size=14), height=800)
+                                    fig_np.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_np, use_container_width=True)
 
             with tab_app:
