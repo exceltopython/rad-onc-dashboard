@@ -234,6 +234,7 @@ if check_password():
         """
         return narrative
 
+    # --- PARSER FOR SUMNER PROV SHEET (TAGGED AS "sumner_detail") ---
     def parse_sumner_prov_sheet(df, filename_date):
         records = []
         current_provider = None
@@ -259,7 +260,8 @@ if check_password():
                             "Type": "provider", "ID": "Sumner", "Name": current_provider, "FTE": 1.0,
                             "Month": filename_date, "Total RVUs": total_rvu, "RVU per FTE": total_rvu,
                             "Clinic_Tag": "Sumner", "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
-                            "Month_Label": filename_date.strftime('%b-%y')
+                            "Month_Label": filename_date.strftime('%b-%y'),
+                            "source_type": "sumner_detail" # TAGGED FOR EXCLUSION IN MD TOTALS
                         })
                 current_provider = potential_name
                 term_counts = {k: 0 for k in target_terms}
@@ -283,7 +285,8 @@ if check_password():
                     "Type": "provider", "ID": "Sumner", "Name": current_provider, "FTE": 1.0,
                     "Month": filename_date, "Total RVUs": total_rvu, "RVU per FTE": total_rvu,
                     "Clinic_Tag": "Sumner", "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
-                    "Month_Label": filename_date.strftime('%b-%y')
+                    "Month_Label": filename_date.strftime('%b-%y'),
+                    "source_type": "sumner_detail"
                 })
         return pd.DataFrame(records)
 
@@ -317,7 +320,8 @@ if check_password():
                     "Month": header_val,
                     "Total RVUs": col_sum,
                     "RVU per FTE": col_sum / fte if fte > 0 else 0,
-                    "Clinic_Tag": clinic_tag
+                    "Clinic_Tag": clinic_tag,
+                    "source_type": "standard"
                 })
         return pd.DataFrame(records)
 
@@ -339,12 +343,13 @@ if check_password():
             for i in range(data_start_row, len(df)):
                 row = df.iloc[i].values
                 
-                # CHECK FOR "TOTAL" ROW -> DO NOT BREAK, JUST CONTINUE
-                row_str = " ".join([str(x).upper() for x in row[:5]])
-                if "TOTAL" in row_str: continue 
+                # IGNORE "TOTAL" ROW (BUT DON'T BREAK)
+                row_str_check = " ".join([str(x).upper() for x in row[:5]])
+                if "TOTAL" in row_str_check: continue
 
+                # WIDE SEARCH FOR NAME
                 matched_name = None
-                for c in range(min(10, len(row))): # Scan up to 10 cols
+                for c in range(min(10, len(row))): 
                     val = str(row[c]).strip()
                     matched_name = match_provider(val) 
                     if matched_name: break
@@ -375,14 +380,11 @@ if check_password():
                 elif len(numbers) == 3:
                     visits = numbers[0]
                     new_patients = numbers[2]
-                elif len(numbers) == 2:
+                elif len(numbers) == 2: # [Visits, NP]
                     visits = numbers[0]
                     new_patients = numbers[1]
                 elif len(numbers) == 1:
                     visits = numbers[0]
-
-                # LOGGING
-                local_logs.append(f"Row {i} ({matched_name}): V={visits}, NP={new_patients}")
 
                 records.append({
                     "Name": matched_name,
@@ -395,9 +397,8 @@ if check_password():
                     "Month_Label": filename_date.strftime('%b-%y'),
                     "Clinic_Tag": clinic_tag
                 })
-        except Exception as e:
-            local_logs.append(f"Err: {str(e)}")
-            return pd.DataFrame(), local_logs
+        except Exception:
+            return pd.DataFrame(), []
             
         return pd.DataFrame(records), local_logs
 
@@ -467,7 +468,8 @@ if check_password():
                             "FTE": row['FTE'], "Month": row['Month'],
                             "Total RVUs": row['Total RVUs'],
                             "RVU per FTE": row['Total RVUs'] / row['FTE'] if row['FTE'] > 0 else 0,
-                            "Clinic_Tag": "TOPC"
+                            "Clinic_Tag": "TOPC",
+                            "source_type": "standard"
                          })
                     clinic_data.append(pd.DataFrame(topc_records))
             else:
@@ -516,14 +518,17 @@ if check_password():
 
         df_provider_global = pd.DataFrame()
         if not df_provider_raw.empty:
-            df_provider_raw['Month_Clean'] = pd.to_datetime(df_provider_raw['Month'], format='%b-%y', errors='coerce')
-            mask = df_provider_raw['Month_Clean'].isna()
-            if mask.any(): df_provider_raw.loc[mask, 'Month_Clean'] = pd.to_datetime(df_provider_raw.loc[mask, 'Month'], errors='coerce')
-            df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
-            df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
-            df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
+            # EXCLUDE "sumner_detail" FROM MD ANALYTICS AGGREGATION
+            df_md_clean = df_provider_raw[df_provider_raw.get('source_type', 'standard') != 'sumner_detail'].copy()
             
-            df_provider_global = df_provider_raw.groupby(['Name', 'ID', 'Month_Clean'], as_index=False).agg({
+            df_md_clean['Month_Clean'] = pd.to_datetime(df_md_clean['Month'], format='%b-%y', errors='coerce')
+            mask = df_md_clean['Month_Clean'].isna()
+            if mask.any(): df_md_clean.loc[mask, 'Month_Clean'] = pd.to_datetime(df_md_clean.loc[mask, 'Month'], errors='coerce')
+            df_md_clean.dropna(subset=['Month_Clean'], inplace=True)
+            df_md_clean['Month_Label'] = df_md_clean['Month_Clean'].dt.strftime('%b-%y')
+            df_md_clean['Quarter'] = df_md_clean['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
+            
+            df_provider_global = df_md_clean.groupby(['Name', 'ID', 'Month_Clean'], as_index=False).agg({
                 'Total RVUs': 'sum', 'FTE': 'max', 'Month': 'first', 'Quarter': 'first', 'Month_Label': 'first'
             })
             df_provider_global['RVU per FTE'] = df_provider_global.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
@@ -664,6 +669,7 @@ if check_password():
                                         hist_trend = df_hist_view.groupby('Year')[['Total RVUs']].sum().reset_index()
                                         if not df_view.empty:
                                             current_year = max_date.year
+                                            # Ensure we don't double count if grouping logic changes
                                             ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
                                             if ytd_curr > 0:
                                                 new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
@@ -699,18 +705,24 @@ if check_password():
                                     else:
                                         st.info("No historical data available.")
 
-                            # 4. PIE CHARTS
-                            if target_tag and not df_provider_raw.empty:
-                                clinic_prov_df = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
-                                if not clinic_prov_df.empty:
-                                    min_pie_date = max_date - pd.DateOffset(months=11)
-                                    pie_12m = clinic_prov_df[clinic_prov_df['Month_Clean'] >= min_pie_date]
-                                    pie_agg_12m = pie_12m.groupby('Name')[['Total RVUs']].sum().reset_index()
-                                    
-                                    latest_q = clinic_prov_df['Quarter'].max()
-                                    pie_q = clinic_prov_df[clinic_prov_df['Quarter'] == latest_q]
-                                    pie_agg_q = pie_q.groupby('Name')[['Total RVUs']].sum().reset_index()
+                            # 4. PIE CHARTS (Only for Single Clinics with DETAIL data)
+                            # For Sumner, we specifically want the 'sumner_detail' data
+                            pie_data_source = df_provider_raw
+                            if target_tag == 'Sumner':
+                                pie_data_source = df_provider_raw[df_provider_raw.get('source_type', '') == 'sumner_detail']
+                            elif target_tag:
+                                pie_data_source = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
 
+                            if not pie_data_source.empty:
+                                min_pie_date = max_date - pd.DateOffset(months=11)
+                                pie_12m = pie_data_source[pie_data_source['Month_Clean'] >= min_pie_date]
+                                pie_agg_12m = pie_12m.groupby('Name')[['Total RVUs']].sum().reset_index()
+                                
+                                latest_q = pie_data_source['Quarter'].max()
+                                pie_q = pie_data_source[pie_data_source['Quarter'] == latest_q]
+                                pie_agg_q = pie_q.groupby('Name')[['Total RVUs']].sum().reset_index()
+
+                                if not pie_agg_12m.empty:
                                     with st.container(border=True):
                                         st.markdown(f"#### 🍰 Work Breakdown: Who performed the work?")
                                         col_pie1, col_pie2 = st.columns(2)
