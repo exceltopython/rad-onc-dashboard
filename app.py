@@ -190,67 +190,32 @@ if check_password():
     def parse_visits_sheet(df, filename_date):
         records = []
         
-        # 1. FIND DATA ANCHOR (The row with the first provider)
-        data_start_row = -1
-        first_prov_row_vals = []
+        # TARGET COORDINATES (Based on raw CSV analysis)
+        # Name: Column B (Index 1)
+        # Total Visits: Column C (Index 2)
+        # New Patients: Column N (Index 13)
+        ov_col_idx = 2
+        np_col_idx = 13
         
+        # Find start row
+        data_start_row = -1
         for i in range(min(20, len(df))):
             row_vals = [str(v).strip() for v in df.iloc[i].values]
-            # Check for a known provider or generic "Castle" check if sorted
-            # Checking for any known provider in the config
-            found_prov = False
+            # Check for any known provider
             for val in row_vals:
-                cleaned = clean_provider_name(val)
-                if cleaned in PROVIDER_CONFIG:
+                if clean_provider_name(val) in PROVIDER_CONFIG:
                     data_start_row = i
-                    first_prov_row_vals = df.iloc[i].values
-                    found_prov = True
                     break
-            if found_prov:
-                break
+            if data_start_row != -1: break
         
-        if data_start_row == -1: return pd.DataFrame()
+        if data_start_row == -1: return pd.DataFrame() # No providers found
 
-        # 2. DETECT COLUMNS BASED ON DATA (Not Headers)
-        # Scan the first provider's row for numbers.
-        # We expect a pattern: [Name] ... [Visits] ... [gap] ... [NewPts]
-        
-        number_indices = []
-        for idx, val in enumerate(first_prov_row_vals):
-            if idx < 2: continue # Skip Name cols
-            if clean_number(val) is not None:
-                number_indices.append(idx)
-        
-        # We need at least 2 distinct blocks of numbers (Visits and New Patients)
-        ov_col_idx = None
-        np_col_idx = None
-        
-        if number_indices:
-            # 1st number found is Total Visits (2025)
-            ov_col_idx = number_indices[0]
-            
-            # Find the "New Patients" block (Look for a gap in indices)
-            # e.g. indices [3, 4, 5, 10, 11, 12] -> Gap between 5 and 10
-            for i in range(len(number_indices) - 1):
-                if number_indices[i+1] > number_indices[i] + 2: # A gap > 2 columns implies new table
-                    np_col_idx = number_indices[i+1]
-                    break
-            
-            # Fallback: If no clear gap, assume it's the 4th numeric column (Visits, Diff, PrevYear, NewPts)
-            if np_col_idx is None and len(number_indices) >= 4:
-                np_col_idx = number_indices[3] # 4th number
-        
-        # Final Fallback if detection completely fails
-        if ov_col_idx is None: ov_col_idx = 3 # D
-        if np_col_idx is None: np_col_idx = 10 # K
-
-        # 3. EXTRACT DATA
+        # EXTRACT DATA
         for i in range(data_start_row, len(df)):
             row = df.iloc[i]
+            if len(row) <= max(ov_col_idx, np_col_idx): continue
             
-            # Name Check (Col B / Index 1)
             prov_name_raw = str(row[1]).strip()
-            
             if not prov_name_raw or prov_name_raw.lower() in ['nan', 'physician', 'amount', 'none']: 
                 continue
             if "Total" in prov_name_raw: 
@@ -259,17 +224,21 @@ if check_password():
             clean_name = clean_provider_name(prov_name_raw)
             if not clean_name or clean_name not in PROVIDER_CONFIG: continue
 
-            # Get Values
+            # Get Values using Clean Number
+            # We look at target index, plus neighbors just in case of slight shifts
             visits = 0
+            for offset in [0, 1, -1]: 
+                val = clean_number(row[ov_col_idx + offset])
+                if val is not None: 
+                    visits = val
+                    break
+            
             new_patients = 0
-            
-            if ov_col_idx < len(row):
-                val = clean_number(row[ov_col_idx])
-                visits = val if val is not None else 0
-            
-            if np_col_idx and np_col_idx < len(row):
-                val = clean_number(row[np_col_idx])
-                new_patients = val if val is not None else 0
+            for offset in [0, 1, -1]:
+                val = clean_number(row[np_col_idx + offset])
+                if val is not None:
+                    new_patients = val
+                    break
 
             records.append({
                 "Name": clean_name,
@@ -529,11 +498,17 @@ if check_password():
                                     st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples"))
                     
                     elif md_view == "Office Visits":
+                        # --- DEBUG EXPANDER (Hidden unless clicked) ---
+                        with st.expander("🛠️ Data Inspector (Click if Charts are Empty)"):
+                            if df_visits.empty:
+                                st.error("No data extracted. Debug log below:")
+                                for m in debug_log: st.write(m)
+                            else:
+                                st.write("Data Extracted Successfully:")
+                                st.dataframe(df_visits)
+
                         if df_visits.empty:
                             st.warning("No Office Visit data found. Please upload a file containing 'New Patients' in the filename.")
-                            if debug_log:
-                                with st.expander("Troubleshooting"):
-                                    for l in debug_log: st.write(l)
                         else:
                             latest_v_date = df_visits['Month_Clean'].max()
                             latest_v_df = df_visits[df_visits['Month_Clean'] == latest_v_date]
