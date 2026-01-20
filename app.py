@@ -68,42 +68,40 @@ def inject_custom_css():
         <style>
         /* TAB CONTAINER */
         .stTabs [data-baseweb="tab-list"] {
-            gap: 24px; 
+            gap: 20px; 
             background-color: transparent;
             padding-bottom: 15px;
-            border-bottom: 1px solid #ddd;
         }
 
         /* INACTIVE TABS */
         .stTabs [data-baseweb="tab-list"] button {
             background-color: #FFFFFF;
-            border: 1px solid #D1D5DB;
-            border-radius: 6px;
-            color: #4B5563; 
-            padding: 14px 30px;
-            transition: all 0.2s ease;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            border: 1px solid #E0E0E0;
+            border-radius: 8px;
+            color: #4A4A4A; 
+            padding: 12px 25px;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
         
         /* INCREASED FONT SIZE FOR TAB TEXT */
         .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
-            font-size: 20px !important; /* Requested Larger Size */
-            font-weight: 700 !important;
+            font-size: 1.5rem; /* Larger Font */
+            font-weight: 700;   /* Bolder */
             margin: 0px;
         }
         
         /* HOVER STATE */
         .stTabs [data-baseweb="tab-list"] button:hover {
-            border-color: #1E3A8A; /* Navy Blue */
-            color: #1E3A8A;
-            background-color: #F3F4F6;
+            border-color: #2C3E50;
+            color: #2C3E50;
         }
 
         /* ACTIVE TAB (PROFESSIONAL NAVY BLUE) */
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
-            background-color: #1E3A8A !important;
+            background-color: #2C3E50;
             color: #FFFFFF !important;
-            border-color: #1E3A8A;
+            border-color: #2C3E50;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
         
@@ -188,10 +186,7 @@ if check_password():
         if pd.isna(val): return None
         try:
             val_str = str(val).strip()
-            # Handle parenthesis for negative numbers e.g. "(5)" -> "-5"
-            if val_str.startswith("(") and val_str.endswith(")"):
-                val_str = "-" + val_str[1:-1]
-            
+            if val_str.startswith("(") and val_str.endswith(")"): val_str = "-" + val_str[1:-1]
             val_str = val_str.replace(',', '').replace('%', '')
             if val_str == "" or val_str == "-": return None
             return float(val_str)
@@ -318,7 +313,7 @@ if check_password():
                 data_start_row = 8
                 local_logs.append("No Anchor Found. Defaulting to Row 8.")
 
-            # 2. ITERATE & NUMBER HUNT
+            # 2. ITERATE & NUMBER HUNT (ADAPTIVE LOGIC)
             for i in range(data_start_row, len(df)):
                 row = df.iloc[i].values
                 
@@ -340,28 +335,39 @@ if check_password():
                     if num is not None:
                         numbers.append(num)
                 
-                # LOGGING (Only first 5 providers to avoid clutter)
-                if len(records) < 5:
-                    local_logs.append(f"Row {i}: Found '{clean_name}'. Numbers found: {numbers}")
-
-                # Logic defined by user:
-                # 1st (Idx 0) = Curr Visits
-                # 2nd (Idx 1) = Diff Visits
-                # 3rd (Idx 2) = Prior Visits
-                # 4th (Idx 3) = Curr NP
-                # 5th (Idx 4) = Diff NP
-                # 6th (Idx 5) = Prior NP
-                
+                # --- ADAPTIVE ASSIGNMENT ---
+                # Default values
                 visits = 0
                 visits_diff = 0
                 new_patients = 0
                 np_diff = 0
                 
-                # SAFE ASSIGNMENT (Check length first!)
-                if len(numbers) >= 1: visits = numbers[0]
-                if len(numbers) >= 2: visits_diff = numbers[1]
-                if len(numbers) >= 4: new_patients = numbers[3]
-                if len(numbers) >= 5: np_diff = numbers[4]
+                if len(numbers) >= 6:
+                    # Full Data: [Curr, Diff, Prior, CurrNP, DiffNP, PriorNP]
+                    visits = numbers[0]
+                    visits_diff = numbers[1]
+                    new_patients = numbers[3]
+                    np_diff = numbers[4]
+                elif len(numbers) >= 4:
+                    # Partial Data: [Curr, Diff, ... CurrNP]
+                    visits = numbers[0]
+                    visits_diff = numbers[1]
+                    new_patients = numbers[-1] # Assume last valid number is NP
+                elif len(numbers) >= 1:
+                    # Minimal Data: Just one number? Assume it's Visits.
+                    visits = numbers[0]
+                    if len(numbers) >= 2:
+                        new_patients = numbers[-1] # If 2 numbers, 2nd is NP
+
+                # Log for Debugger
+                log_entry = {
+                    "Row": i,
+                    "Provider": clean_name,
+                    "Numbers Found": numbers,
+                    "Extracted Visits": visits,
+                    "Extracted NP": new_patients
+                }
+                local_logs.append(log_entry)
 
                 records.append({
                     "Name": clean_name,
@@ -403,7 +409,12 @@ if check_password():
                 for sheet_name, df in xls.items():
                     if "PHYS YTD OV" in sheet_name.upper():
                         res, logs = parse_visits_sheet(df, file_date)
-                        debug_log.extend(logs)
+                        
+                        # Format logs for display
+                        for l in logs:
+                            if isinstance(l, dict): debug_log.append(f"Row {l['Row']}: {l['Provider']} -> found {len(l['Numbers Found'])} nums: {l['Numbers Found']}")
+                            else: debug_log.append(str(l))
+                            
                         if not res.empty: 
                             visit_data.append(res)
                 continue 
@@ -731,7 +742,7 @@ if check_password():
                         if df_visits.empty:
                             st.warning("No Office Visit data found. Please upload a file containing 'New Patients' in the filename.")
                             if debug_log:
-                                with st.expander("🛠️ Debug: View Raw Data"):
+                                with st.expander("🛠️ Debug: Data Inspection Log"):
                                     for l in debug_log: st.write(l)
                         else:
                             latest_v_date = df_visits['Month_Clean'].max()
@@ -745,11 +756,9 @@ if check_password():
                                     fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), 
                                                     x='Total Visits', y='Name', orientation='h', text_auto=True,
                                                     color='Total Visits', color_continuous_scale='Blues')
-                                    # HEIGHT FIX
                                     fig_ov.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_ov, use_container_width=True)
                                 
-                                # Visits Change Chart
                                 with st.container(border=True):
                                     st.markdown(f"#### 📉 YoY Change: Office Visits")
                                     fig_diff_ov = px.bar(latest_v_df.sort_values('Visits_Diff', ascending=True),
@@ -764,11 +773,9 @@ if check_password():
                                     fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), 
                                                     x='New Patients', y='Name', orientation='h', text_auto=True,
                                                     color='New Patients', color_continuous_scale='Greens')
-                                    # HEIGHT FIX
                                     fig_np.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_np, use_container_width=True)
                                 
-                                # NP Change Chart
                                 with st.container(border=True):
                                     st.markdown(f"#### 📉 YoY Change: New Patients")
                                     fig_diff_np = px.bar(latest_v_df.sort_values('NP_Diff', ascending=True),
