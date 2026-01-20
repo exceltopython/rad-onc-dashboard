@@ -66,49 +66,44 @@ def check_password():
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* MAIN CONTAINER BACKGROUND */
-        .stApp {
-            background-color: #FAFAFA;
-        }
-
         /* TAB CONTAINER */
         .stTabs [data-baseweb="tab-list"] {
-            gap: 24px; /* More space between tabs */
+            gap: 24px; 
             background-color: transparent;
             padding-bottom: 15px;
-            border-bottom: 2px solid #E0E0E0;
+            border-bottom: 1px solid #ddd;
         }
 
         /* INACTIVE TABS */
         .stTabs [data-baseweb="tab-list"] button {
             background-color: #FFFFFF;
-            border: 1px solid #E0E0E0;
+            border: 1px solid #D1D5DB;
             border-radius: 6px;
-            color: #555555; 
-            padding: 12px 30px;
+            color: #4B5563; 
+            padding: 14px 30px;
             transition: all 0.2s ease;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
         
         /* INCREASED FONT SIZE FOR TAB TEXT */
         .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
-            font-size: 18px !important; 
-            font-weight: 600 !important;
+            font-size: 20px !important; /* Requested Larger Size */
+            font-weight: 700 !important;
             margin: 0px;
         }
         
         /* HOVER STATE */
         .stTabs [data-baseweb="tab-list"] button:hover {
-            border-color: #002B5C; /* Navy Blue */
-            color: #002B5C;
-            background-color: #F8F9FA;
+            border-color: #1E3A8A; /* Navy Blue */
+            color: #1E3A8A;
+            background-color: #F3F4F6;
         }
 
         /* ACTIVE TAB (PROFESSIONAL NAVY BLUE) */
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
-            background-color: #002B5C !important;
+            background-color: #1E3A8A !important;
             color: #FFFFFF !important;
-            border-color: #002B5C;
+            border-color: #1E3A8A;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
         
@@ -192,10 +187,14 @@ if check_password():
     def clean_number(val):
         if pd.isna(val): return None
         try:
-            if isinstance(val, str):
-                val = val.replace(',', '').strip()
-                if val == "": return None
-            return float(val)
+            val_str = str(val).strip()
+            # Handle parenthesis for negative numbers e.g. "(5)" -> "-5"
+            if val_str.startswith("(") and val_str.endswith(")"):
+                val_str = "-" + val_str[1:-1]
+            
+            val_str = val_str.replace(',', '').replace('%', '')
+            if val_str == "" or val_str == "-": return None
+            return float(val_str)
         except:
             return None
 
@@ -312,30 +311,14 @@ if check_password():
                 row_vals = [str(v).strip().upper() for v in df.iloc[i].values]
                 if "PHYSICIANS ONLY" in row_vals:
                     data_start_row = i + 1
-                    local_logs.append(f"Anchor found at {i}")
+                    local_logs.append(f"Anchor found at Row {i}")
                     break
             
             if data_start_row == -1: 
                 data_start_row = 8
-                local_logs.append("Anchor NOT found. Defaulting to 8.")
+                local_logs.append("No Anchor Found. Defaulting to Row 8.")
 
-            # 2. COLUMN MAPPER (Find Header Row)
-            # We look for the row *above* the data to map columns.
-            header_row_idx = max(0, data_start_row - 2)
-            header_vals = [str(v).strip().upper() for v in df.iloc[header_row_idx].values]
-            
-            # Default Targets
-            ov_col = 2
-            np_col = 13
-            
-            # Try to map dynamically
-            for idx, val in enumerate(header_vals):
-                if "OFFICE VISITS" in val: ov_col = idx
-                if "NEW PATIENTS" in val: np_col = idx
-            
-            local_logs.append(f"Columns Mapped: Visits={ov_col}, NP={np_col}")
-
-            # 3. EXTRACT
+            # 2. ITERATE & NUMBER HUNT
             for i in range(data_start_row, len(df)):
                 row = df.iloc[i].values
                 
@@ -350,21 +333,35 @@ if check_password():
                 
                 if not clean_name: continue
 
-                # Safe Extract Helper
-                def get_val(idx):
-                    if idx < len(row): 
-                        n = clean_number(row[idx])
-                        return n if n is not None else 0
-                    return 0
+                # Harvest ALL numbers in the row
+                numbers = []
+                for val in row:
+                    num = clean_number(val)
+                    if num is not None:
+                        numbers.append(num)
+                
+                # LOGGING (Only first 5 providers to avoid clutter)
+                if len(records) < 5:
+                    local_logs.append(f"Row {i}: Found '{clean_name}'. Numbers found: {numbers}")
 
-                # Explicitly grab columns relative to detected headers
-                # We assume standard structure: [Current, Diff, Prior]
+                # Logic defined by user:
+                # 1st (Idx 0) = Curr Visits
+                # 2nd (Idx 1) = Diff Visits
+                # 3rd (Idx 2) = Prior Visits
+                # 4th (Idx 3) = Curr NP
+                # 5th (Idx 4) = Diff NP
+                # 6th (Idx 5) = Prior NP
                 
-                visits = get_val(ov_col)
-                visits_diff = get_val(ov_col + 1)
+                visits = 0
+                visits_diff = 0
+                new_patients = 0
+                np_diff = 0
                 
-                new_patients = get_val(np_col)
-                np_diff = get_val(np_col + 1)
+                # SAFE ASSIGNMENT (Check length first!)
+                if len(numbers) >= 1: visits = numbers[0]
+                if len(numbers) >= 2: visits_diff = numbers[1]
+                if len(numbers) >= 4: new_patients = numbers[3]
+                if len(numbers) >= 5: np_diff = numbers[4]
 
                 records.append({
                     "Name": clean_name,
@@ -377,7 +374,7 @@ if check_password():
                     "Month_Label": filename_date.strftime('%b-%y')
                 })
         except Exception as e:
-            local_logs.append(f"Crash: {str(e)}")
+            local_logs.append(f"CRITICAL ERROR: {str(e)}")
             return pd.DataFrame(), local_logs
             
         return pd.DataFrame(records), local_logs
@@ -748,6 +745,7 @@ if check_password():
                                     fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), 
                                                     x='Total Visits', y='Name', orientation='h', text_auto=True,
                                                     color='Total Visits', color_continuous_scale='Blues')
+                                    # HEIGHT FIX
                                     fig_ov.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_ov, use_container_width=True)
                                 
@@ -766,6 +764,7 @@ if check_password():
                                     fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), 
                                                     x='New Patients', y='Name', orientation='h', text_auto=True,
                                                     color='New Patients', color_continuous_scale='Greens')
+                                    # HEIGHT FIX
                                     fig_np.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_np, use_container_width=True)
                                 
