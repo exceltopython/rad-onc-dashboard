@@ -90,15 +90,24 @@ if check_password():
             return pd.to_datetime(f"{month_str} {year_str}")
         return datetime.now()
 
-    # --- HELPER: CLEAN NAMES (CRASH FIXED) ---
+    # --- HELPER: CLEAN NAMES (CRASH PROOF) ---
     def clean_provider_name(name_str):
-        if not isinstance(name_str, str): return ""
-        name_str = name_str.strip()
-        if not name_str: return ""
-        if "," in name_str: return name_str.split(",")[0].strip()
-        parts = name_str.split()
-        if not parts: return ""
-        return parts[0].strip()
+        try:
+            if not isinstance(name_str, str): return ""
+            name_str = name_str.strip()
+            if not name_str: return ""
+            
+            # Remove MD/DO titles and commas
+            if "," in name_str:
+                name_str = name_str.split(",")[0].strip()
+            
+            # Split by space and take first word (Last Name)
+            parts = name_str.split()
+            if not parts: return ""
+            
+            return parts[0].strip()
+        except Exception:
+            return ""
 
     # --- HELPER: INSIGHT GENERATOR ---
     def generate_narrative(df, entity_type="Provider", metric_col="Total RVUs", unit="wRVUs"):
@@ -183,12 +192,12 @@ if check_password():
         np_col_idx = None
         data_start_row = -1
         
-        for i in range(min(15, len(df))):
+        # Scan first 20 rows
+        for i in range(min(20, len(df))):
             row_vals = [str(v).strip() for v in df.iloc[i].values]
             year_indices = [idx for idx, val in enumerate(row_vals) if year_target in val]
             
             if len(year_indices) >= 1:
-                # Found the Year! 
                 ov_col_idx = year_indices[0] # First hit = Total Visits
                 if len(year_indices) >= 2: 
                     np_col_idx = year_indices[1] # Second hit = New Patients
@@ -196,14 +205,9 @@ if check_password():
                 data_start_row = i + 1 
                 break
 
-        # 2. Fallback (If Dynamic Scan Fails)
-        # Based on your screenshot:
-        # Col B (index 1) = Name
-        # Col D (index 3) = Total Visits 2025
-        # Col K (index 10) = New Patients 2025
-        
-        if ov_col_idx is None: ov_col_idx = 3  # Column D
-        if np_col_idx is None: np_col_idx = 10 # Column K
+        # 2. Fallback: Based on file structure (Name=Col 1, Data=Col 2)
+        if ov_col_idx is None: ov_col_idx = 2  # Column C (Index 2)
+        if np_col_idx is None: np_col_idx = 8  # Column I (Index 8)
         
         # 3. Iterate Data Rows
         scan_start = 0 if data_start_row == -1 else data_start_row
@@ -211,13 +215,12 @@ if check_password():
         for i in range(scan_start, len(df)):
             row = df.iloc[i]
             
-            # Ensure row has enough columns
             if len(row) <= max(ov_col_idx, np_col_idx): continue
             
-            # Name Check (Col B / Index 1)
+            # Name is Column B (Index 1)
             prov_name_raw = str(row[1]).strip()
             
-            # Skip invalid rows
+            # CRASH PREVENTION: Check for empty/invalid names first
             if not prov_name_raw or prov_name_raw.lower() in ['nan', 'physician', 'amount', 'none']: 
                 continue
                 
@@ -227,16 +230,19 @@ if check_password():
             clean_name = clean_provider_name(prov_name_raw)
             if not clean_name or clean_name not in PROVIDER_CONFIG: continue
 
-            # READ VALUES (With Error Handling)
+            # READ VALUES (With strict error handling)
             try:
-                # Try getting value from identified column
+                # Office Visits
                 ov_val = pd.to_numeric(row[ov_col_idx], errors='coerce')
-                # If NaN, check if it's in the column immediately to the left (merge artifact)
-                if pd.isna(ov_val): ov_val = pd.to_numeric(row[ov_col_idx-1], errors='coerce')
+                # Merge fallback: Check left or right if NaN
+                if pd.isna(ov_val): 
+                    ov_val = pd.to_numeric(row[ov_col_idx-1], errors='coerce')
                 visits = ov_val if pd.notna(ov_val) else 0
                 
+                # New Patients
                 np_val = pd.to_numeric(row[np_col_idx], errors='coerce')
-                if pd.isna(np_val): np_val = pd.to_numeric(row[np_col_idx-1], errors='coerce')
+                if pd.isna(np_val):
+                    np_val = pd.to_numeric(row[np_col_idx-1], errors='coerce')
                 new_patients = np_val if pd.notna(np_val) else 0
             except:
                 visits = 0
@@ -276,6 +282,7 @@ if check_password():
                 file_date = get_date_from_filename(filename)
                 found_sheet = False
                 for sheet_name, df in xls.items():
+                    # Flexible matching for sheet name
                     if "PHYS YTD OV" in sheet_name.upper():
                         res = parse_visits_sheet(df, file_date)
                         if not res.empty: 
