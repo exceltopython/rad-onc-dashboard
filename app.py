@@ -308,7 +308,7 @@ if check_password():
             
             if data_start_row == -1: data_start_row = 8
 
-            # 2. ITERATE & NUMBER HUNT (USER DEFINED LOGIC)
+            # 2. ITERATE & NUMBER HUNT
             for i in range(data_start_row, len(df)):
                 row = df.iloc[i].values
                 
@@ -330,7 +330,7 @@ if check_password():
                     if num is not None:
                         numbers.append(num)
                 
-                # Logic provided by user:
+                # Logic:
                 # 1st (Idx 0) = Curr Visits
                 # 2nd (Idx 1) = Diff Visits
                 # 3rd (Idx 2) = Prior Visits
@@ -343,10 +343,11 @@ if check_password():
                 new_patients = 0
                 np_diff = 0
                 
-                if len(numbers) >= 1: visits = numbers[0]
-                if len(numbers) >= 2: visits_diff = numbers[1]
-                if len(numbers) >= 4: new_patients = numbers[3]
-                if len(numbers) >= 5: np_diff = numbers[4]
+                # SAFE ASSIGNMENT (Check length first!)
+                if len(numbers) > 0: visits = numbers[0]
+                if len(numbers) > 1: visits_diff = numbers[1]
+                if len(numbers) > 3: new_patients = numbers[3]
+                if len(numbers) > 4: np_diff = numbers[4]
 
                 records.append({
                     "Name": clean_name,
@@ -359,7 +360,7 @@ if check_password():
                     "Month_Label": filename_date.strftime('%b-%y')
                 })
         except Exception:
-            return pd.DataFrame() # Return empty if fails to prevent crash
+            return pd.DataFrame() 
             
         return pd.DataFrame(records)
 
@@ -736,7 +737,7 @@ if check_password():
                                     fig_ov.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_ov, use_container_width=True)
                                 
-                                # NEW: Visits Change Chart
+                                # Visits Change Chart
                                 with st.container(border=True):
                                     st.markdown(f"#### 📉 YoY Change: Office Visits")
                                     fig_diff_ov = px.bar(latest_v_df.sort_values('Visits_Diff', ascending=True),
@@ -754,7 +755,7 @@ if check_password():
                                     fig_np.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_np, use_container_width=True)
                                 
-                                # NEW: NP Change Chart
+                                # NP Change Chart
                                 with st.container(border=True):
                                     st.markdown(f"#### 📉 YoY Change: New Patients")
                                     fig_diff_np = px.bar(latest_v_df.sort_values('NP_Diff', ascending=True),
