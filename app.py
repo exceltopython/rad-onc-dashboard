@@ -329,15 +329,9 @@ if check_password():
         local_logs = []
         
         try:
-            data_start_row = -1
-            for i in range(min(20, len(df))):
-                row_vals = [str(v).strip().upper() for v in df.iloc[i].values]
-                if "PHYSICIANS ONLY" in row_vals:
-                    data_start_row = i + 1
-                    break
-            
-            if data_start_row == -1: 
-                data_start_row = 8
+            # FIX: Start from row 4 (Excel row 5) to catch LROC data which starts early
+            # Do NOT wait for "PHYSICIANS ONLY" header
+            data_start_row = 4
 
             for i in range(data_start_row, len(df)):
                 row = df.iloc[i].values
@@ -496,10 +490,9 @@ if check_password():
         df_provider_raw = pd.concat(provider_data, ignore_index=True) if provider_data else pd.DataFrame()
         df_visits = pd.concat(visit_data, ignore_index=True) if visit_data else pd.DataFrame()
 
-        # GLOBAL DATE FIX: Apply dates immediately to raw data so everyone has access
+        # GLOBAL DATE FIX
         if not df_provider_raw.empty:
             df_provider_raw['Month_Clean'] = pd.to_datetime(df_provider_raw['Month'], format='%b-%y', errors='coerce')
-            # Fill NaNs with infer from Month string if needed
             mask = df_provider_raw['Month_Clean'].isna()
             if mask.any(): df_provider_raw.loc[mask, 'Month_Clean'] = pd.to_datetime(df_provider_raw.loc[mask, 'Month'], errors='coerce')
             df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
