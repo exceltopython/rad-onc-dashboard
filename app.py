@@ -90,17 +90,29 @@ if check_password():
             return pd.to_datetime(f"{month_str} {year_str}")
         return datetime.now()
 
-    # --- HELPER: CLEAN NAMES ---
+    # --- HELPER: CLEAN NAMES (CRASH FIXED) ---
     def clean_provider_name(name_str):
-        if not isinstance(name_str, str): return str(name_str)
+        # 1. Handle Non-Strings (NaN, Float, None)
+        if not isinstance(name_str, str): 
+            return ""
+        
+        # 2. Strip Whitespace
         name_str = name_str.strip()
-        if not name_str: return ""
         
+        # 3. Immediate Exit if Empty
+        if not name_str: 
+            return ""
+        
+        # 4. Remove Commas (Last, First -> Last)
         if "," in name_str:
-            return name_str.split(",")[0].strip()
+            name_str = name_str.split(",")[0].strip()
         
+        # 5. Extract First Word (remove MD/DO titles if no comma)
+        # Safe split: "Jones MD" -> "Jones"
         parts = name_str.split()
-        if not parts: return ""
+        if not parts: 
+            return ""
+            
         return parts[0].strip()
 
     # --- HELPER: INSIGHT GENERATOR ---
@@ -179,37 +191,59 @@ if check_password():
 
     def parse_visits_sheet(df, filename_date):
         records = []
+        
+        # 1. FIND HEADER ROWS & DATA COLUMNS DYNAMICALLY
         year_target = str(filename_date.year) 
+        
         ov_col_idx = None
         np_col_idx = None
         data_start_row = -1
         
+        # Scan first 15 rows to find header structure
         for i in range(min(15, len(df))):
             row_vals = [str(v).strip() for v in df.iloc[i].values]
+            
+            # Identify columns matching the Target Year (e.g. "2026")
             year_indices = [idx for idx, val in enumerate(row_vals) if year_target in val]
+            
             if len(year_indices) >= 1:
-                ov_col_idx = year_indices[0] 
-                if len(year_indices) >= 2: np_col_idx = year_indices[1] 
+                ov_col_idx = year_indices[0] # First occurrence is Office Visits
+                if len(year_indices) >= 2:
+                    np_col_idx = year_indices[1] # Second occurrence is New Patients
+                
                 data_start_row = i + 1 
                 break
 
-        if ov_col_idx is None: ov_col_idx = 3 
-        if np_col_idx is None: np_col_idx = 10 
+        # Fallback if dynamic search fails
+        if ov_col_idx is None: ov_col_idx = 3 # Col D
+        if np_col_idx is None: np_col_idx = 10 # Col K
         
+        # 2. ITERATE ROWS
         scan_start = 0 if data_start_row == -1 else data_start_row
         
         for i in range(scan_start, len(df)):
             row = df.iloc[i]
             if len(row) <= max(ov_col_idx, np_col_idx): continue
+            
+            # Name is Column B (index 1)
             prov_name_raw = str(row[1]).strip()
-            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'physician', 'amount', 'none']: continue
-            if "Total" in prov_name_raw: break 
+            
+            # CRASH FIX: Stronger check for invalid rows
+            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'physician', 'amount', 'none']: 
+                continue
+                
+            if "Total" in prov_name_raw: 
+                break 
+            
+            # Use safe cleaning function
             clean_name = clean_provider_name(prov_name_raw)
             if not clean_name or clean_name not in PROVIDER_CONFIG: continue
 
+            # READ VALUES
             try:
                 ov_val = pd.to_numeric(row[ov_col_idx], errors='coerce')
                 visits = ov_val if pd.notna(ov_val) else 0
+                
                 np_val = pd.to_numeric(row[np_col_idx], errors='coerce')
                 new_patients = np_val if pd.notna(np_val) else 0
             except:
@@ -224,6 +258,7 @@ if check_password():
                 "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
                 "Month_Label": filename_date.strftime('%b-%y')
             })
+            
         return pd.DataFrame(records)
 
     def process_files(file_objects):
@@ -245,10 +280,12 @@ if check_password():
             elif "TROC" in filename: file_tag = "TROC"
             elif "PROTON" in filename or "TOPC" in filename: file_tag = "TOPC"
 
+            # --- VISIT DATA DETECTION ---
             if "NEW PATIENTS" in filename or "NEW PT" in filename:
                 file_date = get_date_from_filename(filename)
                 found_sheet = False
                 for sheet_name, df in xls.items():
+                    # More flexible sheet matching (case insensitive, partial match)
                     if "PHYS YTD OV" in sheet_name.upper():
                         res = parse_visits_sheet(df, file_date)
                         if not res.empty: 
@@ -258,6 +295,7 @@ if check_password():
                     debug_log.append(f"Found 'New Patients' file {filename} but could not find/parse 'PHYS YTD OV' sheet.")
                 continue 
 
+            # --- STANDARD RVU PROCESSING ---
             if file_tag == "TOPC":
                 proton_providers_temp = []
                 for sheet_name, df in xls.items():
@@ -458,7 +496,6 @@ if check_password():
                                 fig_ytd.update_layout(font=dict(size=14))
                                 st.plotly_chart(fig_ytd, use_container_width=True)
                             
-                            # --- RESTORED TABLES HERE ---
                             c1, c2 = st.columns(2)
                             with c1:
                                 with st.container(border=True):
@@ -515,7 +552,6 @@ if check_password():
                         fig_trend.update_layout(font=dict(size=14))
                         st.plotly_chart(fig_trend, use_container_width=True)
                     
-                    # Restoring APP Tables as well for consistency
                     c1, c2 = st.columns(2)
                     with c1:
                         with st.container(border=True):
@@ -531,4 +567,3 @@ if check_password():
                             st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
     else:
         st.info("👋 Ready. View Only Mode: Add files to 'Reports' folder in GitHub to update data.")
-
