@@ -9,16 +9,43 @@ import re
 # --- PASSWORD CONFIGURATION ---
 APP_PASSWORD = "RadOnc2026"
 
-# --- HISTORICAL DATA STORAGE (2019-2024) ---
-# Update this dictionary with your actual year-end totals.
-# Format: "Year": {"Clinic Code": wRVU_Value, ...}
+# ==========================================
+# --- 1. HISTORICAL DATA ENTRY (2019-2024) ---
+# ==========================================
+# Mapped user inputs to internal IDs:
+# CMC -> CENT, Horizon -> Dickson, West -> STW, STR -> MURF, StoneCrest -> Stonecrest
+
 HISTORICAL_DATA = {
-    2019: {"CENT": 0, "Skyline": 0, "Dickson": 0, "Summit": 0, "Stonecrest": 0, "STW": 0, "Midtown": 0, "MURF": 0, "LROC": 0, "TROC": 0},
-    2020: {"CENT": 0, "Skyline": 0, "Dickson": 0, "Summit": 0, "Stonecrest": 0, "STW": 0, "Midtown": 0, "MURF": 0, "LROC": 0, "TROC": 0},
-    2021: {"CENT": 0, "Skyline": 0, "Dickson": 0, "Summit": 0, "Stonecrest": 0, "STW": 0, "Midtown": 0, "MURF": 0, "LROC": 0, "TROC": 0},
-    2022: {"CENT": 0, "Skyline": 0, "Dickson": 0, "Summit": 0, "Stonecrest": 0, "STW": 0, "Midtown": 0, "MURF": 0, "LROC": 0, "TROC": 0},
-    2023: {"CENT": 0, "Skyline": 0, "Dickson": 0, "Summit": 0, "Stonecrest": 0, "STW": 0, "Midtown": 0, "MURF": 0, "LROC": 0, "TROC": 0},
-    2024: {"CENT": 0, "Skyline": 0, "Dickson": 0, "Summit": 0, "Stonecrest": 0, "STW": 0, "Midtown": 0, "MURF": 0, "LROC": 0, "TROC": 0}
+    2019: {
+        "CENT": 18430, "Dickson": 11420, "Skyline": 13910, "Summit": 14690, "Stonecrest": 8600,
+        "STW": 22030, "Midtown": 14730, "MURF": 38810, "Sumner": 14910, "TOPC": 15690,
+        "LROC": 0, "TROC": 0
+    },
+    2020: {
+        "CENT": 19160, "Dickson": 12940, "Skyline": 13180, "Summit": 11540, "Stonecrest": 7470,
+        "STW": 17070, "Midtown": 14560, "MURF": 37890, "Sumner": 14760, "TOPC": 22010,
+        "LROC": 0, "TROC": 0
+    },
+    2021: {
+        "CENT": 14480, "Dickson": 10980, "Skyline": 11450, "Summit": 11700, "Stonecrest": 8610,
+        "STW": 17970, "Midtown": 17890, "MURF": 37440, "Sumner": 17670, "TOPC": 28540,
+        "LROC": 0, "TROC": 0
+    },
+    2022: {
+        "CENT": 15860, "Dickson": 13960, "Skyline": 14520, "Summit": 12390, "Stonecrest": 10580,
+        "STW": 27650, "Midtown": 19020, "MURF": 37870, "Sumner": 20570, "TOPC": 28830,
+        "LROC": 0, "TROC": 0
+    },
+    2023: {
+        "CENT": 19718, "Dickson": 11600, "Skyline": 17804, "Summit": 14151, "Stonecrest": 11647,
+        "STW": 23717, "Midtown": 21017, "MURF": 42201, "Sumner": 22622, "TOPC": 27667,
+        "LROC": 0, "TROC": 0
+    },
+    2024: {
+        "CENT": 22385, "Dickson": 12155, "Skyline": 15363, "Summit": 12892, "Stonecrest": 12524,
+        "STW": 25409, "Midtown": 21033, "MURF": 45648, "Sumner": 23803, "TOPC": 33892,
+        "LROC": 0, "TROC": 0
+    }
 }
 
 def check_password():
@@ -105,6 +132,16 @@ if check_password():
             return pd.to_datetime(f"{month_str} {year_str}")
         return datetime.now()
 
+    # --- HELPER: SAFE NUMBER PARSER ---
+    def clean_number(val):
+        if pd.isna(val): return None
+        try:
+            if isinstance(val, str):
+                val = val.replace(',', '').strip()
+            return float(val)
+        except:
+            return None
+
     # --- HELPER: CLEAN NAMES ---
     def clean_provider_name(name_str):
         try:
@@ -118,17 +155,7 @@ if check_password():
         except:
             return ""
 
-    # --- HELPER: SAFE NUMBER PARSER ---
-    def clean_number(val):
-        if pd.isna(val): return None
-        try:
-            if isinstance(val, str):
-                val = val.replace(',', '').strip()
-            return float(val)
-        except:
-            return None
-
-    # --- HELPER: GENERATE HISTORICAL DATAFRAME ---
+    # --- HELPER: GET HISTORICAL DATAFRAME ---
     def get_historical_df():
         records = []
         for year, data in HISTORICAL_DATA.items():
@@ -220,69 +247,59 @@ if check_password():
     def parse_visits_sheet(df, filename_date):
         records = []
         
-        # 1. FIND THE "PHYSICIANS ONLY" ANCHOR ROW
+        # 1. FIND "PHYSICIANS ONLY" ANCHOR
         data_start_row = -1
+        name_col_idx = 1 # Default Col B
         
         for i in range(min(20, len(df))):
             row_vals = [str(v).strip().upper() for v in df.iloc[i].values]
-            # Check for the literal string "PHYSICIANS ONLY" in the first few columns
-            if "PHYSICIANS ONLY" in row_vals[0:5]:
-                data_start_row = i + 1 # Data starts one row below
+            if "PHYSICIANS ONLY" in row_vals:
+                data_start_row = i + 1
+                try: name_col_idx = row_vals.index("PHYSICIANS ONLY")
+                except: pass
                 break
         
-        # Fallback if anchor not found (use provider scan)
-        if data_start_row == -1:
-            for i in range(min(20, len(df))):
-                val = str(df.iloc[i, 1]).strip() # Check Col B
-                if clean_provider_name(val) in PROVIDER_CONFIG:
-                    data_start_row = i
-                    break
-        
-        if data_start_row == -1: return pd.DataFrame()
+        # Fallback
+        if data_start_row == -1: 
+            data_start_row = 8
+            name_col_idx = 1
 
-        # 2. EXTRACT DATA
-        # Hardcoded indices based on user file analysis:
-        # Name = Col 1 (B)
-        # Visits = Col 2 (C)
-        # New Pts = Col 13 (N) - typically
-        
-        ov_idx = 2
-        np_idx = 13
+        # 2. COLUMNS (Based on standard layout: Name=B, Visits=C, NP=N)
+        ov_col_idx = 2
+        np_col_idx = 13
 
+        # 3. EXTRACT
         for i in range(data_start_row, len(df)):
             row = df.iloc[i]
             
-            # Helper to safely get value from row
-            def get_val(idx):
-                if idx < len(row): return row[idx]
-                return None
+            # Helper to safe get
+            def get_safe(idx):
+                if idx < 0 or idx >= len(row): return None
+                return row[idx]
 
-            # Check Name in Column B (index 1)
-            prov_name_raw = str(get_val(1)).strip()
+            # Check Name
+            prov_name_raw = str(get_safe(name_col_idx)).strip()
             
-            # Skip invalid rows
             if not prov_name_raw or prov_name_raw.lower() in ['nan', 'none', 'physician', 'amount', 'total']: 
                 continue
             
-            # Stop if we hit a "Total" row
             if "Total" in prov_name_raw: 
                 break 
                 
             clean_name = clean_provider_name(prov_name_raw)
             if not clean_name or clean_name not in PROVIDER_CONFIG: continue
 
-            # Get Visits (Check Col C and neighbors)
+            # Get Values (with neighbor scanning for merged cells)
             visits = 0
             for offset in [0, 1, -1]:
-                val = clean_number(get_val(ov_idx + offset))
-                if val is not None: 
+                val = clean_number(get_safe(ov_col_idx + offset))
+                if val is not None:
                     visits = val
                     break
             
-            # Get New Patients (Check Col N and neighbors)
             new_patients = 0
             for offset in [0, 1, -1, 2]:
-                val = clean_number(get_val(np_idx + offset))
+                val = clean_number(get_safe(np_col_idx + offset))
                 if val is not None:
                     new_patients = val
                     break
@@ -321,9 +338,14 @@ if check_password():
                 file_date = get_date_from_filename(filename)
                 for sheet_name, df in xls.items():
                     if "PHYS YTD OV" in sheet_name.upper():
-                        res = parse_visits_sheet(df, file_date)
-                        if not res.empty: 
-                            visit_data.append(res)
+                        try:
+                            res = parse_visits_sheet(df, file_date)
+                            if not res.empty: 
+                                visit_data.append(res)
+                            else:
+                                debug_log.append(f"Parsed {sheet_name} but found 0 records.")
+                        except Exception as e:
+                            debug_log.append(f"Error parsing {sheet_name}: {str(e)}")
                 continue 
 
             if file_tag == "TOPC":
@@ -490,31 +512,30 @@ if check_password():
                             view_title = "TROC (Tullahoma)"
                             target_tag = "TROC"
 
-                        if df_view.empty:
+                        if df_view.empty and clinic_filter not in ["TriStar", "Ascension"]:
                             st.warning(f"No data available for {view_title}.")
                         else:
-                            max_date = df_view['Month_Clean'].max()
-                            st.info(generate_narrative(df_view, f"{view_title} Clinic"))
-                            
                             # 1. TRENDS (Aggregate if Group)
                             with st.container(border=True):
-                                st.markdown(f"#### 📅 {view_title}: 12-Month Trend")
-                                min_date = max_date - pd.DateOffset(months=11)
-                                l12m_c = df_view[df_view['Month_Clean'] >= min_date].sort_values('Month_Clean')
-                                
-                                # If Group (TriStar/Ascension), show aggregate line
-                                if clinic_filter in ["TriStar", "Ascension", "All"]:
-                                    agg_trend = l12m_c.groupby('Month_Clean')[['Total RVUs']].sum().reset_index()
-                                    fig_trend = px.line(agg_trend, x='Month_Clean', y='Total RVUs', markers=True, title="Aggregate Trend")
-                                else:
-                                    fig_trend = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
-                                
-                                fig_trend.update_layout(font=dict(size=14))
-                                fig_trend.update_yaxes(rangemode="tozero")
-                                st.plotly_chart(fig_trend, use_container_width=True)
+                                if not df_view.empty:
+                                    max_date = df_view['Month_Clean'].max()
+                                    st.markdown(f"#### 📅 {view_title}: 12-Month Trend")
+                                    min_date = max_date - pd.DateOffset(months=11)
+                                    l12m_c = df_view[df_view['Month_Clean'] >= min_date].sort_values('Month_Clean')
+                                    
+                                    # If Group (TriStar/Ascension), show aggregate line
+                                    if clinic_filter in ["TriStar", "Ascension", "All"]:
+                                        agg_trend = l12m_c.groupby('Month_Clean')[['Total RVUs']].sum().reset_index()
+                                        fig_trend = px.line(agg_trend, x='Month_Clean', y='Total RVUs', markers=True, title="Aggregate Trend")
+                                    else:
+                                        fig_trend = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
+                                    
+                                    fig_trend.update_layout(font=dict(size=14))
+                                    fig_trend.update_yaxes(rangemode="tozero")
+                                    st.plotly_chart(fig_trend, use_container_width=True)
 
                             # 2. INDIVIDUAL LINES (For Groups)
-                            if clinic_filter in ["TriStar", "Ascension", "All"]:
+                            if clinic_filter in ["TriStar", "Ascension", "All"] and not df_view.empty:
                                 with st.container(border=True):
                                     st.markdown(f"#### 📈 {view_title}: Individual Clinic Trends")
                                     fig_ind = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
@@ -522,31 +543,43 @@ if check_password():
                                     st.plotly_chart(fig_ind, use_container_width=True)
 
                             # 3. HISTORICAL TREND (2019-Present)
-                            if clinic_filter in ["TriStar", "Ascension"]:
+                            if clinic_filter in ["TriStar", "Ascension", "All", "LROC", "TOPC", "TROC"]:
                                 with st.container(border=True):
-                                    st.markdown("#### 📈 Long-Term History (2019-Present)")
+                                    st.markdown(f"#### 📈 Long-Term History ({view_title})")
                                     
                                     # Get Historical Data Frame
                                     df_hist = get_historical_df()
                                     
-                                    # Filter for current view (TriStar or Ascension)
-                                    target_ids = TRISTAR_IDS if clinic_filter == "TriStar" else ASCENSION_IDS
-                                    df_hist_view = df_hist[df_hist['ID'].isin(target_ids)]
+                                    # Filter for current view
+                                    if clinic_filter == "TriStar":
+                                        df_hist_view = df_hist[df_hist['ID'].isin(TRISTAR_IDS)]
+                                    elif clinic_filter == "Ascension":
+                                        df_hist_view = df_hist[df_hist['ID'].isin(ASCENSION_IDS)]
+                                    elif clinic_filter == "All":
+                                        df_hist_view = df_hist.copy()
+                                    else:
+                                        target_id = 'LROC' if 'LROC' in clinic_filter else ('TOPC' if 'Proton' in view_title else 'TROC')
+                                        df_hist_view = df_hist[df_hist['ID'] == target_id]
                                     
                                     # Group by Year
-                                    hist_trend = df_hist_view.groupby('Year')[['Total RVUs']].sum().reset_index()
-                                    
-                                    # Add current year data if available
-                                    current_year = max_date.year
-                                    ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
-                                    
-                                    # Append current year (projection or actual)
-                                    new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
-                                    full_trend = pd.concat([hist_trend, new_row], ignore_index=True)
-                                    
-                                    fig_long = px.bar(full_trend, x='Year', y='Total RVUs', text_auto='.2s', title=f"{view_title} Annual Volume")
-                                    fig_long.update_layout(font=dict(size=14))
-                                    st.plotly_chart(fig_long, use_container_width=True)
+                                    if not df_hist_view.empty:
+                                        hist_trend = df_hist_view.groupby('Year')[['Total RVUs']].sum().reset_index()
+                                        
+                                        # Add current year data if available
+                                        if not df_view.empty:
+                                            current_year = max_date.year
+                                            ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
+                                            
+                                            # Append current year (projection or actual)
+                                            if ytd_curr > 0:
+                                                new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
+                                                hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
+                                        
+                                        fig_long = px.bar(hist_trend, x='Year', y='Total RVUs', text_auto='.2s')
+                                        fig_long.update_layout(font=dict(size=14))
+                                        st.plotly_chart(fig_long, use_container_width=True)
+                                    else:
+                                        st.info("No historical data available for this selection.")
 
                             # 4. PIE CHART (Only for Single Clinics)
                             if target_tag and not df_provider_raw.empty:
@@ -564,19 +597,20 @@ if check_password():
                                             st.plotly_chart(fig_pie, use_container_width=True)
                             
                             # 5. TABLES (Show for ALL views now)
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                with st.container(border=True):
-                                    st.markdown("#### 🔢 Monthly Data")
-                                    piv = df_view.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                    piv["Total"] = piv.sum(axis=1)
-                                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds"))
-                            with c2:
-                                with st.container(border=True):
-                                    st.markdown("#### 📆 Quarterly Data")
-                                    piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                                    piv_q["Total"] = piv_q.sum(axis=1)
-                                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
+                            if not df_view.empty:
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    with st.container(border=True):
+                                        st.markdown("#### 🔢 Monthly Data")
+                                        piv = df_view.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                                        piv["Total"] = piv.sum(axis=1)
+                                        st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds"))
+                                with c2:
+                                    with st.container(border=True):
+                                        st.markdown("#### 📆 Quarterly Data")
+                                        piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                                        piv_q["Total"] = piv_q.sum(axis=1)
+                                        st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
 
             with tab_md:
                 col_nav_md, col_main_md = st.columns([1, 5])
@@ -623,7 +657,7 @@ if check_password():
                         if df_visits.empty:
                             st.warning("No Office Visit data found. Please upload a file containing 'New Patients' in the filename.")
                             if debug_log:
-                                with st.expander("Troubleshooting"):
+                                with st.expander("🛠️ Debug: View Raw Data"):
                                     for l in debug_log: st.write(l)
                         else:
                             latest_v_date = df_visits['Month_Clean'].max()
