@@ -450,12 +450,10 @@ if check_password():
                 continue 
 
             # --- SUMNER PROV HANDLING ---
-            # Check specifically for "Sumner prov" sheet inside the main files
             for sheet_name, df in xls.items():
                 s_lower = sheet_name.strip().lower()
                 if "sumner prov" in s_lower:
                     file_date = get_date_from_filename(filename)
-                    # Use the new parser logic
                     res = parse_sumner_prov_sheet(df, file_date)
                     if not res.empty:
                         provider_data.append(res)
@@ -490,7 +488,7 @@ if check_password():
                 for sheet_name, df in xls.items():
                     clean_name = sheet_name.strip()
                     s_lower = clean_name.lower()
-                    if "sumner prov" in s_lower: continue # Handled above
+                    if "sumner prov" in s_lower: continue 
 
                     s_upper = clean_name.upper()
                     if clean_name.upper() == "FRIEDMEN": clean_name = "Friedman"
@@ -799,6 +797,7 @@ if check_password():
                                     st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples"))
                     
                     elif md_view == "Office Visits":
+                        st.warning("⚠️ **Currently only displaying the non-TO Photon Sites**")
                         if df_visits.empty:
                             st.warning("No Office Visit data found. Please upload a file containing 'New Patients' in the filename.")
                             if debug_log:
