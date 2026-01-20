@@ -66,42 +66,49 @@ def check_password():
 def inject_custom_css():
     st.markdown("""
         <style>
+        /* MAIN CONTAINER BACKGROUND */
+        .stApp {
+            background-color: #FAFAFA;
+        }
+
         /* TAB CONTAINER */
         .stTabs [data-baseweb="tab-list"] {
-            gap: 20px; 
+            gap: 24px; /* More space between tabs */
             background-color: transparent;
             padding-bottom: 15px;
+            border-bottom: 2px solid #E0E0E0;
         }
 
         /* INACTIVE TABS */
         .stTabs [data-baseweb="tab-list"] button {
             background-color: #FFFFFF;
             border: 1px solid #E0E0E0;
-            border-radius: 8px;
-            color: #4A4A4A; 
-            padding: 12px 25px;
-            transition: all 0.3s ease;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border-radius: 6px;
+            color: #555555; 
+            padding: 12px 30px;
+            transition: all 0.2s ease;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
         
         /* INCREASED FONT SIZE FOR TAB TEXT */
         .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
-            font-size: 1.35rem; /* Larger Font */
-            font-weight: 700;   /* Bolder */
+            font-size: 18px !important; 
+            font-weight: 600 !important;
             margin: 0px;
         }
         
         /* HOVER STATE */
         .stTabs [data-baseweb="tab-list"] button:hover {
-            border-color: #2C3E50;
-            color: #2C3E50;
+            border-color: #002B5C; /* Navy Blue */
+            color: #002B5C;
+            background-color: #F8F9FA;
         }
 
         /* ACTIVE TAB (PROFESSIONAL NAVY BLUE) */
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
-            background-color: #2C3E50;
+            background-color: #002B5C !important;
             color: #FFFFFF !important;
-            border-color: #2C3E50;
+            border-color: #002B5C;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
         
@@ -296,7 +303,7 @@ if check_password():
 
     def parse_visits_sheet(df, filename_date):
         records = []
-        local_logs = [] # Store debug info for this file
+        local_logs = []
         
         try:
             # 1. FIND START ROW
@@ -305,59 +312,59 @@ if check_password():
                 row_vals = [str(v).strip().upper() for v in df.iloc[i].values]
                 if "PHYSICIANS ONLY" in row_vals:
                     data_start_row = i + 1
-                    local_logs.append(f"Found 'PHYSICIANS ONLY' anchor at row {i}")
+                    local_logs.append(f"Anchor found at {i}")
                     break
             
             if data_start_row == -1: 
                 data_start_row = 8
-                local_logs.append("Could not find anchor. Defaulting to row 8.")
+                local_logs.append("Anchor NOT found. Defaulting to 8.")
 
-            # 2. ITERATE & NUMBER HUNT (THE "NTH NUMBER" METHOD)
+            # 2. COLUMN MAPPER (Find Header Row)
+            # We look for the row *above* the data to map columns.
+            header_row_idx = max(0, data_start_row - 2)
+            header_vals = [str(v).strip().upper() for v in df.iloc[header_row_idx].values]
+            
+            # Default Targets
+            ov_col = 2
+            np_col = 13
+            
+            # Try to map dynamically
+            for idx, val in enumerate(header_vals):
+                if "OFFICE VISITS" in val: ov_col = idx
+                if "NEW PATIENTS" in val: np_col = idx
+            
+            local_logs.append(f"Columns Mapped: Visits={ov_col}, NP={np_col}")
+
+            # 3. EXTRACT
             for i in range(data_start_row, len(df)):
                 row = df.iloc[i].values
                 
                 # Check for Name (Scan first 5 columns)
                 clean_name = None
-                raw_name = "Unknown"
-                
                 for c in range(min(5, len(row))): 
                     val = str(row[c]).strip()
                     potential = clean_provider_name(val)
                     if potential in PROVIDER_CONFIG:
                         clean_name = potential
-                        raw_name = val
                         break
                 
                 if not clean_name: continue
 
-                # Harvest ALL numbers in the row
-                numbers = []
-                for val in row:
-                    num = clean_number(val)
-                    if num is not None:
-                        numbers.append(num)
+                # Safe Extract Helper
+                def get_val(idx):
+                    if idx < len(row): 
+                        n = clean_number(row[idx])
+                        return n if n is not None else 0
+                    return 0
+
+                # Explicitly grab columns relative to detected headers
+                # We assume standard structure: [Current, Diff, Prior]
                 
-                # LOGGING FOR DEBUGGING
-                log_entry = f"Row {i}: Found Provider '{clean_name}'. Numbers found: {len(numbers)} -> {numbers}"
-                local_logs.append(log_entry)
+                visits = get_val(ov_col)
+                visits_diff = get_val(ov_col + 1)
                 
-                # Logic provided by user:
-                # 1st (Idx 0) = Curr Visits
-                # 2nd (Idx 1) = Diff Visits
-                # 3rd (Idx 2) = Prior Visits
-                # 4th (Idx 3) = Curr NP
-                # 5th (Idx 4) = Diff NP
-                # 6th (Idx 5) = Prior NP
-                
-                visits = 0
-                visits_diff = 0
-                new_patients = 0
-                np_diff = 0
-                
-                if len(numbers) >= 1: visits = numbers[0]
-                if len(numbers) >= 2: visits_diff = numbers[1]
-                if len(numbers) >= 4: new_patients = numbers[3]
-                if len(numbers) >= 5: np_diff = numbers[4]
+                new_patients = get_val(np_col)
+                np_diff = get_val(np_col + 1)
 
                 records.append({
                     "Name": clean_name,
@@ -370,8 +377,8 @@ if check_password():
                     "Month_Label": filename_date.strftime('%b-%y')
                 })
         except Exception as e:
-            local_logs.append(f"CRITICAL ERROR in parsing: {str(e)}")
-            return pd.DataFrame(), local_logs 
+            local_logs.append(f"Crash: {str(e)}")
+            return pd.DataFrame(), local_logs
             
         return pd.DataFrame(records), local_logs
 
@@ -399,7 +406,7 @@ if check_password():
                 for sheet_name, df in xls.items():
                     if "PHYS YTD OV" in sheet_name.upper():
                         res, logs = parse_visits_sheet(df, file_date)
-                        debug_log.extend(logs) # Add local logs to global debug
+                        debug_log.extend(logs)
                         if not res.empty: 
                             visit_data.append(res)
                 continue 
@@ -741,7 +748,6 @@ if check_password():
                                     fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), 
                                                     x='Total Visits', y='Name', orientation='h', text_auto=True,
                                                     color='Total Visits', color_continuous_scale='Blues')
-                                    # HEIGHT FIX
                                     fig_ov.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_ov, use_container_width=True)
                                 
@@ -760,7 +766,6 @@ if check_password():
                                     fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), 
                                                     x='New Patients', y='Name', orientation='h', text_auto=True,
                                                     color='New Patients', color_continuous_scale='Greens')
-                                    # HEIGHT FIX
                                     fig_np.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_np, use_container_width=True)
                                 
