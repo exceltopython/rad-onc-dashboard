@@ -398,9 +398,9 @@ if check_password():
                         else:
                             df_view = df_clinic[df_clinic['ID'] == clinic_filter]
                             target_tag = clinic_filter
-                            if clinic_filter == "LROC": view_title = "LROC (LaVergne)"
+                            if clinic_filter == "LROC": view_title = "LROC (Lebanon)"
                             elif clinic_filter == "TOPC": view_title = "TN Proton Center"
-                            elif clinic_filter == "TROC": view_title = "TROC (Franklin)"
+                            elif clinic_filter == "TROC": view_title = "TROC (Tullahoma)"
 
                         if df_view.empty:
                             st.warning(f"No data available for {view_title}.")
@@ -531,3 +531,4 @@ if check_password():
                             st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
     else:
         st.info("👋 Ready. View Only Mode: Add files to 'Reports' folder in GitHub to update data.")
+
