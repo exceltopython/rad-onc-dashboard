@@ -296,6 +296,7 @@ if check_password():
 
     def parse_visits_sheet(df, filename_date):
         records = []
+        local_logs = [] # Store debug info for this file
         
         try:
             # 1. FIND START ROW
@@ -304,21 +305,27 @@ if check_password():
                 row_vals = [str(v).strip().upper() for v in df.iloc[i].values]
                 if "PHYSICIANS ONLY" in row_vals:
                     data_start_row = i + 1
+                    local_logs.append(f"Found 'PHYSICIANS ONLY' anchor at row {i}")
                     break
             
-            if data_start_row == -1: data_start_row = 8
+            if data_start_row == -1: 
+                data_start_row = 8
+                local_logs.append("Could not find anchor. Defaulting to row 8.")
 
-            # 2. ITERATE & NUMBER HUNT
+            # 2. ITERATE & NUMBER HUNT (THE "NTH NUMBER" METHOD)
             for i in range(data_start_row, len(df)):
                 row = df.iloc[i].values
                 
                 # Check for Name (Scan first 5 columns)
                 clean_name = None
+                raw_name = "Unknown"
+                
                 for c in range(min(5, len(row))): 
                     val = str(row[c]).strip()
                     potential = clean_provider_name(val)
                     if potential in PROVIDER_CONFIG:
                         clean_name = potential
+                        raw_name = val
                         break
                 
                 if not clean_name: continue
@@ -330,7 +337,11 @@ if check_password():
                     if num is not None:
                         numbers.append(num)
                 
-                # Logic:
+                # LOGGING FOR DEBUGGING
+                log_entry = f"Row {i}: Found Provider '{clean_name}'. Numbers found: {len(numbers)} -> {numbers}"
+                local_logs.append(log_entry)
+                
+                # Logic provided by user:
                 # 1st (Idx 0) = Curr Visits
                 # 2nd (Idx 1) = Diff Visits
                 # 3rd (Idx 2) = Prior Visits
@@ -343,11 +354,10 @@ if check_password():
                 new_patients = 0
                 np_diff = 0
                 
-                # SAFE ASSIGNMENT (Check length first!)
-                if len(numbers) > 0: visits = numbers[0]
-                if len(numbers) > 1: visits_diff = numbers[1]
-                if len(numbers) > 3: new_patients = numbers[3]
-                if len(numbers) > 4: np_diff = numbers[4]
+                if len(numbers) >= 1: visits = numbers[0]
+                if len(numbers) >= 2: visits_diff = numbers[1]
+                if len(numbers) >= 4: new_patients = numbers[3]
+                if len(numbers) >= 5: np_diff = numbers[4]
 
                 records.append({
                     "Name": clean_name,
@@ -359,10 +369,11 @@ if check_password():
                     "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
                     "Month_Label": filename_date.strftime('%b-%y')
                 })
-        except Exception:
-            return pd.DataFrame() 
+        except Exception as e:
+            local_logs.append(f"CRITICAL ERROR in parsing: {str(e)}")
+            return pd.DataFrame(), local_logs 
             
-        return pd.DataFrame(records)
+        return pd.DataFrame(records), local_logs
 
     def process_files(file_objects):
         clinic_data = []
@@ -387,14 +398,10 @@ if check_password():
                 file_date = get_date_from_filename(filename)
                 for sheet_name, df in xls.items():
                     if "PHYS YTD OV" in sheet_name.upper():
-                        try:
-                            res = parse_visits_sheet(df, file_date)
-                            if not res.empty: 
-                                visit_data.append(res)
-                            else:
-                                debug_log.append(f"Parsed {sheet_name} but found 0 records.")
-                        except Exception as e:
-                            debug_log.append(f"Error parsing {sheet_name}: {str(e)}")
+                        res, logs = parse_visits_sheet(df, file_date)
+                        debug_log.extend(logs) # Add local logs to global debug
+                        if not res.empty: 
+                            visit_data.append(res)
                 continue 
 
             if file_tag == "TOPC":
@@ -734,6 +741,7 @@ if check_password():
                                     fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), 
                                                     x='Total Visits', y='Name', orientation='h', text_auto=True,
                                                     color='Total Visits', color_continuous_scale='Blues')
+                                    # HEIGHT FIX
                                     fig_ov.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_ov, use_container_width=True)
                                 
@@ -752,6 +760,7 @@ if check_password():
                                     fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), 
                                                     x='New Patients', y='Name', orientation='h', text_auto=True,
                                                     color='New Patients', color_continuous_scale='Greens')
+                                    # HEIGHT FIX
                                     fig_np.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_np, use_container_width=True)
                                 
