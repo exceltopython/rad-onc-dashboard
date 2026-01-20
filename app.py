@@ -339,8 +339,12 @@ if check_password():
             for i in range(data_start_row, len(df)):
                 row = df.iloc[i].values
                 
+                # CHECK FOR "TOTAL" ROW -> DO NOT BREAK, JUST CONTINUE
+                row_str = " ".join([str(x).upper() for x in row[:5]])
+                if "TOTAL" in row_str: continue 
+
                 matched_name = None
-                for c in range(min(5, len(row))): 
+                for c in range(min(10, len(row))): # Scan up to 10 cols
                     val = str(row[c]).strip()
                     matched_name = match_provider(val) 
                     if matched_name: break
@@ -353,18 +357,32 @@ if check_password():
                     if num is not None:
                         numbers.append(num)
                 
+                # ADAPTIVE ASSIGNMENT
                 visits = 0
                 visits_diff = 0
                 new_patients = 0
                 np_diff = 0
                 
-                if len(numbers) >= 1: visits = numbers[0]
-                if len(numbers) >= 2: visits_diff = numbers[1]
-                if len(numbers) >= 4: new_patients = numbers[3]
-                if len(numbers) >= 5: np_diff = numbers[4]
-                
-                if len(numbers) == 4:
-                     new_patients = numbers[3]
+                if len(numbers) >= 6:
+                    visits = numbers[0]
+                    visits_diff = numbers[1]
+                    new_patients = numbers[3]
+                    np_diff = numbers[4]
+                elif len(numbers) >= 4:
+                    visits = numbers[0]
+                    visits_diff = numbers[1]
+                    new_patients = numbers[3]
+                elif len(numbers) == 3:
+                    visits = numbers[0]
+                    new_patients = numbers[2]
+                elif len(numbers) == 2:
+                    visits = numbers[0]
+                    new_patients = numbers[1]
+                elif len(numbers) == 1:
+                    visits = numbers[0]
+
+                # LOGGING
+                local_logs.append(f"Row {i} ({matched_name}): V={visits}, NP={new_patients}")
 
                 records.append({
                     "Name": matched_name,
@@ -377,8 +395,9 @@ if check_password():
                     "Month_Label": filename_date.strftime('%b-%y'),
                     "Clinic_Tag": clinic_tag
                 })
-        except Exception:
-            return pd.DataFrame(), []
+        except Exception as e:
+            local_logs.append(f"Err: {str(e)}")
+            return pd.DataFrame(), local_logs
             
         return pd.DataFrame(records), local_logs
 
@@ -404,7 +423,6 @@ if check_password():
             if "NEW PATIENTS" in filename or "NEW PT" in filename:
                 file_date = get_date_from_filename(filename)
                 
-                # Tag logic for Visits
                 visit_tag = "General"
                 if "LROC" in filename: visit_tag = "LROC"
                 elif "TROC" in filename: visit_tag = "TROC"
@@ -412,6 +430,7 @@ if check_password():
                 for sheet_name, df in xls.items():
                     if "PHYS YTD OV" in sheet_name.upper():
                         res, logs = parse_visits_sheet(df, file_date, clinic_tag=visit_tag)
+                        debug_log.extend(logs)
                         if not res.empty: 
                             visit_data.append(res)
                 continue 
