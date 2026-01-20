@@ -66,30 +66,44 @@ def check_password():
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* Increase Font Size for Tabs */
-        .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
-            font-size: 1.2rem;
-            font-weight: 600;
-        }
-        
-        /* Style the Tabs Container */
+        /* TAB CONTAINER */
         .stTabs [data-baseweb="tab-list"] {
-            gap: 10px;
-        }
-
-        /* Style Inactive Tabs */
-        .stTabs [data-baseweb="tab-list"] button {
-            background-color: #f0f2f6;
-            border-radius: 5px;
-            color: #31333F; 
-            padding-top: 10px;
+            gap: 20px; /* Space between tabs */
+            background-color: transparent;
             padding-bottom: 10px;
         }
 
-        /* Style Active Tab */
+        /* INACTIVE TABS */
+        .stTabs [data-baseweb="tab-list"] button {
+            background-color: #FFFFFF;
+            border: 1px solid #E0E0E0;
+            border-radius: 8px;
+            color: #4A4A4A; 
+            padding: 10px 25px;
+            font-size: 1.1rem; /* Larger Font */
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        /* HOVER STATE */
+        .stTabs [data-baseweb="tab-list"] button:hover {
+            border-color: #2C3E50;
+            color: #2C3E50;
+        }
+
+        /* ACTIVE TAB (PROFESSIONAL NAVY BLUE) */
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
-            background-color: #0E1117; /* Dark Professional Background */
-            color: #FFFFFF !important; /* White Text */
+            background-color: #2C3E50; /* Professional Midnight Blue */
+            color: #FFFFFF !important;
+            border-color: #2C3E50;
+            font-weight: 600;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        /* REMOVE DEFAULT STREAMLIT TAB LINE */
+        .stTabs [data-baseweb="tab-highlight"] {
+            background-color: transparent !important;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -278,61 +292,57 @@ if check_password():
     def parse_visits_sheet(df, filename_date):
         records = []
         
-        # 1. FIND ANCHOR ROW ("Physicians Only")
+        # 1. FIND "PHYSICIANS ONLY" ANCHOR
         data_start_row = -1
+        name_col_idx = 1 # Default Col B
         
         for i in range(min(20, len(df))):
             row_vals = [str(v).strip().upper() for v in df.iloc[i].values]
             if "PHYSICIANS ONLY" in row_vals:
                 data_start_row = i + 1
+                try: name_col_idx = row_vals.index("PHYSICIANS ONLY")
+                except: pass
                 break
         
-        # Fallback
         if data_start_row == -1: data_start_row = 8
 
-        # 2. EXTRACT DATA (SCAN ROW METHOD)
-        # This method is immune to empty/merged columns. 
-        # It finds the name, then grabs the first number (Visits) and last number (New Pts).
-        
+        # 2. EXTRACT DATA WITH "CRASH PROOF" FETCHER
         for i in range(data_start_row, len(df)):
             row = df.iloc[i].values
             
-            # Find Provider Name Index
-            name_idx = -1
-            clean_name = ""
+            # --- SAFE EXTRACTOR ---
+            def safe_extract(idx):
+                if idx < len(row): return row[idx]
+                return None
+
+            # Check Name
+            prov_name_raw = str(safe_extract(name_col_idx)).strip()
             
-            # Scan first 5 columns for a valid name
-            for col_idx in range(min(5, len(row))):
-                val = str(row[col_idx]).strip()
-                potential_name = clean_provider_name(val)
-                if potential_name in PROVIDER_CONFIG:
-                    name_idx = col_idx
-                    clean_name = potential_name
+            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'none', 'physician', 'amount', 'total']: 
+                continue
+            
+            if "Total" in prov_name_raw: 
+                break 
+                
+            clean_name = clean_provider_name(prov_name_raw)
+            if not clean_name or clean_name not in PROVIDER_CONFIG: continue
+
+            # --- ROBUST VALUE FINDER ---
+            # Total Visits: Expected around Col 2 (C). Try 2, 1, 3.
+            visits = 0
+            for col_idx in [2, 1, 3]:
+                val = clean_number(safe_extract(col_idx))
+                if val is not None:
+                    visits = val
                     break
             
-            if name_idx == -1: continue # No provider found on this row
-
-            # Scan rest of row for numbers
-            numeric_values = []
-            for col_idx in range(name_idx + 1, len(row)):
-                val = clean_number(row[col_idx])
-                if val is not None:
-                    numeric_values.append(val)
-            
-            # We need at least 1 number. 
-            # Assumption: 1st number = Total Visits. Last number = New Patients.
-            visits = 0
+            # New Patients: Expected around Col 13 (N). Try 13, 12, 14, 11.
             new_patients = 0
-            
-            if len(numeric_values) >= 1:
-                visits = numeric_values[0] # First number found
-                if len(numeric_values) >= 2:
-                    # If we found multiple numbers, assume the last valid one is New Patients
-                    # (This skips over empty columns or middle data columns)
-                    new_patients = numeric_values[-1] 
-                else:
-                    # Only one number found? Likely Visits.
-                    pass
+            for col_idx in [13, 12, 14, 11, 10]:
+                val = clean_number(safe_extract(col_idx))
+                if val is not None:
+                    new_patients = val
+                    break
 
             records.append({
                 "Name": clean_name,
