@@ -86,7 +86,7 @@ def inject_custom_css():
             margin: 0px;
         }
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
-            background-color: #1E3A8A !important; /* Navy Blue */
+            background-color: #1E3A8A !important; 
             color: #FFFFFF !important;
             border-color: #1E3A8A;
         }
@@ -268,6 +268,43 @@ if check_password():
                 })
         return pd.DataFrame(records)
 
+    # --- NEW: PARSER FOR SUMNER PROV SHEET ---
+    def parse_sumner_prov_sheet(df, filename_date):
+        records = []
+        header_row_idx = find_date_row(df)
+        
+        # Iterate over all rows below header
+        for i in range(header_row_idx + 1, len(df)):
+            row = df.iloc[i]
+            # Check for provider name in first few cols
+            raw_name = str(row[0]).strip()
+            if not raw_name or raw_name.lower() in ['nan', 'none']:
+                raw_name = str(row[1]).strip() # Try col 1
+            
+            matched = match_provider(raw_name)
+            if matched:
+                # Valid Provider Found. Grab monthly data.
+                # Assuming standard layout: Name ... Jan ... Dec
+                # We iterate columns from index 4 onwards (based on other sheets)
+                if len(df.columns) > 4:
+                    for col in df.columns[4:]:
+                        month_label = df.iloc[header_row_idx, col]
+                        if pd.isna(month_label): continue
+                        
+                        val = clean_number(row[col])
+                        if val is not None:
+                            records.append({
+                                "Type": "provider",
+                                "ID": "Sumner", # Clinic ID
+                                "Name": matched, # Provider Name
+                                "FTE": 1.0, 
+                                "Month": month_label,
+                                "Total RVUs": val,
+                                "RVU per FTE": val, # 1.0 FTE assumption for this view
+                                "Clinic_Tag": "Sumner" # Tag for filtering
+                            })
+        return pd.DataFrame(records)
+
     def parse_visits_sheet(df, filename_date):
         records = []
         local_logs = []
@@ -352,9 +389,22 @@ if check_password():
                 for sheet_name, df in xls.items():
                     if "PHYS YTD OV" in sheet_name.upper():
                         res, logs = parse_visits_sheet(df, file_date)
+                        debug_log.extend(logs)
                         if not res.empty: 
                             visit_data.append(res)
                 continue 
+
+            # --- SUMNER PROV HANDLING ---
+            # Check for "Sumner prov" sheet specifically in standard files
+            for sheet_name, df in xls.items():
+                s_lower = sheet_name.strip().lower()
+                if "sumner prov" in s_lower:
+                    file_date = get_date_from_filename(filename)
+                    # Use year from filename for parsing context if needed
+                    res = parse_sumner_prov_sheet(df, file_date)
+                    if not res.empty:
+                        provider_data.append(res)
+                    continue
 
             if file_tag == "TOPC":
                 proton_providers_temp = []
@@ -384,6 +434,11 @@ if check_password():
             else:
                 for sheet_name, df in xls.items():
                     clean_name = sheet_name.strip()
+                    s_lower = clean_name.lower()
+                    
+                    # Skip "Sumner prov" here as it's handled above
+                    if "sumner prov" in s_lower: continue
+
                     s_upper = clean_name.upper()
                     if clean_name.upper() == "FRIEDMEN": clean_name = "Friedman"
                     is_summary_sheet = "PRODUCTIVITY TREND" in s_upper
@@ -400,6 +455,8 @@ if check_password():
 
                     if is_summary_sheet: continue
                     if any(ignored in s_upper for ignored in IGNORED_SHEETS): continue
+                    
+                    # Only skip general "prov" sheets, but we explicitly allow Sumner Prov above
                     if clean_name.lower().endswith(" prov"): continue
 
                     res = parse_rvu_sheet(df, clean_name, 'provider', clinic_tag=file_tag)
@@ -604,10 +661,8 @@ if check_password():
                                                     fig_c.update_layout(font=dict(size=14), height=350)
                                                     with cols[idx % 2]:
                                                         st.plotly_chart(fig_c, use_container_width=True)
-                                    else:
-                                        st.info("No historical data available.")
 
-                            # 4. PIE CHARTS (Only for Single Clinics)
+                            # 4. PIE CHARTS
                             if target_tag and not df_provider_raw.empty:
                                 clinic_prov_df = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
                                 if not clinic_prov_df.empty:
@@ -712,7 +767,6 @@ if check_password():
                                     fig_ov.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_ov, use_container_width=True)
                                 
-                                # Visits Change Chart
                                 with st.container(border=True):
                                     st.markdown(f"#### 📉 YoY Change: Office Visits")
                                     fig_diff_ov = px.bar(latest_v_df.sort_values('Visits_Diff', ascending=True),
@@ -730,7 +784,6 @@ if check_password():
                                     fig_np.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_np, use_container_width=True)
                                 
-                                # NP Change Chart
                                 with st.container(border=True):
                                     st.markdown(f"#### 📉 YoY Change: New Patients")
                                     fig_diff_np = px.bar(latest_v_df.sort_values('NP_Diff', ascending=True),
