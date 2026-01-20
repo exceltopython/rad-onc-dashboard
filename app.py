@@ -189,53 +189,80 @@ if check_password():
 
     def parse_visits_sheet(df, filename_date):
         records = []
+        year_target = str(filename_date.year) 
         
-        # TARGET COORDINATES (Based on raw CSV analysis)
-        # Name: Column B (Index 1)
-        # Total Visits: Column C (Index 2)
-        # New Patients: Column N (Index 13)
-        ov_col_idx = 2
-        np_col_idx = 13
-        
-        # Find start row
+        # 1. SMART HEADER SCAN
+        ov_col_idx = None
+        np_col_idx = None
         data_start_row = -1
+        
         for i in range(min(20, len(df))):
             row_vals = [str(v).strip() for v in df.iloc[i].values]
-            # Check for any known provider
-            for val in row_vals:
-                if clean_provider_name(val) in PROVIDER_CONFIG:
-                    data_start_row = i
-                    break
-            if data_start_row != -1: break
-        
-        if data_start_row == -1: return pd.DataFrame() # No providers found
+            
+            # Identify columns matching the Target Year
+            year_indices = [idx for idx, val in enumerate(row_vals) if year_target in val]
+            
+            if len(year_indices) >= 1:
+                ov_col_idx = year_indices[0] # First occurence (Left side) -> Total Visits
+                
+                if len(year_indices) >= 2:
+                    np_col_idx = year_indices[1] # Second occurrence (Right side) -> New Patients
+                else:
+                    # If we only found one, maybe New Patients is further right or in a different header row
+                    # We will rely on fallback for NP if not found here
+                    pass
+                
+                data_start_row = i + 1 
+                break
 
-        # EXTRACT DATA
+        # 2. FALLBACK DEFAULTS
+        if ov_col_idx is None: ov_col_idx = 2 # Column C (Index 2)
+        if np_col_idx is None: np_col_idx = 9 # Column J (Index 9) - approximate based on spacing
+        if data_start_row == -1: data_start_row = 8
+        
+        # 3. EXTRACT DATA
         for i in range(data_start_row, len(df)):
             row = df.iloc[i]
-            if len(row) <= max(ov_col_idx, np_col_idx): continue
             
+            # CHECK NAME (Try Col A and Col B)
+            name_idx = 1 # Default to Col B
             prov_name_raw = str(row[1]).strip()
-            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'physician', 'amount', 'none']: 
+            
+            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'none', 'physician', 'amount']:
+                # Try Col A
+                prov_name_raw = str(row[0]).strip()
+                name_idx = 0
+            
+            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'none', 'physician', 'amount']: 
                 continue
+            
             if "Total" in prov_name_raw: 
                 break 
                 
             clean_name = clean_provider_name(prov_name_raw)
             if not clean_name or clean_name not in PROVIDER_CONFIG: continue
 
-            # Get Values using Clean Number
-            # We look at target index, plus neighbors just in case of slight shifts
+            # CHECK VALUES (With Index Error Protection)
             visits = 0
-            for offset in [0, 1, -1]: 
-                val = clean_number(row[ov_col_idx + offset])
-                if val is not None: 
+            new_patients = 0
+            
+            # --- Get Visits ---
+            # Check target col + neighbors
+            for offset in [0, 1, -1]:
+                target = ov_col_idx + offset
+                if target < 0 or target >= len(row): continue
+                
+                val = clean_number(row[target])
+                if val is not None:
                     visits = val
                     break
             
-            new_patients = 0
-            for offset in [0, 1, -1]:
-                val = clean_number(row[np_col_idx + offset])
+            # --- Get New Patients ---
+            for offset in [0, 1, -1, 2]: # Wider search for NP
+                target = np_col_idx + offset
+                if target < 0 or target >= len(row): continue
+                
+                val = clean_number(row[target])
                 if val is not None:
                     new_patients = val
                     break
@@ -455,6 +482,22 @@ if check_password():
                                             fig_pie.update_traces(textposition='inside', textinfo='percent+label')
                                             fig_pie.update_layout(font=dict(size=14))
                                             st.plotly_chart(fig_pie, use_container_width=True)
+                            
+                            # --- ALL CLINIC TABLES ADDED HERE ---
+                            if clinic_filter == "All":
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    with st.container(border=True):
+                                        st.markdown("#### 🔢 Monthly Data")
+                                        piv = df_view.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                                        piv["Total"] = piv.sum(axis=1)
+                                        st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds"))
+                                with c2:
+                                    with st.container(border=True):
+                                        st.markdown("#### 📆 Quarterly Data")
+                                        piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                                        piv_q["Total"] = piv_q.sum(axis=1)
+                                        st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
 
             with tab_md:
                 col_nav_md, col_main_md = st.columns([1, 5])
@@ -498,17 +541,11 @@ if check_password():
                                     st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples"))
                     
                     elif md_view == "Office Visits":
-                        # --- DEBUG EXPANDER (Hidden unless clicked) ---
-                        with st.expander("🛠️ Data Inspector (Click if Charts are Empty)"):
-                            if df_visits.empty:
-                                st.error("No data extracted. Debug log below:")
-                                for m in debug_log: st.write(m)
-                            else:
-                                st.write("Data Extracted Successfully:")
-                                st.dataframe(df_visits)
-
                         if df_visits.empty:
                             st.warning("No Office Visit data found. Please upload a file containing 'New Patients' in the filename.")
+                            if debug_log:
+                                with st.expander("Troubleshooting"):
+                                    for l in debug_log: st.write(l)
                         else:
                             latest_v_date = df_visits['Month_Clean'].max()
                             latest_v_df = df_visits[df_visits['Month_Clean'] == latest_v_date]
