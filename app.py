@@ -62,7 +62,41 @@ def check_password():
     else:
         return True
 
+# --- CUSTOM CSS FOR PROFESSIONAL STYLING ---
+def inject_custom_css():
+    st.markdown("""
+        <style>
+        /* Increase Font Size for Tabs */
+        .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+        
+        /* Style the Tabs Container */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 10px;
+        }
+
+        /* Style Inactive Tabs */
+        .stTabs [data-baseweb="tab-list"] button {
+            background-color: #f0f2f6;
+            border-radius: 5px;
+            color: #31333F; 
+            padding-top: 10px;
+            padding-bottom: 10px;
+        }
+
+        /* Style Active Tab */
+        .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
+            background-color: #0E1117; /* Dark Professional Background */
+            color: #FFFFFF !important; /* White Text */
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
 if check_password():
+    inject_custom_css()
+    
     # --- CONFIGURATION ---
     CLINIC_CONFIG = {
         "CENT": {"name": "Centennial", "fte": 2.0},
@@ -244,69 +278,61 @@ if check_password():
     def parse_visits_sheet(df, filename_date):
         records = []
         
-        # 1. LANDMARK SEARCH (Find Header Row & Columns by Text)
+        # 1. FIND ANCHOR ROW ("Physicians Only")
         data_start_row = -1
-        name_col_idx = 1 # Default
-        ov_col_idx = None
-        np_col_idx = None
         
-        # Scan top 20 rows for keywords
         for i in range(min(20, len(df))):
             row_vals = [str(v).strip().upper() for v in df.iloc[i].values]
-            
-            # Anchor 1: "PHYSICIANS ONLY" (Data starts below this)
             if "PHYSICIANS ONLY" in row_vals:
                 data_start_row = i + 1
-            
-            # Anchor 2: "YTD OFFICE VISITS" (Col Index)
-            # Find closest 'Amount' or Year column to this header
-            for idx, val in enumerate(row_vals):
-                if "OFFICE VISITS" in val:
-                    # Look 1-2 cols right for the data column
-                    ov_col_idx = idx + 1 
-                if "NEW PATIENTS" in val:
-                    # Look 1-2 cols right for the data column
-                    np_col_idx = idx + 1
-
-        # Fallback Defaults if scanning fails
+                break
+        
+        # Fallback
         if data_start_row == -1: data_start_row = 8
-        if ov_col_idx is None: ov_col_idx = 2 # Col C
-        if np_col_idx is None: np_col_idx = 13 # Col N
 
-        # 2. EXTRACT DATA
+        # 2. EXTRACT DATA (SCAN ROW METHOD)
+        # This method is immune to empty/merged columns. 
+        # It finds the name, then grabs the first number (Visits) and last number (New Pts).
+        
         for i in range(data_start_row, len(df)):
-            row = df.iloc[i]
+            row = df.iloc[i].values
             
-            def get_safe(idx):
-                if idx < 0 or idx >= len(row): return None
-                return row[idx]
-
-            # Check Name (Col B / Index 1)
-            prov_name_raw = str(get_safe(1)).strip()
+            # Find Provider Name Index
+            name_idx = -1
+            clean_name = ""
             
-            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'none', 'physician', 'amount', 'total']: 
-                continue
-            if "Total" in prov_name_raw: 
-                break 
-                
-            clean_name = clean_provider_name(prov_name_raw)
-            if not clean_name or clean_name not in PROVIDER_CONFIG: continue
-
-            # Get Visits (Check target & neighbors)
-            visits = 0
-            for offset in [0, 1, -1]:
-                val = clean_number(get_safe(ov_col_idx + offset))
-                if val is not None: 
-                    visits = val
+            # Scan first 5 columns for a valid name
+            for col_idx in range(min(5, len(row))):
+                val = str(row[col_idx]).strip()
+                potential_name = clean_provider_name(val)
+                if potential_name in PROVIDER_CONFIG:
+                    name_idx = col_idx
+                    clean_name = potential_name
                     break
             
-            # Get New Patients (Check target & neighbors)
-            new_patients = 0
-            for offset in [0, 1, -1, 2]:
-                val = clean_number(get_safe(np_col_idx + offset))
+            if name_idx == -1: continue # No provider found on this row
+
+            # Scan rest of row for numbers
+            numeric_values = []
+            for col_idx in range(name_idx + 1, len(row)):
+                val = clean_number(row[col_idx])
                 if val is not None:
-                    new_patients = val
-                    break
+                    numeric_values.append(val)
+            
+            # We need at least 1 number. 
+            # Assumption: 1st number = Total Visits. Last number = New Patients.
+            visits = 0
+            new_patients = 0
+            
+            if len(numeric_values) >= 1:
+                visits = numeric_values[0] # First number found
+                if len(numeric_values) >= 2:
+                    # If we found multiple numbers, assume the last valid one is New Patients
+                    # (This skips over empty columns or middle data columns)
+                    new_patients = numeric_values[-1] 
+                else:
+                    # Only one number found? Likely Visits.
+                    pass
 
             records.append({
                 "Name": clean_name,
@@ -688,6 +714,7 @@ if check_password():
                                     fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), 
                                                     x='Total Visits', y='Name', orientation='h', text_auto=True,
                                                     color='Total Visits', color_continuous_scale='Blues')
+                                    # HEIGHT FIX
                                     fig_ov.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_ov, use_container_width=True)
                             with c_ov2:
@@ -696,6 +723,7 @@ if check_password():
                                     fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), 
                                                     x='New Patients', y='Name', orientation='h', text_auto=True,
                                                     color='New Patients', color_continuous_scale='Greens')
+                                    # HEIGHT FIX
                                     fig_np.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_np, use_container_width=True)
 
