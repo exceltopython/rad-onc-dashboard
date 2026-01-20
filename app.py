@@ -43,6 +43,10 @@ if check_password():
         "TOPC": {"name": "TN Proton Center", "fte": 0.0}
     }
 
+    # --- GROUPS FOR CLINIC ANALYTICS ---
+    TRISTAR_IDS = ["CENT", "Skyline", "Dickson", "Summit", "Stonecrest"]
+    ASCENSION_IDS = ["STW", "Midtown", "MURF"]
+
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
         "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedman": 1.0, 
@@ -198,42 +202,33 @@ if check_password():
         
         for i in range(min(20, len(df))):
             row_vals = [str(v).strip() for v in df.iloc[i].values]
-            
             # Identify columns matching the Target Year
             year_indices = [idx for idx, val in enumerate(row_vals) if year_target in val]
-            
             if len(year_indices) >= 1:
-                ov_col_idx = year_indices[0] # First occurence (Left side) -> Total Visits
-                
+                ov_col_idx = year_indices[0] # First occurence -> Total Visits
                 if len(year_indices) >= 2:
-                    np_col_idx = year_indices[1] # Second occurrence (Right side) -> New Patients
-                else:
-                    # If we only found one, maybe New Patients is further right or in a different header row
-                    # We will rely on fallback for NP if not found here
-                    pass
-                
+                    np_col_idx = year_indices[1] # Second occurrence -> New Patients
                 data_start_row = i + 1 
                 break
 
-        # 2. FALLBACK DEFAULTS
-        if ov_col_idx is None: ov_col_idx = 2 # Column C (Index 2)
-        if np_col_idx is None: np_col_idx = 9 # Column J (Index 9) - approximate based on spacing
+        # 2. FALLBACK DEFAULTS (Based on files)
+        if ov_col_idx is None: ov_col_idx = 2 # Column C
+        if np_col_idx is None: np_col_idx = 9 # Column J (approx)
         if data_start_row == -1: data_start_row = 8
         
-        # 3. EXTRACT DATA
+        # 3. EXTRACT DATA WITH SAFE FETCH
         for i in range(data_start_row, len(df)):
             row = df.iloc[i]
             
+            # --- SAFE FETCH HELPER ---
+            def safe_get(idx):
+                if idx < 0 or idx >= len(row): return None
+                return row[idx]
+
             # CHECK NAME (Try Col A and Col B)
-            name_idx = 1 # Default to Col B
-            prov_name_raw = str(row[1]).strip()
+            prov_name_raw = str(safe_get(1)).strip()
             
-            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'none', 'physician', 'amount']:
-                # Try Col A
-                prov_name_raw = str(row[0]).strip()
-                name_idx = 0
-            
-            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'none', 'physician', 'amount']: 
+            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'none', 'physician', 'amount', 'none']: 
                 continue
             
             if "Total" in prov_name_raw: 
@@ -242,27 +237,20 @@ if check_password():
             clean_name = clean_provider_name(prov_name_raw)
             if not clean_name or clean_name not in PROVIDER_CONFIG: continue
 
-            # CHECK VALUES (With Index Error Protection)
+            # GET VALUES (With index protection)
             visits = 0
             new_patients = 0
             
-            # --- Get Visits ---
-            # Check target col + neighbors
+            # Scan neighbors for data (handles merged cell offsets)
             for offset in [0, 1, -1]:
-                target = ov_col_idx + offset
-                if target < 0 or target >= len(row): continue
-                
-                val = clean_number(row[target])
+                val = clean_number(safe_get(ov_col_idx + offset))
                 if val is not None:
                     visits = val
                     break
             
-            # --- Get New Patients ---
-            for offset in [0, 1, -1, 2]: # Wider search for NP
-                target = np_col_idx + offset
-                if target < 0 or target >= len(row): continue
-                
-                val = clean_number(row[target])
+            for offset in [0, 1, -1, 2, 3, 4]: # Wide net for New Patients
+                target = np_col_idx if np_col_idx else 10
+                val = clean_number(safe_get(target + offset))
                 if val is not None:
                     new_patients = val
                     break
@@ -441,18 +429,38 @@ if check_password():
                     col_nav, col_main = st.columns([1, 5])
                     with col_nav:
                         st.markdown("### 🔍 Filter")
-                        clinic_filter = st.radio("Select View:", ["All", "LROC", "TOPC", "TROC"], key="clinic_radio")
+                        clinic_filter = st.radio(
+                            "Select View:", 
+                            ["All", "TriStar", "Ascension", "LROC", "TOPC", "TROC"], 
+                            key="clinic_radio"
+                        )
                     with col_main:
+                        # FILTER LOGIC
+                        df_view = pd.DataFrame()
+                        view_title = clinic_filter
+                        target_tag = None
+
                         if clinic_filter == "All":
                             df_view = df_clinic.copy()
                             view_title = "All Clinics"
-                            target_tag = None
-                        else:
-                            df_view = df_clinic[df_clinic['ID'] == clinic_filter]
-                            target_tag = clinic_filter
-                            if clinic_filter == "LROC": view_title = "LROC (Lebanon)"
-                            elif clinic_filter == "TOPC": view_title = "TN Proton Center"
-                            elif clinic_filter == "TROC": view_title = "TROC (Tullahoma)"
+                        elif clinic_filter == "TriStar":
+                            df_view = df_clinic[df_clinic['ID'].isin(TRISTAR_IDS)]
+                            view_title = "TriStar Group"
+                        elif clinic_filter == "Ascension":
+                            df_view = df_clinic[df_clinic['ID'].isin(ASCENSION_IDS)]
+                            view_title = "Ascension Group"
+                        elif clinic_filter == "LROC": 
+                            df_view = df_clinic[df_clinic['ID'] == 'LROC']
+                            view_title = "LROC (Lebanon)"
+                            target_tag = "LROC"
+                        elif clinic_filter == "TOPC": 
+                            df_view = df_clinic[df_clinic['ID'] == 'TOPC']
+                            view_title = "TN Proton Center"
+                            target_tag = "TOPC"
+                        elif clinic_filter == "TROC": 
+                            df_view = df_clinic[df_clinic['ID'] == 'TROC']
+                            view_title = "TROC (Tullahoma)"
+                            target_tag = "TROC"
 
                         if df_view.empty:
                             st.warning(f"No data available for {view_title}.")
@@ -460,15 +468,32 @@ if check_password():
                             max_date = df_view['Month_Clean'].max()
                             st.info(generate_narrative(df_view, f"{view_title} Clinic"))
                             
+                            # 1. TRENDS (Aggregate if Group)
                             with st.container(border=True):
                                 st.markdown(f"#### 📅 {view_title}: 12-Month Trend")
                                 min_date = max_date - pd.DateOffset(months=11)
                                 l12m_c = df_view[df_view['Month_Clean'] >= min_date].sort_values('Month_Clean')
-                                fig_trend = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
+                                
+                                # If Group (TriStar/Ascension), show aggregate line
+                                if clinic_filter in ["TriStar", "Ascension", "All"]:
+                                    agg_trend = l12m_c.groupby('Month_Clean')[['Total RVUs']].sum().reset_index()
+                                    fig_trend = px.line(agg_trend, x='Month_Clean', y='Total RVUs', markers=True, title="Aggregate Trend")
+                                else:
+                                    fig_trend = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
+                                
                                 fig_trend.update_layout(font=dict(size=14))
                                 fig_trend.update_yaxes(rangemode="tozero")
                                 st.plotly_chart(fig_trend, use_container_width=True)
 
+                            # 2. INDIVIDUAL LINES (For Groups)
+                            if clinic_filter in ["TriStar", "Ascension", "All"]:
+                                with st.container(border=True):
+                                    st.markdown(f"#### 📈 {view_title}: Individual Clinic Trends")
+                                    fig_ind = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
+                                    fig_ind.update_layout(font=dict(size=14))
+                                    st.plotly_chart(fig_ind, use_container_width=True)
+
+                            # 3. PIE CHART (Only for Single Clinics)
                             if target_tag and not df_provider_raw.empty:
                                 clinic_prov_df = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
                                 if not clinic_prov_df.empty:
@@ -483,21 +508,20 @@ if check_password():
                                             fig_pie.update_layout(font=dict(size=14))
                                             st.plotly_chart(fig_pie, use_container_width=True)
                             
-                            # --- ALL CLINIC TABLES ADDED HERE ---
-                            if clinic_filter == "All":
-                                c1, c2 = st.columns(2)
-                                with c1:
-                                    with st.container(border=True):
-                                        st.markdown("#### 🔢 Monthly Data")
-                                        piv = df_view.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                        piv["Total"] = piv.sum(axis=1)
-                                        st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds"))
-                                with c2:
-                                    with st.container(border=True):
-                                        st.markdown("#### 📆 Quarterly Data")
-                                        piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                                        piv_q["Total"] = piv_q.sum(axis=1)
-                                        st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
+                            # 4. TABLES (Show for ALL views now)
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                with st.container(border=True):
+                                    st.markdown("#### 🔢 Monthly Data")
+                                    piv = df_view.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                                    piv["Total"] = piv.sum(axis=1)
+                                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds"))
+                            with c2:
+                                with st.container(border=True):
+                                    st.markdown("#### 📆 Quarterly Data")
+                                    piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                                    piv_q["Total"] = piv_q.sum(axis=1)
+                                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
 
             with tab_md:
                 col_nav_md, col_main_md = st.columns([1, 5])
