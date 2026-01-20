@@ -324,25 +324,22 @@ if check_password():
                 })
         return pd.DataFrame(records)
 
+    # --- UPDATED: SCAN ENTIRE SHEET FOR PROVIDERS (NO START ROW CONSTRAINT) ---
     def parse_visits_sheet(df, filename_date, clinic_tag="General"):
         records = []
         local_logs = []
         
         try:
-            data_start_row = -1
-            for i in range(min(20, len(df))):
-                row_vals = [str(v).strip().upper() for v in df.iloc[i].values]
-                if "PHYSICIANS ONLY" in row_vals:
-                    data_start_row = i + 1
-                    break
-            
-            if data_start_row == -1: 
-                data_start_row = 8
-
-            for i in range(data_start_row, len(df)):
+            # We scan every single row (skipping first few header rows typically)
+            for i in range(5, len(df)):
                 row = df.iloc[i].values
                 
+                # Check for "TOTAL" to avoid reading summary lines as providers
+                row_str_check = " ".join([str(x).upper() for x in row[:5]])
+                if "TOTAL" in row_str_check: continue
+
                 matched_name = None
+                # SCAN WIDE (First 10 columns) for a name
                 for c in range(min(10, len(row))): 
                     val = str(row[c]).strip()
                     matched_name = match_provider(val) 
@@ -350,6 +347,7 @@ if check_password():
                 
                 if not matched_name: continue
 
+                # If name found, harvest numbers
                 numbers = []
                 for val in row:
                     num = clean_number(val)
@@ -373,7 +371,7 @@ if check_password():
                 elif len(numbers) == 3:
                     visits = numbers[0]
                     new_patients = numbers[2]
-                elif len(numbers) == 2:
+                elif len(numbers) == 2: 
                     visits = numbers[0]
                     new_patients = numbers[1]
                 elif len(numbers) == 1:
@@ -496,16 +494,6 @@ if check_password():
         df_provider_raw = pd.concat(provider_data, ignore_index=True) if provider_data else pd.DataFrame()
         df_visits = pd.concat(visit_data, ignore_index=True) if visit_data else pd.DataFrame()
 
-        # GLOBAL DATE FIX: Apply dates immediately to raw data so everyone has access
-        if not df_provider_raw.empty:
-            df_provider_raw['Month_Clean'] = pd.to_datetime(df_provider_raw['Month'], format='%b-%y', errors='coerce')
-            # Fill NaNs with infer from Month string if needed
-            mask = df_provider_raw['Month_Clean'].isna()
-            if mask.any(): df_provider_raw.loc[mask, 'Month_Clean'] = pd.to_datetime(df_provider_raw.loc[mask, 'Month'], errors='coerce')
-            df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
-            df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
-            df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
-
         if not df_clinic.empty:
             df_clinic['Month_Clean'] = pd.to_datetime(df_clinic['Month'], format='%b-%y', errors='coerce')
             mask = df_clinic['Month_Clean'].isna()
@@ -523,6 +511,13 @@ if check_password():
         if not df_provider_raw.empty:
             # EXCLUDE "sumner_detail" FROM MD ANALYTICS AGGREGATION
             df_md_clean = df_provider_raw[df_provider_raw.get('source_type', 'standard') != 'sumner_detail'].copy()
+            
+            df_md_clean['Month_Clean'] = pd.to_datetime(df_md_clean['Month'], format='%b-%y', errors='coerce')
+            mask = df_md_clean['Month_Clean'].isna()
+            if mask.any(): df_md_clean.loc[mask, 'Month_Clean'] = pd.to_datetime(df_md_clean.loc[mask, 'Month'], errors='coerce')
+            df_md_clean.dropna(subset=['Month_Clean'], inplace=True)
+            df_md_clean['Month_Label'] = df_md_clean['Month_Clean'].dt.strftime('%b-%y')
+            df_md_clean['Quarter'] = df_md_clean['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
             
             df_provider_global = df_md_clean.groupby(['Name', 'ID', 'Month_Clean'], as_index=False).agg({
                 'Total RVUs': 'sum', 'FTE': 'max', 'Month': 'first', 'Quarter': 'first', 'Month_Label': 'first'
