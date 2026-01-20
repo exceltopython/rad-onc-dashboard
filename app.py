@@ -234,31 +234,15 @@ if check_password():
         """
         return narrative
 
-    # --- PARSER FOR SUMNER PROV SHEET (THE NEW LOGIC) ---
     def parse_sumner_prov_sheet(df, filename_date):
         records = []
-        
         current_provider = None
-        # Track instance counts
-        term_counts = {
-            "E&M OFFICE CODES": 0,
-            "RADIATION CODES": 0,
-            "SPECIAL PROCEDURES": 0
-        }
-        # Accumulate values
-        current_values = {
-            "E&M OFFICE CODES": 0.0,
-            "RADIATION CODES": 0.0,
-            "SPECIAL PROCEDURES": 0.0
-        }
-        
+        term_counts = {"E&M OFFICE CODES": 0, "RADIATION CODES": 0, "SPECIAL PROCEDURES": 0}
+        current_values = {"E&M OFFICE CODES": 0.0, "RADIATION CODES": 0.0, "SPECIAL PROCEDURES": 0.0}
         target_terms = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
         
-        # Iterate all rows
         for i in range(len(df)):
             row = df.iloc[i].values
-            
-            # 1. CHECK FOR PROVIDER NAME (Start of Block)
             potential_name = None
             for c in range(min(5, len(row))):
                 val = str(row[c]).strip()
@@ -267,64 +251,40 @@ if check_password():
                     potential_name = match
                     break
             
-            # Found a new provider? Save previous and reset.
             if potential_name and potential_name != current_provider:
-                # Save previous
                 if current_provider:
                     total_rvu = sum(current_values.values())
                     if total_rvu > 0:
                         records.append({
-                            "Type": "provider",
-                            "ID": "Sumner",
-                            "Name": current_provider,
-                            "FTE": 1.0,
-                            "Month": filename_date,
-                            "Total RVUs": total_rvu,
-                            "RVU per FTE": total_rvu,
-                            "Clinic_Tag": "Sumner",
-                            "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
+                            "Type": "provider", "ID": "Sumner", "Name": current_provider, "FTE": 1.0,
+                            "Month": filename_date, "Total RVUs": total_rvu, "RVU per FTE": total_rvu,
+                            "Clinic_Tag": "Sumner", "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
                             "Month_Label": filename_date.strftime('%b-%y')
                         })
-                
-                # Reset for new
                 current_provider = potential_name
                 term_counts = {k: 0 for k in target_terms}
                 current_values = {k: 0.0 for k in target_terms}
                 continue 
 
-            # 2. SEARCH FOR TERMS (Inside Block)
             if current_provider:
-                # Check text in first few columns
                 row_str_upper = " ".join([str(x).upper() for x in row[:5]])
-                
                 for term in target_terms:
                     if term in row_str_upper:
                         term_counts[term] += 1
-                        
-                        # 3. IF 2ND INSTANCE -> GRAB COL T (Index 19)
                         if term_counts[term] == 2:
                             if len(row) > 19:
-                                val = clean_number(row[19]) # Column T
-                                if val:
-                                    current_values[term] = val
+                                val = clean_number(row[19]) 
+                                if val: current_values[term] = val
         
-        # Save last provider
         if current_provider:
             total_rvu = sum(current_values.values())
             if total_rvu > 0:
                 records.append({
-                    "Type": "provider",
-                    "ID": "Sumner",
-                    "Name": current_provider,
-                    "FTE": 1.0,
-                    "Month": filename_date,
-                    "Total RVUs": total_rvu,
-                    "RVU per FTE": total_rvu,
-                    "Clinic_Tag": "Sumner",
-                    "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
+                    "Type": "provider", "ID": "Sumner", "Name": current_provider, "FTE": 1.0,
+                    "Month": filename_date, "Total RVUs": total_rvu, "RVU per FTE": total_rvu,
+                    "Clinic_Tag": "Sumner", "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
                     "Month_Label": filename_date.strftime('%b-%y')
                 })
-                
         return pd.DataFrame(records)
 
     def parse_rvu_sheet(df, sheet_name, entity_type, clinic_tag="General", forced_fte=None):
@@ -361,7 +321,7 @@ if check_password():
                 })
         return pd.DataFrame(records)
 
-    def parse_visits_sheet(df, filename_date):
+    def parse_visits_sheet(df, filename_date, clinic_tag="General"):
         records = []
         local_logs = []
         
@@ -414,7 +374,8 @@ if check_password():
                     "New Patients": new_patients,
                     "NP_Diff": np_diff,
                     "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
-                    "Month_Label": filename_date.strftime('%b-%y')
+                    "Month_Label": filename_date.strftime('%b-%y'),
+                    "Clinic_Tag": clinic_tag
                 })
         except Exception:
             return pd.DataFrame(), []
@@ -442,9 +403,15 @@ if check_password():
 
             if "NEW PATIENTS" in filename or "NEW PT" in filename:
                 file_date = get_date_from_filename(filename)
+                
+                # Tag logic for Visits
+                visit_tag = "General"
+                if "LROC" in filename: visit_tag = "LROC"
+                elif "TROC" in filename: visit_tag = "TROC"
+
                 for sheet_name, df in xls.items():
                     if "PHYS YTD OV" in sheet_name.upper():
-                        res, logs = parse_visits_sheet(df, file_date)
+                        res, logs = parse_visits_sheet(df, file_date, clinic_tag=visit_tag)
                         if not res.empty: 
                             visit_data.append(res)
                 continue 
@@ -754,6 +721,27 @@ if check_password():
                                         piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                                         piv_q["Total"] = piv_q.sum(axis=1)
                                         st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
+                            
+                            # 6. OFFICE VISITS FOR LROC/TROC
+                            if target_tag in ["LROC", "TROC"] and not df_visits.empty:
+                                clinic_visits = df_visits[df_visits['Clinic_Tag'] == target_tag]
+                                if not clinic_visits.empty:
+                                    with st.container(border=True):
+                                        st.markdown("### 🏥 Office Visits & New Patients (New Data Source)")
+                                        latest_v_date = clinic_visits['Month_Clean'].max()
+                                        latest_v_df = clinic_visits[clinic_visits['Month_Clean'] == latest_v_date]
+                                        
+                                        c_v1, c_v2 = st.columns(2)
+                                        with c_v1:
+                                            fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), 
+                                                            x='Total Visits', y='Name', orientation='h', text_auto=True,
+                                                            color='Total Visits', color_continuous_scale='Blues', title=f"Total Office Visits ({latest_v_date.strftime('%b %Y')})")
+                                            st.plotly_chart(fig_ov, use_container_width=True)
+                                        with c_v2:
+                                            fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), 
+                                                            x='New Patients', y='Name', orientation='h', text_auto=True,
+                                                            color='New Patients', color_continuous_scale='Greens', title=f"New Patients ({latest_v_date.strftime('%b %Y')})")
+                                            st.plotly_chart(fig_np, use_container_width=True)
 
             with tab_md:
                 col_nav_md, col_main_md = st.columns([1, 5])
@@ -804,9 +792,17 @@ if check_password():
                                 with st.expander("🛠️ Debug: View Raw Data"):
                                     for l in debug_log: st.write(l)
                         else:
-                            latest_v_date = df_visits['Month_Clean'].max()
-                            latest_v_df = df_visits[df_visits['Month_Clean'] == latest_v_date]
-                            st.info(generate_narrative(df_visits, "Physician", metric_col="Total Visits", unit="Visits"))
+                            # Aggregate visits across all sources
+                            df_visits_agg = df_visits.groupby(['Name', 'Month_Clean'], as_index=False).agg({
+                                'Total Visits': 'sum',
+                                'New Patients': 'sum',
+                                'Visits_Diff': 'sum',
+                                'NP_Diff': 'sum'
+                            })
+                            latest_v_date = df_visits_agg['Month_Clean'].max()
+                            latest_v_df = df_visits_agg[df_visits_agg['Month_Clean'] == latest_v_date]
+                            
+                            st.info(generate_narrative(df_visits_agg, "Physician", metric_col="Total Visits", unit="Visits"))
                             
                             c_ov1, c_ov2 = st.columns(2)
                             with c_ov1:
