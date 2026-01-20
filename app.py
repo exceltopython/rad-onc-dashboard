@@ -66,7 +66,6 @@ def check_password():
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* TABS */
         .stTabs [data-baseweb="tab-list"] {
             gap: 24px; 
             background-color: transparent;
@@ -119,7 +118,6 @@ if check_password():
     TRISTAR_IDS = ["CENT", "Skyline", "Dickson", "Summit", "Stonecrest"]
     ASCENSION_IDS = ["STW", "Midtown", "MURF"]
 
-    # PROVIDER CONFIG (Keys used for matching, Values for FTE)
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
         "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedman": 1.0, 
@@ -129,7 +127,7 @@ if check_password():
         "Sittig": 1.0, "Strickler": 1.0, "Wakefield": 1.0, "Wendt": 1.0, "Whitaker": 1.0
     }
     
-    # Create a set of UPPERCASE keys for case-insensitive matching
+    # Case insensitive matching set
     PROVIDER_KEYS_UPPER = {k.upper(): k for k in PROVIDER_CONFIG.keys()}
 
     APP_LIST = ["Burke", "Ellis", "Lewis", "Lydon"]
@@ -138,7 +136,6 @@ if check_password():
     IGNORED_SHEETS = ["RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
     SERVER_DIR = "Reports"
 
-    # --- HELPER CLASSES ---
     class LocalFile:
         def __init__(self, path):
             self.path = path
@@ -179,35 +176,25 @@ if check_password():
         except:
             return None
 
-    # --- NAME CLEANER (RETURNS UPPERCASE MATCH KEY) ---
     def match_provider(name_str):
         try:
             if not isinstance(name_str, str): return None
             name_str = name_str.strip()
             if not name_str: return None
-            
-            # Clean: "Castle MD, Katherine" -> "Castle"
-            if "," in name_str: 
-                base = name_str.split(",")[0].strip()
-            else:
-                base = name_str
-            
-            # Split titles: "Castle MD" -> "Castle"
+            if "," in name_str: base = name_str.split(",")[0].strip()
+            else: base = name_str
             parts = base.split()
             if not parts: return None
-            last_name = parts[0].strip().upper() # Convert to UPPER for matching
-            
+            last_name = parts[0].strip().upper() 
             if last_name in PROVIDER_KEYS_UPPER:
-                return PROVIDER_KEYS_UPPER[last_name] # Return the canonical Case-Sensitive Key
+                return PROVIDER_KEYS_UPPER[last_name]
             return None
         except:
             return None
 
-    # --- CLEAN NAME FOR DISPLAY ---
     def clean_provider_name_display(name_str):
         match = match_provider(name_str)
         if match: return match
-        # Fallback cleaner
         if "," in name_str: return name_str.split(",")[0].strip().split()[0]
         return name_str.split()[0]
 
@@ -241,10 +228,9 @@ if check_password():
             top_val = top_perf[metric_col]
             top_metric = unit
 
-        trend_text = ""
         narrative = f"""
         **🤖 Automated Analysis ({latest_date.strftime('%B %Y')}):**
-        The {entity_type} group generated a total of **{total_vol:,.0f} {unit}** this month. {trend_text}
+        The {entity_type} group generated a total of **{total_vol:,.0f} {unit}** this month. 
         * **🏆 Top Performer:** **{clean_provider_name_display(top_perf['Name'])}** led with **{top_val:,.0f} {top_metric}**.
         """
         return narrative
@@ -293,35 +279,29 @@ if check_password():
                 row_vals = [str(v).strip().upper() for v in df.iloc[i].values]
                 if "PHYSICIANS ONLY" in row_vals:
                     data_start_row = i + 1
-                    local_logs.append(f"Anchor found at Row {i}")
                     break
             
             if data_start_row == -1: 
                 data_start_row = 8
-                local_logs.append("No Anchor. Default to 8.")
 
             for i in range(data_start_row, len(df)):
                 row = df.iloc[i].values
                 
-                # NAME MATCHING (First 5 cols)
                 matched_name = None
                 for c in range(min(5, len(row))): 
                     val = str(row[c]).strip()
-                    matched_name = match_provider(val) # Returns canonical name if match
+                    matched_name = match_provider(val) 
                     if matched_name: break
                 
                 if not matched_name: continue
 
-                # NUMBER HARVESTING
                 numbers = []
                 for val in row:
                     num = clean_number(val)
                     if num is not None:
                         numbers.append(num)
                 
-                # LOGIC: 6 Numbers Expected
-                # 1: Curr Visit (0) | 2: Diff (1) | 3: Prior (2) | 4: Curr NP (3) | 5: Diff NP (4) | 6: Prior NP (5)
-                
+                # USER LOGIC: 6 numbers expected
                 visits = 0
                 visits_diff = 0
                 new_patients = 0
@@ -332,12 +312,9 @@ if check_password():
                 if len(numbers) >= 4: new_patients = numbers[3]
                 if len(numbers) >= 5: np_diff = numbers[4]
                 
-                # Fallback for Partial Data (e.g. only 4 numbers found)
+                # Fallback for partial data
                 if len(numbers) == 4:
-                     # Assume: Visit, Diff, Prior, Curr NP (missing NP diff/prior)
                      new_patients = numbers[3]
-
-                local_logs.append(f"Row {i} ({matched_name}): Found {len(numbers)} numbers. V={visits}, NP={new_patients}")
 
                 records.append({
                     "Name": matched_name,
@@ -349,9 +326,8 @@ if check_password():
                     "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
                     "Month_Label": filename_date.strftime('%b-%y')
                 })
-        except Exception as e:
-            local_logs.append(f"Error: {str(e)}")
-            return pd.DataFrame(), local_logs
+        except Exception:
+            return pd.DataFrame(), []
             
         return pd.DataFrame(records), local_logs
 
@@ -379,7 +355,6 @@ if check_password():
                 for sheet_name, df in xls.items():
                     if "PHYS YTD OV" in sheet_name.upper():
                         res, logs = parse_visits_sheet(df, file_date)
-                        debug_log.extend(logs)
                         if not res.empty: 
                             visit_data.append(res)
                 continue 
@@ -554,7 +529,7 @@ if check_password():
                             max_date = df_view['Month_Clean'].max()
                             st.info(generate_narrative(df_view, f"{view_title} Clinic"))
                             
-                            # 1. TRENDS
+                            # 1. TRENDS (Aggregate if Group)
                             with st.container(border=True):
                                 st.markdown(f"#### 📅 {view_title}: 12-Month Trend")
                                 min_date = max_date - pd.DateOffset(months=11)
@@ -570,7 +545,7 @@ if check_password():
                                 fig_trend.update_yaxes(rangemode="tozero")
                                 st.plotly_chart(fig_trend, use_container_width=True)
 
-                            # 2. INDIVIDUAL LINES
+                            # 2. INDIVIDUAL LINES (For Groups)
                             if clinic_filter in ["TriStar", "Ascension", "All"]:
                                 with st.container(border=True):
                                     st.markdown(f"#### 📈 {view_title}: Individual Clinic Trends")
@@ -578,23 +553,22 @@ if check_password():
                                     fig_ind.update_layout(font=dict(size=14))
                                     st.plotly_chart(fig_ind, use_container_width=True)
 
-                            # 3. HISTORICAL TREND
+                            # 3. HISTORICAL TREND (Aggregate + Individual)
                             if clinic_filter in ["TriStar", "Ascension", "All", "LROC", "TOPC", "TROC"]:
                                 with st.container(border=True):
                                     st.markdown(f"#### 📈 Long-Term History ({view_title})")
                                     df_hist = get_historical_df()
                                     
-                                    if clinic_filter == "TriStar":
-                                        df_hist_view = df_hist[df_hist['ID'].isin(TRISTAR_IDS)]
-                                    elif clinic_filter == "Ascension":
-                                        df_hist_view = df_hist[df_hist['ID'].isin(ASCENSION_IDS)]
-                                    elif clinic_filter == "All":
-                                        df_hist_view = df_hist.copy()
+                                    # Filter History
+                                    if clinic_filter == "TriStar": df_hist_view = df_hist[df_hist['ID'].isin(TRISTAR_IDS)]
+                                    elif clinic_filter == "Ascension": df_hist_view = df_hist[df_hist['ID'].isin(ASCENSION_IDS)]
+                                    elif clinic_filter == "All": df_hist_view = df_hist.copy()
                                     else:
                                         target_id = 'LROC' if 'LROC' in clinic_filter else ('TOPC' if 'Proton' in view_title else 'TROC')
                                         df_hist_view = df_hist[df_hist['ID'] == target_id]
                                     
                                     if not df_hist_view.empty:
+                                        # Aggregate Chart
                                         hist_trend = df_hist_view.groupby('Year')[['Total RVUs']].sum().reset_index()
                                         if not df_view.empty:
                                             current_year = max_date.year
@@ -602,11 +576,38 @@ if check_password():
                                             if ytd_curr > 0:
                                                 new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
                                                 hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
-                                        fig_long = px.bar(hist_trend, x='Year', y='Total RVUs', text_auto='.2s')
+                                        
+                                        fig_long = px.bar(hist_trend, x='Year', y='Total RVUs', text_auto='.2s', title="Aggregate History")
                                         fig_long.update_layout(font=dict(size=14))
                                         st.plotly_chart(fig_long, use_container_width=True)
-                                    else:
-                                        st.info("No historical data available.")
+
+                                        # INDIVIDUAL CLINIC HISTORIES (Breakdown)
+                                        if clinic_filter in ["TriStar", "Ascension"]:
+                                            st.markdown("---")
+                                            st.markdown("##### 🏥 Individual Clinic History")
+                                            
+                                            target_ids = TRISTAR_IDS if clinic_filter == "TriStar" else ASCENSION_IDS
+                                            cols = st.columns(2)
+                                            
+                                            for idx, c_id in enumerate(target_ids):
+                                                c_name = CLINIC_CONFIG.get(c_id, {}).get('name', c_id)
+                                                c_hist = df_hist[df_hist['ID'] == c_id]
+                                                c_hist_grp = c_hist.groupby('Year')[['Total RVUs']].sum().reset_index()
+                                                
+                                                # Add current year
+                                                if not df_view.empty:
+                                                    c_current = df_view[df_view['ID'] == c_id]
+                                                    current_year = max_date.year
+                                                    ytd_c = c_current[c_current['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
+                                                    if ytd_c > 0:
+                                                        new_r = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_c]})
+                                                        c_hist_grp = pd.concat([c_hist_grp, new_r], ignore_index=True)
+                                                
+                                                if not c_hist_grp.empty:
+                                                    fig_c = px.bar(c_hist_grp, x='Year', y='Total RVUs', text_auto='.2s', title=c_name)
+                                                    fig_c.update_layout(font=dict(size=14), height=350)
+                                                    with cols[idx % 2]:
+                                                        st.plotly_chart(fig_c, use_container_width=True)
 
                             # 4. PIE CHARTS
                             if target_tag and not df_provider_raw.empty:
@@ -621,7 +622,7 @@ if check_password():
                                     pie_agg_q = pie_q.groupby('Name')[['Total RVUs']].sum().reset_index()
 
                                     with st.container(border=True):
-                                        st.markdown(f"#### 🍰 Work Breakdown")
+                                        st.markdown(f"#### 🍰 Work Breakdown: Who performed the work?")
                                         col_pie1, col_pie2 = st.columns(2)
                                         with col_pie1:
                                             if not pie_agg_12m.empty:
