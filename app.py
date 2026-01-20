@@ -68,9 +68,9 @@ def inject_custom_css():
         <style>
         /* TAB CONTAINER */
         .stTabs [data-baseweb="tab-list"] {
-            gap: 20px; /* Space between tabs */
+            gap: 20px; 
             background-color: transparent;
-            padding-bottom: 10px;
+            padding-bottom: 15px;
         }
 
         /* INACTIVE TABS */
@@ -79,11 +79,16 @@ def inject_custom_css():
             border: 1px solid #E0E0E0;
             border-radius: 8px;
             color: #4A4A4A; 
-            padding: 10px 25px;
-            font-size: 1.1rem; /* Larger Font */
-            font-weight: 500;
+            padding: 12px 25px;
             transition: all 0.3s ease;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        /* INCREASED FONT SIZE FOR TAB TEXT */
+        .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
+            font-size: 1.35rem; /* Larger Font */
+            font-weight: 700;   /* Bolder */
+            margin: 0px;
         }
         
         /* HOVER STATE */
@@ -94,10 +99,9 @@ def inject_custom_css():
 
         /* ACTIVE TAB (PROFESSIONAL NAVY BLUE) */
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
-            background-color: #2C3E50; /* Professional Midnight Blue */
+            background-color: #2C3E50;
             color: #FFFFFF !important;
             border-color: #2C3E50;
-            font-weight: 600;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
         
@@ -183,6 +187,7 @@ if check_password():
         try:
             if isinstance(val, str):
                 val = val.replace(',', '').strip()
+                if val == "": return None
             return float(val)
         except:
             return None
@@ -292,66 +297,69 @@ if check_password():
     def parse_visits_sheet(df, filename_date):
         records = []
         
-        # 1. FIND "PHYSICIANS ONLY" ANCHOR
-        data_start_row = -1
-        name_col_idx = 1 # Default Col B
-        
-        for i in range(min(20, len(df))):
-            row_vals = [str(v).strip().upper() for v in df.iloc[i].values]
-            if "PHYSICIANS ONLY" in row_vals:
-                data_start_row = i + 1
-                try: name_col_idx = row_vals.index("PHYSICIANS ONLY")
-                except: pass
-                break
-        
-        if data_start_row == -1: data_start_row = 8
+        try:
+            # 1. FIND START ROW
+            data_start_row = -1
+            for i in range(min(20, len(df))):
+                row_vals = [str(v).strip().upper() for v in df.iloc[i].values]
+                if "PHYSICIANS ONLY" in row_vals:
+                    data_start_row = i + 1
+                    break
+            
+            if data_start_row == -1: data_start_row = 8
 
-        # 2. EXTRACT DATA WITH "CRASH PROOF" FETCHER
-        for i in range(data_start_row, len(df)):
-            row = df.iloc[i].values
-            
-            # --- SAFE EXTRACTOR ---
-            def safe_extract(idx):
-                if idx < len(row): return row[idx]
-                return None
-
-            # Check Name
-            prov_name_raw = str(safe_extract(name_col_idx)).strip()
-            
-            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'none', 'physician', 'amount', 'total']: 
-                continue
-            
-            if "Total" in prov_name_raw: 
-                break 
+            # 2. ITERATE & NUMBER HUNT (USER DEFINED LOGIC)
+            for i in range(data_start_row, len(df)):
+                row = df.iloc[i].values
                 
-            clean_name = clean_provider_name(prov_name_raw)
-            if not clean_name or clean_name not in PROVIDER_CONFIG: continue
+                # Check for Name (Scan first 5 columns)
+                clean_name = None
+                for c in range(min(5, len(row))): 
+                    val = str(row[c]).strip()
+                    potential = clean_provider_name(val)
+                    if potential in PROVIDER_CONFIG:
+                        clean_name = potential
+                        break
+                
+                if not clean_name: continue
 
-            # --- ROBUST VALUE FINDER ---
-            # Total Visits: Expected around Col 2 (C). Try 2, 1, 3.
-            visits = 0
-            for col_idx in [2, 1, 3]:
-                val = clean_number(safe_extract(col_idx))
-                if val is not None:
-                    visits = val
-                    break
-            
-            # New Patients: Expected around Col 13 (N). Try 13, 12, 14, 11.
-            new_patients = 0
-            for col_idx in [13, 12, 14, 11, 10]:
-                val = clean_number(safe_extract(col_idx))
-                if val is not None:
-                    new_patients = val
-                    break
+                # Harvest ALL numbers in the row
+                numbers = []
+                for val in row:
+                    num = clean_number(val)
+                    if num is not None:
+                        numbers.append(num)
+                
+                # Logic provided by user:
+                # 1st (Idx 0) = Curr Visits
+                # 2nd (Idx 1) = Diff Visits
+                # 3rd (Idx 2) = Prior Visits
+                # 4th (Idx 3) = Curr NP
+                # 5th (Idx 4) = Diff NP
+                # 6th (Idx 5) = Prior NP
+                
+                visits = 0
+                visits_diff = 0
+                new_patients = 0
+                np_diff = 0
+                
+                if len(numbers) >= 1: visits = numbers[0]
+                if len(numbers) >= 2: visits_diff = numbers[1]
+                if len(numbers) >= 4: new_patients = numbers[3]
+                if len(numbers) >= 5: np_diff = numbers[4]
 
-            records.append({
-                "Name": clean_name,
-                "Month_Clean": filename_date,
-                "Total Visits": visits,
-                "New Patients": new_patients,
-                "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
-                "Month_Label": filename_date.strftime('%b-%y')
-            })
+                records.append({
+                    "Name": clean_name,
+                    "Month_Clean": filename_date,
+                    "Total Visits": visits,
+                    "Visits_Diff": visits_diff,
+                    "New Patients": new_patients,
+                    "NP_Diff": np_diff,
+                    "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
+                    "Month_Label": filename_date.strftime('%b-%y')
+                })
+        except Exception:
+            return pd.DataFrame() # Return empty if fails to prevent crash
             
         return pd.DataFrame(records)
 
@@ -717,6 +725,7 @@ if check_password():
                             latest_v_date = df_visits['Month_Clean'].max()
                             latest_v_df = df_visits[df_visits['Month_Clean'] == latest_v_date]
                             st.info(generate_narrative(df_visits, "Physician", metric_col="Total Visits", unit="Visits"))
+                            
                             c_ov1, c_ov2 = st.columns(2)
                             with c_ov1:
                                 with st.container(border=True):
@@ -724,18 +733,35 @@ if check_password():
                                     fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), 
                                                     x='Total Visits', y='Name', orientation='h', text_auto=True,
                                                     color='Total Visits', color_continuous_scale='Blues')
-                                    # HEIGHT FIX
                                     fig_ov.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_ov, use_container_width=True)
+                                
+                                # NEW: Visits Change Chart
+                                with st.container(border=True):
+                                    st.markdown(f"#### 📉 YoY Change: Office Visits")
+                                    fig_diff_ov = px.bar(latest_v_df.sort_values('Visits_Diff', ascending=True),
+                                                         x='Visits_Diff', y='Name', orientation='h', text_auto=True,
+                                                         color='Visits_Diff', color_continuous_scale='RdBu')
+                                    fig_diff_ov.update_layout(font=dict(size=14), height=1000)
+                                    st.plotly_chart(fig_diff_ov, use_container_width=True)
+
                             with c_ov2:
                                 with st.container(border=True):
                                     st.markdown(f"#### 🆕 New Patients ({latest_v_date.year} YTD)")
                                     fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), 
                                                     x='New Patients', y='Name', orientation='h', text_auto=True,
                                                     color='New Patients', color_continuous_scale='Greens')
-                                    # HEIGHT FIX
                                     fig_np.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_np, use_container_width=True)
+                                
+                                # NEW: NP Change Chart
+                                with st.container(border=True):
+                                    st.markdown(f"#### 📉 YoY Change: New Patients")
+                                    fig_diff_np = px.bar(latest_v_df.sort_values('NP_Diff', ascending=True),
+                                                         x='NP_Diff', y='Name', orientation='h', text_auto=True,
+                                                         color='NP_Diff', color_continuous_scale='RdBu')
+                                    fig_diff_np.update_layout(font=dict(size=14), height=1000)
+                                    st.plotly_chart(fig_diff_np, use_container_width=True)
 
             with tab_app:
                 if df_apps.empty:
