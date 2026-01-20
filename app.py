@@ -90,18 +90,15 @@ if check_password():
             return pd.to_datetime(f"{month_str} {year_str}")
         return datetime.now()
 
-    # --- HELPER: CLEAN NAMES (CRASH FIXED) ---
+    # --- HELPER: CLEAN NAMES ---
     def clean_provider_name(name_str):
         if not isinstance(name_str, str): return str(name_str)
-        
-        # CRASH FIX: Strip first, then check if empty
         name_str = name_str.strip()
         if not name_str: return ""
         
         if "," in name_str:
             return name_str.split(",")[0].strip()
         
-        # CRASH FIX: Safety check before splitting by space
         parts = name_str.split()
         if not parts: return ""
         return parts[0].strip()
@@ -182,56 +179,37 @@ if check_password():
 
     def parse_visits_sheet(df, filename_date):
         records = []
-        
         year_target = str(filename_date.year) 
         ov_col_idx = None
         np_col_idx = None
         data_start_row = -1
         
-        # 1. Header Scan
         for i in range(min(15, len(df))):
             row_vals = [str(v).strip() for v in df.iloc[i].values]
-            
-            # Identify columns matching Target Year
             year_indices = [idx for idx, val in enumerate(row_vals) if year_target in val]
-            
             if len(year_indices) >= 1:
-                ov_col_idx = year_indices[0] # First occurrence = Office Visits
-                if len(year_indices) >= 2:
-                    np_col_idx = year_indices[1] # Second occurrence = New Patients
-                
+                ov_col_idx = year_indices[0] 
+                if len(year_indices) >= 2: np_col_idx = year_indices[1] 
                 data_start_row = i + 1 
                 break
 
-        # Fallback if dynamic search fails
-        if ov_col_idx is None: ov_col_idx = 3 # Col D
-        if np_col_idx is None: np_col_idx = 10 # Col K
+        if ov_col_idx is None: ov_col_idx = 3 
+        if np_col_idx is None: np_col_idx = 10 
         
-        # 2. Row Scan
         scan_start = 0 if data_start_row == -1 else data_start_row
         
         for i in range(scan_start, len(df)):
             row = df.iloc[i]
             if len(row) <= max(ov_col_idx, np_col_idx): continue
-            
-            # Name is Column B (index 1)
             prov_name_raw = str(row[1]).strip()
-            
-            # CRASH FIX: Explicit check for empty strings or None
-            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'physician', 'amount', 'none']: 
-                continue
-                
-            if "Total" in prov_name_raw: 
-                break 
-                
+            if not prov_name_raw or prov_name_raw.lower() in ['nan', 'physician', 'amount', 'none']: continue
+            if "Total" in prov_name_raw: break 
             clean_name = clean_provider_name(prov_name_raw)
-            # Extra safety check
             if not clean_name or clean_name not in PROVIDER_CONFIG: continue
 
             try:
                 ov_val = pd.to_numeric(row[ov_col_idx], errors='coerce')
                 visits = ov_val if pd.notna(ov_val) else 0
-                
                 np_val = pd.to_numeric(row[np_col_idx], errors='coerce')
                 new_patients = np_val if pd.notna(np_val) else 0
             except:
@@ -246,7 +224,6 @@ if check_password():
                 "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
                 "Month_Label": filename_date.strftime('%b-%y')
             })
-            
         return pd.DataFrame(records)
 
     def process_files(file_objects):
@@ -268,7 +245,6 @@ if check_password():
             elif "TROC" in filename: file_tag = "TROC"
             elif "PROTON" in filename or "TOPC" in filename: file_tag = "TOPC"
 
-            # --- VISIT DATA DETECTION ---
             if "NEW PATIENTS" in filename or "NEW PT" in filename:
                 file_date = get_date_from_filename(filename)
                 found_sheet = False
@@ -282,7 +258,6 @@ if check_password():
                     debug_log.append(f"Found 'New Patients' file {filename} but could not find/parse 'PHYS YTD OV' sheet.")
                 continue 
 
-            # --- STANDARD RVU PROCESSING ---
             if file_tag == "TOPC":
                 proton_providers_temp = []
                 for sheet_name, df in xls.items():
@@ -482,6 +457,21 @@ if check_password():
                                 fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
                                 fig_ytd.update_layout(font=dict(size=14))
                                 st.plotly_chart(fig_ytd, use_container_width=True)
+                            
+                            # --- RESTORED TABLES HERE ---
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                with st.container(border=True):
+                                    st.markdown("#### 🔢 Monthly Data")
+                                    piv = df_mds.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                                    piv["Total"] = piv.sum(axis=1)
+                                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
+                            with c2:
+                                with st.container(border=True):
+                                    st.markdown("#### 📆 Quarterly Data")
+                                    piv_q = df_mds.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                                    piv_q["Total"] = piv_q.sum(axis=1)
+                                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples"))
                     
                     elif md_view == "Office Visits":
                         if df_visits.empty:
@@ -524,5 +514,20 @@ if check_password():
                         fig_trend = px.line(l12m_df, x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
                         fig_trend.update_layout(font=dict(size=14))
                         st.plotly_chart(fig_trend, use_container_width=True)
+                    
+                    # Restoring APP Tables as well for consistency
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        with st.container(border=True):
+                            st.markdown("#### 🔢 Monthly Data")
+                            piv = df_apps.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                            piv["Total"] = piv.sum(axis=1)
+                            st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Greens"))
+                    with c2:
+                        with st.container(border=True):
+                            st.markdown("#### 📆 Quarterly Data")
+                            piv_q = df_apps.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                            piv_q["Total"] = piv_q.sum(axis=1)
+                            st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
     else:
         st.info("👋 Ready. View Only Mode: Add files to 'Reports' folder in GitHub to update data.")
