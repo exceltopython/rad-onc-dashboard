@@ -127,7 +127,6 @@ if check_password():
         "Sittig": 1.0, "Strickler": 1.0, "Wakefield": 1.0, "Wendt": 1.0, "Whitaker": 1.0
     }
     
-    # Case insensitive matching set
     PROVIDER_KEYS_UPPER = {k.upper(): k for k in PROVIDER_CONFIG.keys()}
 
     APP_LIST = ["Burke", "Ellis", "Lewis", "Lydon"]
@@ -301,7 +300,6 @@ if check_password():
                     if num is not None:
                         numbers.append(num)
                 
-                # USER LOGIC: 6 numbers expected
                 visits = 0
                 visits_diff = 0
                 new_patients = 0
@@ -312,7 +310,6 @@ if check_password():
                 if len(numbers) >= 4: new_patients = numbers[3]
                 if len(numbers) >= 5: np_diff = numbers[4]
                 
-                # Fallback for partial data
                 if len(numbers) == 4:
                      new_patients = numbers[3]
 
@@ -492,7 +489,7 @@ if check_password():
                         st.markdown("### 🔍 Filter")
                         clinic_filter = st.radio(
                             "Select View:", 
-                            ["All", "TriStar", "Ascension", "LROC", "TOPC", "TROC"], 
+                            ["All", "TriStar", "Ascension", "LROC", "TOPC", "TROC", "Sumner"], 
                             key="clinic_radio"
                         )
                     with col_main:
@@ -522,6 +519,10 @@ if check_password():
                             df_view = df_clinic[df_clinic['ID'] == 'TROC']
                             view_title = "TROC (Tullahoma)"
                             target_tag = "TROC"
+                        elif clinic_filter == "Sumner": 
+                            df_view = df_clinic[df_clinic['ID'] == 'Sumner']
+                            view_title = "Sumner (Gallatin)"
+                            target_tag = "Sumner"
 
                         if df_view.empty and clinic_filter not in ["TriStar", "Ascension"]:
                             st.warning(f"No data available for {view_title}.")
@@ -529,7 +530,7 @@ if check_password():
                             max_date = df_view['Month_Clean'].max()
                             st.info(generate_narrative(df_view, f"{view_title} Clinic"))
                             
-                            # 1. TRENDS (Aggregate if Group)
+                            # 1. TRENDS
                             with st.container(border=True):
                                 st.markdown(f"#### 📅 {view_title}: 12-Month Trend")
                                 min_date = max_date - pd.DateOffset(months=11)
@@ -545,7 +546,7 @@ if check_password():
                                 fig_trend.update_yaxes(rangemode="tozero")
                                 st.plotly_chart(fig_trend, use_container_width=True)
 
-                            # 2. INDIVIDUAL LINES (For Groups)
+                            # 2. INDIVIDUAL LINES
                             if clinic_filter in ["TriStar", "Ascension", "All"]:
                                 with st.container(border=True):
                                     st.markdown(f"#### 📈 {view_title}: Individual Clinic Trends")
@@ -553,22 +554,21 @@ if check_password():
                                     fig_ind.update_layout(font=dict(size=14))
                                     st.plotly_chart(fig_ind, use_container_width=True)
 
-                            # 3. HISTORICAL TREND (Aggregate + Individual)
-                            if clinic_filter in ["TriStar", "Ascension", "All", "LROC", "TOPC", "TROC"]:
+                            # 3. HISTORICAL TREND
+                            if clinic_filter in ["TriStar", "Ascension", "All", "LROC", "TOPC", "TROC", "Sumner"]:
                                 with st.container(border=True):
                                     st.markdown(f"#### 📈 Long-Term History ({view_title})")
                                     df_hist = get_historical_df()
                                     
-                                    # Filter History
                                     if clinic_filter == "TriStar": df_hist_view = df_hist[df_hist['ID'].isin(TRISTAR_IDS)]
                                     elif clinic_filter == "Ascension": df_hist_view = df_hist[df_hist['ID'].isin(ASCENSION_IDS)]
                                     elif clinic_filter == "All": df_hist_view = df_hist.copy()
+                                    elif clinic_filter == "Sumner": df_hist_view = df_hist[df_hist['ID'] == 'Sumner']
                                     else:
                                         target_id = 'LROC' if 'LROC' in clinic_filter else ('TOPC' if 'Proton' in view_title else 'TROC')
                                         df_hist_view = df_hist[df_hist['ID'] == target_id]
                                     
                                     if not df_hist_view.empty:
-                                        # Aggregate Chart
                                         hist_trend = df_hist_view.groupby('Year')[['Total RVUs']].sum().reset_index()
                                         if not df_view.empty:
                                             current_year = max_date.year
@@ -576,25 +576,21 @@ if check_password():
                                             if ytd_curr > 0:
                                                 new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
                                                 hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
-                                        
-                                        fig_long = px.bar(hist_trend, x='Year', y='Total RVUs', text_auto='.2s', title="Aggregate History")
+                                        fig_long = px.bar(hist_trend, x='Year', y='Total RVUs', text_auto='.2s')
                                         fig_long.update_layout(font=dict(size=14))
                                         st.plotly_chart(fig_long, use_container_width=True)
-
-                                        # INDIVIDUAL CLINIC HISTORIES (Breakdown)
+                                        
+                                        # Individual Histories
                                         if clinic_filter in ["TriStar", "Ascension"]:
                                             st.markdown("---")
                                             st.markdown("##### 🏥 Individual Clinic History")
-                                            
                                             target_ids = TRISTAR_IDS if clinic_filter == "TriStar" else ASCENSION_IDS
                                             cols = st.columns(2)
-                                            
                                             for idx, c_id in enumerate(target_ids):
                                                 c_name = CLINIC_CONFIG.get(c_id, {}).get('name', c_id)
                                                 c_hist = df_hist[df_hist['ID'] == c_id]
                                                 c_hist_grp = c_hist.groupby('Year')[['Total RVUs']].sum().reset_index()
                                                 
-                                                # Add current year
                                                 if not df_view.empty:
                                                     c_current = df_view[df_view['ID'] == c_id]
                                                     current_year = max_date.year
@@ -608,8 +604,10 @@ if check_password():
                                                     fig_c.update_layout(font=dict(size=14), height=350)
                                                     with cols[idx % 2]:
                                                         st.plotly_chart(fig_c, use_container_width=True)
+                                    else:
+                                        st.info("No historical data available.")
 
-                            # 4. PIE CHARTS
+                            # 4. PIE CHARTS (Only for Single Clinics)
                             if target_tag and not df_provider_raw.empty:
                                 clinic_prov_df = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
                                 if not clinic_prov_df.empty:
@@ -710,9 +708,11 @@ if check_password():
                                     fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), 
                                                     x='Total Visits', y='Name', orientation='h', text_auto=True,
                                                     color='Total Visits', color_continuous_scale='Blues')
+                                    # HEIGHT FIX
                                     fig_ov.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_ov, use_container_width=True)
                                 
+                                # Visits Change Chart
                                 with st.container(border=True):
                                     st.markdown(f"#### 📉 YoY Change: Office Visits")
                                     fig_diff_ov = px.bar(latest_v_df.sort_values('Visits_Diff', ascending=True),
@@ -730,6 +730,7 @@ if check_password():
                                     fig_np.update_layout(font=dict(size=14), height=1000)
                                     st.plotly_chart(fig_np, use_container_width=True)
                                 
+                                # NP Change Chart
                                 with st.container(border=True):
                                     st.markdown(f"#### 📉 YoY Change: New Patients")
                                     fig_diff_np = px.bar(latest_v_df.sort_values('NP_Diff', ascending=True),
