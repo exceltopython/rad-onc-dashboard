@@ -66,6 +66,12 @@ def check_password():
 def inject_custom_css():
     st.markdown("""
         <style>
+        /* HIDE STREAMLIT MENU, FOOTER AND TOOLBAR */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        [data-testid="stToolbar"] {visibility: hidden;}
+
         .stTabs [data-baseweb="tab-list"] {
             gap: 24px; 
             background-color: transparent;
