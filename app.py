@@ -644,6 +644,19 @@ if check_password():
                                 fig_trend.update_yaxes(rangemode="tozero")
                                 st.plotly_chart(fig_trend, use_container_width=True)
 
+                            # NEW CHART: QUARTERLY wRVU VOLUME (Between Trend & History)
+                            if clinic_filter in ["LROC", "TOPC", "TROC", "Sumner"]:
+                                with st.container(border=True):
+                                    st.markdown(f"#### 📊 Quarterly wRVU Volume ({view_title})")
+                                    # Create sortable quarter data
+                                    df_q_chart = df_view.copy()
+                                    df_q_chart['Q_Sort'] = df_q_chart['Month_Clean'].dt.to_period('Q').dt.start_time
+                                    q_agg = df_q_chart.groupby(['Quarter', 'Q_Sort'])[['Total RVUs']].sum().reset_index().sort_values('Q_Sort')
+                                    
+                                    fig_q_bar = px.bar(q_agg, x='Quarter', y='Total RVUs', text_auto='.2s')
+                                    fig_q_bar.update_layout(font=dict(color="black"), font_color="black")
+                                    st.plotly_chart(fig_q_bar, use_container_width=True)
+
                             # 2. INDIVIDUAL LINES
                             if clinic_filter in ["TriStar", "Ascension", "All"]:
                                 with st.container(border=True):
