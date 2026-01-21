@@ -751,27 +751,48 @@ if check_password():
                                         piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                                         piv_q["Total"] = piv_q.sum(axis=1)
                                         st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
+
+                        # 7. MONTHLY DATA BY PROVIDER (New Request)
+                        if target_tag in ["LROC", "TOPC", "TROC", "Sumner"] and not df_provider_raw.empty:
+                            prov_df = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
                             
-                            # 6. OFFICE VISITS FOR LROC/TROC/TOPC
-                            if target_tag in ["LROC", "TROC", "TOPC"] and not df_visits.empty:
-                                clinic_visits = df_visits[df_visits['Clinic_Tag'] == target_tag]
-                                if not clinic_visits.empty:
-                                    with st.container(border=True):
-                                        st.markdown("### 🏥 Office Visits & New Patients (New Data Source)")
-                                        latest_v_date = clinic_visits['Month_Clean'].max()
-                                        latest_v_df = clinic_visits[clinic_visits['Month_Clean'] == latest_v_date]
-                                        
-                                        c_v1, c_v2 = st.columns(2)
-                                        with c_v1:
-                                            fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), 
-                                                            x='Total Visits', y='Name', orientation='h', text_auto=True,
-                                                            color='Total Visits', color_continuous_scale='Blues', title=f"Total Office Visits (YTD {latest_v_date.strftime('%b %Y')})")
-                                            st.plotly_chart(fig_ov, use_container_width=True)
-                                        with c_v2:
-                                            fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), 
-                                                            x='New Patients', y='Name', orientation='h', text_auto=True,
-                                                            color='New Patients', color_continuous_scale='Greens', title=f"New Patients (YTD {latest_v_date.strftime('%b %Y')})")
-                                            st.plotly_chart(fig_np, use_container_width=True)
+                            # Use detail rows for Sumner
+                            if target_tag == 'Sumner':
+                                sumner_detail = prov_df[prov_df.get('source_type', '') == 'sumner_detail']
+                                if not sumner_detail.empty:
+                                    prov_df = sumner_detail
+                            
+                            if not prov_df.empty:
+                                with st.container(border=True):
+                                    st.markdown("#### 🧑‍⚕️ Monthly Data (by Provider)")
+                                    piv_p = prov_df.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                                    
+                                    # Sort Chronologically
+                                    sorted_months_p = prov_df.sort_values("Month_Clean")["Month_Label"].unique()
+                                    piv_p = piv_p.reindex(columns=sorted_months_p)
+                                    
+                                    piv_p["Total"] = piv_p.sum(axis=1)
+                                    st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
+                        
+                        if target_tag in ["LROC", "TROC", "TOPC"] and not df_visits.empty:
+                            clinic_visits = df_visits[df_visits['Clinic_Tag'] == target_tag]
+                            if not clinic_visits.empty:
+                                with st.container(border=True):
+                                    st.markdown("### 🏥 Office Visits & New Patients (New Data Source)")
+                                    latest_v_date = clinic_visits['Month_Clean'].max()
+                                    latest_v_df = clinic_visits[clinic_visits['Month_Clean'] == latest_v_date]
+                                    
+                                    c_v1, c_v2 = st.columns(2)
+                                    with c_v1:
+                                        fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), 
+                                                        x='Total Visits', y='Name', orientation='h', text_auto=True,
+                                                        color='Total Visits', color_continuous_scale='Blues', title=f"YTD Total Office Visits ({latest_v_date.strftime('%b %Y')})")
+                                        st.plotly_chart(fig_ov, use_container_width=True)
+                                    with c_v2:
+                                        fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), 
+                                                        x='New Patients', y='Name', orientation='h', text_auto=True,
+                                                        color='New Patients', color_continuous_scale='Greens', title=f"YTD New Patients ({latest_v_date.strftime('%b %Y')})")
+                                        st.plotly_chart(fig_np, use_container_width=True)
 
             with tab_md:
                 col_nav_md, col_main_md = st.columns([1, 5])
@@ -783,36 +804,27 @@ if check_password():
                     if md_view == "wRVU Productivity":
                         if df_mds.empty: st.info("No wRVU data found.")
                         else:
-                            max_date = df_mds['Month_Clean'].max()
                             st.info(generate_narrative(df_mds, "Physician"))
                             with st.container(border=True):
                                 st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
-                                min_date = max_date - pd.DateOffset(months=11)
-                                l12m_df = df_mds[df_mds['Month_Clean'] >= min_date].sort_values('Month_Clean')
-                                fig_trend = px.line(l12m_df, x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
-                                fig_trend.update_layout(font=dict(size=14))
+                                fig_trend = px.line(df_mds.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
                                 st.plotly_chart(fig_trend, use_container_width=True)
                             with st.container(border=True):
-                                st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({max_date.year})")
-                                ytd_df = df_mds[df_mds['Month_Clean'].dt.year == max_date.year]
-                                ytd_sum = ytd_df.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
+                                st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({df_mds['Month_Clean'].max().year})")
+                                ytd_sum = df_mds[df_mds['Month_Clean'].dt.year == df_mds['Month_Clean'].max().year].groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
                                 fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
-                                fig_ytd.update_layout(font=dict(size=14))
                                 st.plotly_chart(fig_ytd, use_container_width=True)
-                            
                             c1, c2 = st.columns(2)
                             with c1:
-                                with st.container(border=True):
-                                    st.markdown("#### 🔢 Monthly Data")
-                                    piv = df_mds.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                    piv["Total"] = piv.sum(axis=1)
-                                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
+                                st.markdown("#### 🔢 Monthly Data")
+                                piv = df_mds.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                                piv["Total"] = piv.sum(axis=1)
+                                st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
                             with c2:
-                                with st.container(border=True):
-                                    st.markdown("#### 📆 Quarterly Data")
-                                    piv_q = df_mds.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                                    piv_q["Total"] = piv_q.sum(axis=1)
-                                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples"))
+                                st.markdown("#### 📆 Quarterly Data")
+                                piv_q = df_mds.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                                piv_q["Total"] = piv_q.sum(axis=1)
+                                st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples"))
                     
                     elif md_view == "Office Visits":
                         st.info("ℹ️ **This includes all HOPD and freestanding sites (including LROC, TROC, and TOPC)**")
