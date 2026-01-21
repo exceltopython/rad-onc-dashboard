@@ -329,8 +329,8 @@ if check_password():
         local_logs = []
         
         try:
-            # FIX: Start from row 4 (Excel row 5) to catch LROC data which starts early
-            # Do NOT wait for "PHYSICIANS ONLY" header
+            # FIX FOR LROC: DO NOT LOOK FOR "PHYSICIANS ONLY".
+            # Start scanning from row 4 (Excel row 5) to catch top providers.
             data_start_row = 4
 
             for i in range(data_start_row, len(df)):
@@ -732,6 +732,10 @@ if check_password():
                                     with st.container(border=True):
                                         st.markdown("#### 🔢 Monthly Data")
                                         piv = df_view.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                                        # FIX: Sort Chronologically
+                                        sorted_months = df_view.sort_values("Month_Clean")["Month_Label"].unique()
+                                        piv = piv.reindex(columns=sorted_months)
+                                        
                                         piv["Total"] = piv.sum(axis=1)
                                         st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds"))
                                 with c2:
@@ -890,5 +894,3 @@ if check_password():
                             st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
     else:
         st.info("👋 Ready. View Only Mode: Add files to 'Reports' folder in GitHub to update data.")
-
-
