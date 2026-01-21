@@ -653,6 +653,18 @@ if check_password():
                                     df_q_chart['Q_Sort'] = df_q_chart['Month_Clean'].dt.to_period('Q').dt.start_time
                                     q_agg = df_q_chart.groupby(['Quarter', 'Q_Sort'])[['Total RVUs']].sum().reset_index().sort_values('Q_Sort')
                                     
+                                    # Calculate QoQ Change for the latest quarter
+                                    if len(q_agg) >= 2:
+                                        last_q = q_agg.iloc[-1]
+                                        prior_q = q_agg.iloc[-2]
+                                        pct_change = ((last_q['Total RVUs'] - prior_q['Total RVUs']) / prior_q['Total RVUs']) * 100
+                                        
+                                        st.metric(
+                                            label=f"Change: {prior_q['Quarter']} → {last_q['Quarter']}",
+                                            value=f"{last_q['Total RVUs']:,.0f}",
+                                            delta=f"{pct_change:+.1f}%"
+                                        )
+
                                     fig_q_bar = px.bar(q_agg, x='Quarter', y='Total RVUs', text_auto='.2s')
                                     fig_q_bar.update_layout(font=dict(color="black"), font_color="black")
                                     st.plotly_chart(fig_q_bar, use_container_width=True)
