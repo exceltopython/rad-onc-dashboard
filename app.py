@@ -99,6 +99,15 @@ def inject_custom_css():
         .stTabs [data-baseweb="tab-highlight"] {
             background-color: transparent !important;
         }
+        /* TABLE HEADER STYLING */
+        [data-testid="stDataFrame"] th {
+            color: #000000 !important;
+            font-weight: 900 !important;
+        }
+        div[data-testid="stDataFrame"] div[role="columnheader"] {
+            color: #000000 !important;
+            font-weight: 900 !important;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -420,7 +429,7 @@ if check_password():
                 visit_tag = "General"
                 if "LROC" in filename: visit_tag = "LROC"
                 elif "TROC" in filename: visit_tag = "TROC"
-                elif "PROTON" in filename: visit_tag = "TOPC" # NEW: PROTON logic
+                elif "PROTON" in filename: visit_tag = "TOPC" 
 
                 for sheet_name, df in xls.items():
                     if "PHYS YTD OV" in sheet_name.upper():
@@ -744,13 +753,13 @@ if check_password():
                                         piv = piv.reindex(columns=sorted_months)
                                         
                                         piv["Total"] = piv.sum(axis=1)
-                                        st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds"))
+                                        st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                                 with c2:
                                     with st.container(border=True):
                                         st.markdown("#### 📆 Quarterly Data")
                                         piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                                         piv_q["Total"] = piv_q.sum(axis=1)
-                                        st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
+                                        st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
                         # 7. MONTHLY DATA BY PROVIDER (New Request)
                         if target_tag in ["LROC", "TOPC", "TROC", "Sumner"] and not df_provider_raw.empty:
@@ -772,7 +781,7 @@ if check_password():
                                     piv_p = piv_p.reindex(columns=sorted_months_p)
                                     
                                     piv_p["Total"] = piv_p.sum(axis=1)
-                                    st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
+                                    st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                         
                         if target_tag in ["LROC", "TROC", "TOPC"] and not df_visits.empty:
                             clinic_visits = df_visits[df_visits['Clinic_Tag'] == target_tag]
@@ -819,97 +828,65 @@ if check_password():
                                 st.markdown("#### 🔢 Monthly Data")
                                 piv = df_mds.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
                                 piv["Total"] = piv.sum(axis=1)
-                                st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"))
+                                st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                             with c2:
                                 st.markdown("#### 📆 Quarterly Data")
                                 piv_q = df_mds.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                                 piv_q["Total"] = piv_q.sum(axis=1)
-                                st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples"))
+                                st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                     
                     elif md_view == "Office Visits":
                         st.info("ℹ️ **This includes all HOPD and freestanding sites (including LROC, TROC, and TOPC)**")
                         if df_visits.empty:
-                            st.warning("No Office Visit data found. Please upload a file containing 'New Patients' in the filename.")
-                            if debug_log:
-                                with st.expander("🛠️ Debug: View Raw Data"):
-                                    for l in debug_log: st.write(l)
+                            st.warning("No Office Visit data found.")
                         else:
-                            # Aggregate visits across all sources
-                            df_visits_agg = df_visits.groupby(['Name', 'Month_Clean'], as_index=False).agg({
-                                'Total Visits': 'sum',
-                                'New Patients': 'sum',
-                                'Visits_Diff': 'sum',
-                                'NP_Diff': 'sum'
-                            })
+                            df_visits_agg = df_visits.groupby(['Name', 'Month_Clean'], as_index=False).agg({'Total Visits': 'sum', 'New Patients': 'sum', 'Visits_Diff': 'sum', 'NP_Diff': 'sum'})
                             latest_v_date = df_visits_agg['Month_Clean'].max()
                             latest_v_df = df_visits_agg[df_visits_agg['Month_Clean'] == latest_v_date]
                             
                             st.info(generate_narrative(df_visits_agg, "Physician", metric_col="Total Visits", unit="Visits"))
-                            
                             c_ov1, c_ov2 = st.columns(2)
                             with c_ov1:
                                 with st.container(border=True):
                                     st.markdown(f"#### 🏥 Total Office Visits ({latest_v_date.year} YTD)")
-                                    fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), 
-                                                    x='Total Visits', y='Name', orientation='h', text_auto=True,
-                                                    color='Total Visits', color_continuous_scale='Blues')
-                                    # HEIGHT FIX
-                                    fig_ov.update_layout(font=dict(size=14), height=1000)
+                                    fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), x='Total Visits', y='Name', orientation='h', text_auto=True, color='Total Visits', color_continuous_scale='Blues')
+                                    fig_ov.update_layout(height=800)
                                     st.plotly_chart(fig_ov, use_container_width=True)
-                                
-                                # Visits Change Chart
                                 with st.container(border=True):
                                     st.markdown(f"#### 📉 YoY Change: Office Visits")
-                                    fig_diff_ov = px.bar(latest_v_df.sort_values('Visits_Diff', ascending=True),
-                                                         x='Visits_Diff', y='Name', orientation='h', text_auto=True,
-                                                         color='Visits_Diff', color_continuous_scale='RdBu')
-                                    fig_diff_ov.update_layout(font=dict(size=14), height=1000)
+                                    fig_diff_ov = px.bar(latest_v_df.sort_values('Visits_Diff', ascending=True), x='Visits_Diff', y='Name', orientation='h', text_auto=True, color='Visits_Diff', color_continuous_scale='RdBu')
+                                    fig_diff_ov.update_layout(height=800)
                                     st.plotly_chart(fig_diff_ov, use_container_width=True)
-
                             with c_ov2:
                                 with st.container(border=True):
                                     st.markdown(f"#### 🆕 New Patients ({latest_v_date.year} YTD)")
-                                    fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), 
-                                                    x='New Patients', y='Name', orientation='h', text_auto=True,
-                                                    color='New Patients', color_continuous_scale='Greens')
-                                    fig_np.update_layout(font=dict(size=14), height=1000)
+                                    fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), x='New Patients', y='Name', orientation='h', text_auto=True, color='New Patients', color_continuous_scale='Greens')
+                                    fig_np.update_layout(height=800)
                                     st.plotly_chart(fig_np, use_container_width=True)
-                                
-                                # NP Change Chart
                                 with st.container(border=True):
                                     st.markdown(f"#### 📉 YoY Change: New Patients")
-                                    fig_diff_np = px.bar(latest_v_df.sort_values('NP_Diff', ascending=True),
-                                                         x='NP_Diff', y='Name', orientation='h', text_auto=True,
-                                                         color='NP_Diff', color_continuous_scale='RdBu')
-                                    fig_diff_np.update_layout(font=dict(size=14), height=1000)
+                                    fig_diff_np = px.bar(latest_v_df.sort_values('NP_Diff', ascending=True), x='NP_Diff', y='Name', orientation='h', text_auto=True, color='NP_Diff', color_continuous_scale='RdBu')
+                                    fig_diff_np.update_layout(height=800)
                                     st.plotly_chart(fig_diff_np, use_container_width=True)
 
             with tab_app:
-                if df_apps.empty:
-                    st.info("No APP data found.")
+                if df_apps.empty: st.info("No APP data found.")
                 else:
-                    max_date = df_apps['Month_Clean'].max()
                     st.info(generate_narrative(df_apps, "APP"))
                     with st.container(border=True):
                         st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
-                        min_date = max_date - pd.DateOffset(months=11)
-                        l12m_df = df_apps[df_apps['Month_Clean'] >= min_date].sort_values('Month_Clean')
-                        fig_trend = px.line(l12m_df, x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
-                        fig_trend.update_layout(font=dict(size=14))
+                        fig_trend = px.line(df_apps.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
                         st.plotly_chart(fig_trend, use_container_width=True)
-                    
                     c1, c2 = st.columns(2)
                     with c1:
-                        with st.container(border=True):
-                            st.markdown("#### 🔢 Monthly Data")
-                            piv = df_apps.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                            piv["Total"] = piv.sum(axis=1)
-                            st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Greens"))
+                        st.markdown("#### 🔢 Monthly Data")
+                        piv = df_apps.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                        piv["Total"] = piv.sum(axis=1)
+                        st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                     with c2:
-                        with st.container(border=True):
-                            st.markdown("#### 📆 Quarterly Data")
-                            piv_q = df_apps.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                            piv_q["Total"] = piv_q.sum(axis=1)
-                            st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
+                        st.markdown("#### 📆 Quarterly Data")
+                        piv_q = df_apps.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                        piv_q["Total"] = piv_q.sum(axis=1)
+                        st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
     else:
         st.info("👋 Ready. View Only Mode: Add files to 'Reports' folder in GitHub to update data.")
