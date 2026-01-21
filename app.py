@@ -14,38 +14,32 @@ APP_PASSWORD = "RadOnc2026"
 # ==========================================
 HISTORICAL_DATA = {
     2019: {
-        "CENT": 18430, "Dickson": 11420,
-        "Skyline": 13910, "Summit": 14690, "Stonecrest": 8600,
+        "CENT": 18430, "Dickson": 11420, "Skyline": 13910, "Summit": 14690, "Stonecrest": 8600,
         "STW": 22030, "Midtown": 14730, "MURF": 38810, "Sumner": 14910, "TOPC": 15690,
         "LROC": 0, "TROC": 0
     },
     2020: {
-        "CENT": 19160, "Dickson": 12940,
-        "Skyline": 13180, "Summit": 11540, "Stonecrest": 7470,
+        "CENT": 19160, "Dickson": 12940, "Skyline": 13180, "Summit": 11540, "Stonecrest": 7470,
         "STW": 17070, "Midtown": 14560, "MURF": 37890, "Sumner": 14760, "TOPC": 22010,
         "LROC": 0, "TROC": 0
     },
     2021: {
-        "CENT": 14480, "Dickson": 10980,
-        "Skyline": 11450, "Summit": 11700, "Stonecrest": 8610,
+        "CENT": 14480, "Dickson": 10980, "Skyline": 11450, "Summit": 11700, "Stonecrest": 8610,
         "STW": 17970, "Midtown": 17890, "MURF": 37440, "Sumner": 17670, "TOPC": 28540,
         "LROC": 0, "TROC": 0
     },
     2022: {
-        "CENT": 15860, "Dickson": 13960,
-        "Skyline": 14520, "Summit": 12390, "Stonecrest": 10580,
+        "CENT": 15860, "Dickson": 13960, "Skyline": 14520, "Summit": 12390, "Stonecrest": 10580,
         "STW": 27650, "Midtown": 19020, "MURF": 37870, "Sumner": 20570, "TOPC": 28830,
         "LROC": 0, "TROC": 0
     },
     2023: {
-        "CENT": 19718, "Dickson": 11600,
-        "Skyline": 17804, "Summit": 14151, "Stonecrest": 11647,
+        "CENT": 19718, "Dickson": 11600, "Skyline": 17804, "Summit": 14151, "Stonecrest": 11647,
         "STW": 23717, "Midtown": 21017, "MURF": 42201, "Sumner": 22622, "TOPC": 27667,
         "LROC": 0, "TROC": 0
     },
     2024: {
-        "CENT": 22385, "Dickson": 12155,
-        "Skyline": 15363, "Summit": 12892, "Stonecrest": 12524,
+        "CENT": 22385, "Dickson": 12155, "Skyline": 15363, "Summit": 12892, "Stonecrest": 12524,
         "STW": 25409, "Midtown": 21033, "MURF": 45648, "Sumner": 23803, "TOPC": 33892,
         "LROC": 0, "TROC": 0
     }
@@ -99,12 +93,14 @@ def inject_custom_css():
         .stTabs [data-baseweb="tab-highlight"] {
             background-color: transparent !important;
         }
-        /* TABLE HEADER STYLING */
-        [data-testid="stDataFrame"] th {
+        
+        /* FORCE TABLE HEADERS TO BE BLACK AND BOLD */
+        div[data-testid="stDataFrame"] div[role="columnheader"] {
             color: #000000 !important;
             font-weight: 900 !important;
+            font-size: 14px !important;
         }
-        div[data-testid="stDataFrame"] div[role="columnheader"] {
+        [data-testid="stDataFrame"] th {
             color: #000000 !important;
             font-weight: 900 !important;
         }
@@ -644,7 +640,7 @@ if check_password():
                                 else:
                                     fig_trend = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
                                 
-                                fig_trend.update_layout(font=dict(size=14))
+                                fig_trend.update_layout(font=dict(color="black"), font_color="black")
                                 fig_trend.update_yaxes(rangemode="tozero")
                                 st.plotly_chart(fig_trend, use_container_width=True)
 
@@ -653,7 +649,7 @@ if check_password():
                                 with st.container(border=True):
                                     st.markdown(f"#### 📈 {view_title}: Individual Clinic Trends")
                                     fig_ind = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
-                                    fig_ind.update_layout(font=dict(size=14))
+                                    fig_ind.update_layout(font=dict(color="black"), font_color="black")
                                     st.plotly_chart(fig_ind, use_container_width=True)
 
                             # 3. HISTORICAL TREND
@@ -679,7 +675,7 @@ if check_password():
                                                 new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
                                                 hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
                                         fig_long = px.bar(hist_trend, x='Year', y='Total RVUs', text_auto='.2s')
-                                        fig_long.update_layout(font=dict(size=14))
+                                        fig_long.update_layout(font=dict(color="black"), font_color="black")
                                         st.plotly_chart(fig_long, use_container_width=True)
                                         
                                         # Individual Histories
@@ -703,7 +699,7 @@ if check_password():
                                                 
                                                 if not c_hist_grp.empty:
                                                     fig_c = px.bar(c_hist_grp, x='Year', y='Total RVUs', text_auto='.2s', title=c_name)
-                                                    fig_c.update_layout(font=dict(size=14), height=350)
+                                                    fig_c.update_layout(height=350, font=dict(color="black"), font_color="black")
                                                     with cols[idx % 2]:
                                                         st.plotly_chart(fig_c, use_container_width=True)
                                     else:
@@ -734,11 +730,13 @@ if check_password():
                                                 if not pie_agg_12m.empty:
                                                     fig_p1 = px.pie(pie_agg_12m, values='Total RVUs', names='Name', hole=0.4, title="Last 12 Months")
                                                     fig_p1.update_traces(textposition='inside', textinfo='percent+label')
+                                                    fig_p1.update_layout(font=dict(color="black"), font_color="black")
                                                     st.plotly_chart(fig_p1, use_container_width=True)
                                             with col_pie2:
                                                 if not pie_agg_q.empty:
                                                     fig_p2 = px.pie(pie_agg_q, values='Total RVUs', names='Name', hole=0.4, title=f"Most Recent Quarter ({latest_q})")
                                                     fig_p2.update_traces(textposition='inside', textinfo='percent+label')
+                                                    fig_p2.update_layout(font=dict(color="black"), font_color="black")
                                                     st.plotly_chart(fig_p2, use_container_width=True)
                             
                             # 5. TABLES
@@ -796,11 +794,13 @@ if check_password():
                                         fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), 
                                                         x='Total Visits', y='Name', orientation='h', text_auto=True,
                                                         color='Total Visits', color_continuous_scale='Blues', title=f"YTD Total Office Visits ({latest_v_date.strftime('%b %Y')})")
+                                        fig_ov.update_layout(font=dict(color="black"), font_color="black")
                                         st.plotly_chart(fig_ov, use_container_width=True)
                                     with c_v2:
                                         fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), 
                                                         x='New Patients', y='Name', orientation='h', text_auto=True,
                                                         color='New Patients', color_continuous_scale='Greens', title=f"YTD New Patients ({latest_v_date.strftime('%b %Y')})")
+                                        fig_np.update_layout(font=dict(color="black"), font_color="black")
                                         st.plotly_chart(fig_np, use_container_width=True)
 
             with tab_md:
@@ -817,11 +817,13 @@ if check_password():
                             with st.container(border=True):
                                 st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
                                 fig_trend = px.line(df_mds.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
+                                fig_trend.update_layout(font=dict(color="black"), font_color="black")
                                 st.plotly_chart(fig_trend, use_container_width=True)
                             with st.container(border=True):
                                 st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({df_mds['Month_Clean'].max().year})")
                                 ytd_sum = df_mds[df_mds['Month_Clean'].dt.year == df_mds['Month_Clean'].max().year].groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
                                 fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
+                                fig_ytd.update_layout(font=dict(color="black"), font_color="black")
                                 st.plotly_chart(fig_ytd, use_container_width=True)
                             c1, c2 = st.columns(2)
                             with c1:
@@ -850,23 +852,23 @@ if check_password():
                                 with st.container(border=True):
                                     st.markdown(f"#### 🏥 Total Office Visits ({latest_v_date.year} YTD)")
                                     fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), x='Total Visits', y='Name', orientation='h', text_auto=True, color='Total Visits', color_continuous_scale='Blues')
-                                    fig_ov.update_layout(height=800)
+                                    fig_ov.update_layout(height=800, font=dict(color="black"), font_color="black")
                                     st.plotly_chart(fig_ov, use_container_width=True)
                                 with st.container(border=True):
                                     st.markdown(f"#### 📉 YoY Change: Office Visits")
                                     fig_diff_ov = px.bar(latest_v_df.sort_values('Visits_Diff', ascending=True), x='Visits_Diff', y='Name', orientation='h', text_auto=True, color='Visits_Diff', color_continuous_scale='RdBu')
-                                    fig_diff_ov.update_layout(height=800)
+                                    fig_diff_ov.update_layout(height=800, font=dict(color="black"), font_color="black")
                                     st.plotly_chart(fig_diff_ov, use_container_width=True)
                             with c_ov2:
                                 with st.container(border=True):
                                     st.markdown(f"#### 🆕 New Patients ({latest_v_date.year} YTD)")
                                     fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), x='New Patients', y='Name', orientation='h', text_auto=True, color='New Patients', color_continuous_scale='Greens')
-                                    fig_np.update_layout(height=800)
+                                    fig_np.update_layout(height=800, font=dict(color="black"), font_color="black")
                                     st.plotly_chart(fig_np, use_container_width=True)
                                 with st.container(border=True):
                                     st.markdown(f"#### 📉 YoY Change: New Patients")
                                     fig_diff_np = px.bar(latest_v_df.sort_values('NP_Diff', ascending=True), x='NP_Diff', y='Name', orientation='h', text_auto=True, color='NP_Diff', color_continuous_scale='RdBu')
-                                    fig_diff_np.update_layout(height=800)
+                                    fig_diff_np.update_layout(height=800, font=dict(color="black"), font_color="black")
                                     st.plotly_chart(fig_diff_np, use_container_width=True)
 
             with tab_app:
@@ -876,6 +878,7 @@ if check_password():
                     with st.container(border=True):
                         st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
                         fig_trend = px.line(df_apps.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
+                        fig_trend.update_layout(font=dict(color="black"), font_color="black")
                         st.plotly_chart(fig_trend, use_container_width=True)
                     c1, c2 = st.columns(2)
                     with c1:
