@@ -14,32 +14,38 @@ APP_PASSWORD = "RadOnc2026"
 # ==========================================
 HISTORICAL_DATA = {
     2019: {
-        "CENT": 18430, "Dickson": 11420, "Skyline": 13910, "Summit": 14690, "Stonecrest": 8600,
+        "CENT": 18430, "Dickson": 11420,
+        "Skyline": 13910, "Summit": 14690, "Stonecrest": 8600,
         "STW": 22030, "Midtown": 14730, "MURF": 38810, "Sumner": 14910, "TOPC": 15690,
         "LROC": 0, "TROC": 0
     },
     2020: {
-        "CENT": 19160, "Dickson": 12940, "Skyline": 13180, "Summit": 11540, "Stonecrest": 7470,
+        "CENT": 19160, "Dickson": 12940,
+        "Skyline": 13180, "Summit": 11540, "Stonecrest": 7470,
         "STW": 17070, "Midtown": 14560, "MURF": 37890, "Sumner": 14760, "TOPC": 22010,
         "LROC": 0, "TROC": 0
     },
     2021: {
-        "CENT": 14480, "Dickson": 10980, "Skyline": 11450, "Summit": 11700, "Stonecrest": 8610,
+        "CENT": 14480, "Dickson": 10980,
+        "Skyline": 11450, "Summit": 11700, "Stonecrest": 8610,
         "STW": 17970, "Midtown": 17890, "MURF": 37440, "Sumner": 17670, "TOPC": 28540,
         "LROC": 0, "TROC": 0
     },
     2022: {
-        "CENT": 15860, "Dickson": 13960, "Skyline": 14520, "Summit": 12390, "Stonecrest": 10580,
+        "CENT": 15860, "Dickson": 13960,
+        "Skyline": 14520, "Summit": 12390, "Stonecrest": 10580,
         "STW": 27650, "Midtown": 19020, "MURF": 37870, "Sumner": 20570, "TOPC": 28830,
         "LROC": 0, "TROC": 0
     },
     2023: {
-        "CENT": 19718, "Dickson": 11600, "Skyline": 17804, "Summit": 14151, "Stonecrest": 11647,
+        "CENT": 19718, "Dickson": 11600,
+        "Skyline": 17804, "Summit": 14151, "Stonecrest": 11647,
         "STW": 23717, "Midtown": 21017, "MURF": 42201, "Sumner": 22622, "TOPC": 27667,
         "LROC": 0, "TROC": 0
     },
     2024: {
-        "CENT": 22385, "Dickson": 12155, "Skyline": 15363, "Summit": 12892, "Stonecrest": 12524,
+        "CENT": 22385, "Dickson": 12155,
+        "Skyline": 15363, "Summit": 12892, "Stonecrest": 12524,
         "STW": 25409, "Midtown": 21033, "MURF": 45648, "Sumner": 23803, "TOPC": 33892,
         "LROC": 0, "TROC": 0
     }
@@ -329,8 +335,8 @@ if check_password():
         local_logs = []
         
         try:
-            # FIX FOR LROC: DO NOT LOOK FOR "PHYSICIANS ONLY".
-            # Start scanning from row 4 (Excel row 5) to catch top providers.
+            # FIX: Start from row 4 (Excel row 5) to catch LROC data which starts early
+            # Do NOT wait for "PHYSICIANS ONLY" header
             data_start_row = 4
 
             for i in range(data_start_row, len(df)):
@@ -414,6 +420,7 @@ if check_password():
                 visit_tag = "General"
                 if "LROC" in filename: visit_tag = "LROC"
                 elif "TROC" in filename: visit_tag = "TROC"
+                elif "PROTON" in filename: visit_tag = "TOPC" # NEW: PROTON logic
 
                 for sheet_name, df in xls.items():
                     if "PHYS YTD OV" in sheet_name.upper():
@@ -745,8 +752,8 @@ if check_password():
                                         piv_q["Total"] = piv_q.sum(axis=1)
                                         st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
                             
-                            # 6. OFFICE VISITS FOR LROC/TROC
-                            if target_tag in ["LROC", "TROC"] and not df_visits.empty:
+                            # 6. OFFICE VISITS FOR LROC/TROC/TOPC
+                            if target_tag in ["LROC", "TROC", "TOPC"] and not df_visits.empty:
                                 clinic_visits = df_visits[df_visits['Clinic_Tag'] == target_tag]
                                 if not clinic_visits.empty:
                                     with st.container(border=True):
