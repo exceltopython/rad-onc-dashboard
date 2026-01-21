@@ -14,32 +14,38 @@ APP_PASSWORD = "RadOnc2026"
 # ==========================================
 HISTORICAL_DATA = {
     2019: {
-        "CENT": 18430, "Dickson": 11420, "Skyline": 13910, "Summit": 14690, "Stonecrest": 8600,
+        "CENT": 18430, "Dickson": 11420,
+        "Skyline": 13910, "Summit": 14690, "Stonecrest": 8600,
         "STW": 22030, "Midtown": 14730, "MURF": 38810, "Sumner": 14910, "TOPC": 15690,
         "LROC": 0, "TROC": 0
     },
     2020: {
-        "CENT": 19160, "Dickson": 12940, "Skyline": 13180, "Summit": 11540, "Stonecrest": 7470,
+        "CENT": 19160, "Dickson": 12940,
+        "Skyline": 13180, "Summit": 11540, "Stonecrest": 7470,
         "STW": 17070, "Midtown": 14560, "MURF": 37890, "Sumner": 14760, "TOPC": 22010,
         "LROC": 0, "TROC": 0
     },
     2021: {
-        "CENT": 14480, "Dickson": 10980, "Skyline": 11450, "Summit": 11700, "Stonecrest": 8610,
+        "CENT": 14480, "Dickson": 10980,
+        "Skyline": 11450, "Summit": 11700, "Stonecrest": 8610,
         "STW": 17970, "Midtown": 17890, "MURF": 37440, "Sumner": 17670, "TOPC": 28540,
         "LROC": 0, "TROC": 0
     },
     2022: {
-        "CENT": 15860, "Dickson": 13960, "Skyline": 14520, "Summit": 12390, "Stonecrest": 10580,
+        "CENT": 15860, "Dickson": 13960,
+        "Skyline": 14520, "Summit": 12390, "Stonecrest": 10580,
         "STW": 27650, "Midtown": 19020, "MURF": 37870, "Sumner": 20570, "TOPC": 28830,
         "LROC": 0, "TROC": 0
     },
     2023: {
-        "CENT": 19718, "Dickson": 11600, "Skyline": 17804, "Summit": 14151, "Stonecrest": 11647,
+        "CENT": 19718, "Dickson": 11600,
+        "Skyline": 17804, "Summit": 14151, "Stonecrest": 11647,
         "STW": 23717, "Midtown": 21017, "MURF": 42201, "Sumner": 22622, "TOPC": 27667,
         "LROC": 0, "TROC": 0
     },
     2024: {
-        "CENT": 22385, "Dickson": 12155, "Skyline": 15363, "Summit": 12892, "Stonecrest": 12524,
+        "CENT": 22385, "Dickson": 12155,
+        "Skyline": 15363, "Summit": 12892, "Stonecrest": 12524,
         "STW": 25409, "Midtown": 21033, "MURF": 45648, "Sumner": 23803, "TOPC": 33892,
         "LROC": 0, "TROC": 0
     }
@@ -66,12 +72,6 @@ def check_password():
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* HIDE STREAMLIT MENU, FOOTER AND TOOLBAR */
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-        [data-testid="stToolbar"] {visibility: hidden;}
-
         .stTabs [data-baseweb="tab-list"] {
             gap: 24px; 
             background-color: transparent;
@@ -735,6 +735,55 @@ if check_password():
                                                         st.plotly_chart(fig_c, use_container_width=True)
                                     else:
                                         st.info("No historical data available.")
+                        
+                        # --- NEW: DETAILED BREAKDOWN FOR TRISTAR / ASCENSION ---
+                        if clinic_filter in ["TriStar", "Ascension"]:
+                            st.markdown("---")
+                            st.subheader(f"🔍 Detailed Breakdown by Clinic ({view_title})")
+                            
+                            target_ids = TRISTAR_IDS if clinic_filter == "TriStar" else ASCENSION_IDS
+                            
+                            for c_id in target_ids:
+                                c_name = CLINIC_CONFIG.get(c_id, {}).get('name', c_id)
+                                clinic_prov_df = df_provider_raw[df_provider_raw['ID'] == c_id]
+                                
+                                if clinic_prov_df.empty:
+                                    continue
+                                
+                                st.markdown(f"### 🏥 {c_name}")
+                                
+                                min_pie_date = max_date - pd.DateOffset(months=11)
+                                pie_12m = clinic_prov_df[clinic_prov_df['Month_Clean'] >= min_pie_date]
+                                pie_agg_12m = pie_12m.groupby('Name')[['Total RVUs']].sum().reset_index()
+                                
+                                latest_q = clinic_prov_df['Quarter'].max()
+                                pie_q = clinic_prov_df[clinic_prov_df['Quarter'] == latest_q]
+                                pie_agg_q = pie_q.groupby('Name')[['Total RVUs']].sum().reset_index()
+                                
+                                if not pie_agg_12m.empty:
+                                    with st.container(border=True):
+                                        st.markdown(f"#### 🍰 {c_name}: Work Breakdown")
+                                        cp1, cp2 = st.columns(2)
+                                        with cp1:
+                                            fig_p1 = px.pie(pie_agg_12m, values='Total RVUs', names='Name', hole=0.4, title="Last 12 Months")
+                                            fig_p1.update_traces(textposition='inside', textinfo='percent+label')
+                                            fig_p1.update_layout(font=dict(color="black"), font_color="black")
+                                            st.plotly_chart(fig_p1, use_container_width=True)
+                                        with cp2:
+                                            if not pie_agg_q.empty:
+                                                fig_p2 = px.pie(pie_agg_q, values='Total RVUs', names='Name', hole=0.4, title=f"Most Recent Quarter ({latest_q})")
+                                                fig_p2.update_traces(textposition='inside', textinfo='percent+label')
+                                                fig_p2.update_layout(font=dict(color="black"), font_color="black")
+                                                st.plotly_chart(fig_p2, use_container_width=True)
+                                
+                                with st.container(border=True):
+                                    st.markdown(f"#### 🧑‍⚕️ {c_name}: Monthly Data (by Provider)")
+                                    piv_p = clinic_prov_df.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                                    sorted_months_p = clinic_prov_df.sort_values("Month_Clean")["Month_Label"].unique()
+                                    piv_p = piv_p.reindex(columns=sorted_months_p)
+                                    piv_p["Total"] = piv_p.sum(axis=1)
+                                    st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                                st.markdown("---")
 
                             # 4. PIE CHARTS
                             if target_tag and not df_provider_raw.empty:
