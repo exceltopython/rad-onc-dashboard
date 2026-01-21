@@ -765,12 +765,12 @@ if check_password():
                                         with c_v1:
                                             fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), 
                                                             x='Total Visits', y='Name', orientation='h', text_auto=True,
-                                                            color='Total Visits', color_continuous_scale='Blues', title=f"YTD Total Office Visits ({latest_v_date.strftime('%b %Y')})")
+                                                            color='Total Visits', color_continuous_scale='Blues', title=f"Total Office Visits (YTD {latest_v_date.strftime('%b %Y')})")
                                             st.plotly_chart(fig_ov, use_container_width=True)
                                         with c_v2:
                                             fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), 
                                                             x='New Patients', y='Name', orientation='h', text_auto=True,
-                                                            color='New Patients', color_continuous_scale='Greens', title=f"YTD New Patients ({latest_v_date.strftime('%b %Y')})")
+                                                            color='New Patients', color_continuous_scale='Greens', title=f"New Patients (YTD {latest_v_date.strftime('%b %Y')})")
                                             st.plotly_chart(fig_np, use_container_width=True)
 
             with tab_md:
@@ -815,7 +815,7 @@ if check_password():
                                     st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples"))
                     
                     elif md_view == "Office Visits":
-                        st.warning("⚠️ **Currently only displaying the non-TO Photon Sites**")
+                        st.info("ℹ️ **This includes all HOPD and freestanding sites (including LROC, TROC, and TOPC)**")
                         if df_visits.empty:
                             st.warning("No Office Visit data found. Please upload a file containing 'New Patients' in the filename.")
                             if debug_log:
