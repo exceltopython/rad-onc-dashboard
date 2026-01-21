@@ -253,55 +253,82 @@ if check_password():
 
     # --- PARSERS ---
 
-    # UPDATED: Reused the Sumner Logic for ALL "Prov" sheets
+    # REWRITTEN: Detailed Parser with Date Column Awareness
     def parse_detailed_prov_sheet(df, filename_date, clinic_id):
         records = []
         current_provider = None
-        current_values = {"E&M OFFICE CODES": 0.0, "RADIATION CODES": 0.0, "SPECIAL PROCEDURES": 0.0}
-        term_counts = {k: 0 for k in current_values}
-        target_terms = list(current_values.keys())
+        target_terms = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
+        term_counts = {k: 0 for k in target_terms}
         
+        # 1. Map Columns to Dates (Find Header)
+        date_map = {} # {col_idx: timestamp}
+        header_row_found = False
+        
+        for r in range(min(15, len(df))):
+            row = df.iloc[r].values
+            # Look for month-year pattern (e.g., "Jan-25")
+            for c in range(len(row)):
+                val = str(row[c]).strip()
+                if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', val, re.IGNORECASE):
+                    try:
+                        dt = pd.to_datetime(val, format='%b-%y')
+                        date_map[c] = dt
+                        header_row_found = True
+                    except: pass
+            if header_row_found: break
+            
+        # 2. Scan Rows
         for i in range(len(df)):
             row = df.iloc[i].values
+            
+            # Detect Provider
             potential_name = None
             for c in range(min(5, len(row))):
                 val = str(row[c]).strip()
                 match = match_provider(val)
-                if match: potential_name = match; break
+                if match: 
+                    potential_name = match; break
             
-            if potential_name and potential_name != current_provider:
-                if current_provider:
-                    total_rvu = sum(current_values.values())
-                    if total_rvu > 0:
-                        records.append({
-                            "Type": "provider", "ID": clinic_id, "Name": current_provider, "FTE": 1.0,
-                            "Month": filename_date, "Total RVUs": total_rvu, "RVU per FTE": total_rvu,
-                            "Clinic_Tag": clinic_id, "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
-                            "Month_Label": filename_date.strftime('%b-%y'), "source_type": "detail"
-                        })
+            if potential_name:
                 current_provider = potential_name
-                term_counts = {k: 0 for k in target_terms}; current_values = {k: 0.0 for k in target_terms}
-                continue 
-
+                term_counts = {k: 0 for k in target_terms} # Reset counts for new provider
+                continue
+            
             if current_provider:
-                row_str_upper = " ".join([str(x).upper() for x in row[:5]])
+                row_label = str(row[0]).upper()
                 for term in target_terms:
-                    if term in row_str_upper:
+                    if term in row_label:
                         term_counts[term] += 1
-                        if term_counts[term] == 2: # Logic: 2nd instance
-                            if len(row) > 19:
-                                val = clean_number(row[19]) 
-                                if val: current_values[term] = val
-        
-        if current_provider:
-            total_rvu = sum(current_values.values())
-            if total_rvu > 0:
-                records.append({
-                    "Type": "provider", "ID": clinic_id, "Name": current_provider, "FTE": 1.0,
-                    "Month": filename_date, "Total RVUs": total_rvu, "RVU per FTE": total_rvu,
-                    "Clinic_Tag": clinic_id, "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
-                    "Month_Label": filename_date.strftime('%b-%y'), "source_type": "detail"
-                })
+                        # LOGIC: The 2nd occurrence is the Total row
+                        if term_counts[term] == 2:
+                            # Extract data for EVERY valid month column found
+                            if date_map:
+                                for col_idx, dt in date_map.items():
+                                    if col_idx < len(row):
+                                        val = clean_number(row[col_idx])
+                                        if val and val != 0:
+                                            records.append({
+                                                "Type": "provider", "ID": clinic_id, "Name": current_provider, "FTE": 1.0,
+                                                "Month": dt, # Actual month from column
+                                                "Total RVUs": val, "RVU per FTE": val,
+                                                "Clinic_Tag": clinic_id, "Quarter": f"Q{dt.quarter} {dt.year}",
+                                                "Month_Label": dt.strftime('%b-%y'), "source_type": "detail",
+                                                "Month_Clean": dt
+                                            })
+                            else:
+                                # Fallback (Single column extraction) if header detection failed completely
+                                # This handles legacy files if any
+                                if len(row) > 19:
+                                    val = clean_number(row[19])
+                                    if val:
+                                        records.append({
+                                            "Type": "provider", "ID": clinic_id, "Name": current_provider, "FTE": 1.0,
+                                            "Month": filename_date, "Total RVUs": val, "RVU per FTE": val,
+                                            "Clinic_Tag": clinic_id, "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
+                                            "Month_Label": filename_date.strftime('%b-%y'), "source_type": "detail",
+                                            "Month_Clean": filename_date
+                                        })
+
         return pd.DataFrame(records)
 
     def parse_rvu_sheet(df, sheet_name, entity_type, clinic_tag="General", forced_fte=None):
@@ -460,12 +487,11 @@ if check_password():
                 # Matches "Sumner Prov", "Skyline Prov", etc.
                 if s_lower.endswith(" prov"):
                     file_date = get_date_from_filename(filename)
+                    # Identify which clinic this is
                     c_id = get_clinic_id_from_sheet(sheet_name)
-                    # If we can identify the clinic, parse it using the Sumner Logic
                     if c_id:
                         res = parse_detailed_prov_sheet(df, file_date, c_id)
-                        if not res.empty:
-                            provider_data.append(res)
+                        if not res.empty: provider_data.append(res)
                     # Fallback for Sumner if name matching fails but file indicates
                     elif "sumner" in s_lower:
                          res = parse_detailed_prov_sheet(df, file_date, "Sumner")
@@ -499,12 +525,12 @@ if check_password():
                 res = parse_rvu_sheet(df, clean_name, 'provider', clinic_tag=file_tag)
                 if not res.empty: provider_data.append(res)
 
-            # Special TOPC Loop for Aggregation (legacy logic preserved)
+            # Special TOPC Loop for Aggregation
             if file_tag == "TOPC":
                 proton_providers_temp = []
                 for sheet_name, df in xls.items():
                     s_upper = sheet_name.upper()
-                    if "PROV" in s_upper: continue
+                    if "PROV" in s_upper: continue # Handled above
                     if any(ignored in s_upper for ignored in IGNORED_SHEETS) or "PROTON POS" in s_upper: continue
                     if "PRODUCTIVITY TREND" in s_upper: continue
                     clean_name = sheet_name.strip()
@@ -661,7 +687,6 @@ if check_password():
                                 st.markdown(f"#### 📅 {view_title}: 12-Month Trend")
                                 min_date = max_date - pd.DateOffset(months=11)
                                 l12m_c = df_view[df_view['Month_Clean'] >= min_date].sort_values('Month_Clean')
-                                
                                 if clinic_filter in ["TriStar", "Ascension", "All"]:
                                     agg_trend = l12m_c.groupby('Month_Clean')[['Total RVUs']].sum().reset_index()
                                     fig_trend = px.line(agg_trend, x='Month_Clean', y='Total RVUs', markers=True, title="Aggregate Trend")
@@ -672,7 +697,7 @@ if check_password():
                                 fig_trend.update_yaxes(rangemode="tozero")
                                 st.plotly_chart(fig_trend, use_container_width=True)
 
-                            # QUARTERLY wRVU VOLUME + QoQ
+                            # NEW CHART: QUARTERLY wRVU VOLUME (Between Trend & History)
                             if clinic_filter in ["LROC", "TOPC", "TROC", "Sumner"]:
                                 with st.container(border=True):
                                     st.markdown(f"#### 📊 Quarterly wRVU Volume ({view_title})")
@@ -707,14 +732,11 @@ if check_password():
                                 with st.container(border=True):
                                     st.markdown(f"#### 📈 Long-Term History ({view_title})")
                                     df_hist = get_historical_df()
-                                    
                                     if clinic_filter == "TriStar": df_hist_view = df_hist[df_hist['ID'].isin(TRISTAR_IDS)]
                                     elif clinic_filter == "Ascension": df_hist_view = df_hist[df_hist['ID'].isin(ASCENSION_IDS)]
                                     elif clinic_filter == "All": df_hist_view = df_hist.copy()
                                     elif clinic_filter == "Sumner": df_hist_view = df_hist[df_hist['ID'] == 'Sumner']
-                                    else:
-                                        target_id = 'LROC' if 'LROC' in clinic_filter else ('TOPC' if 'Proton' in view_title else 'TROC')
-                                        df_hist_view = df_hist[df_hist['ID'] == target_id]
+                                    else: target_id = 'LROC' if 'LROC' in clinic_filter else ('TOPC' if 'Proton' in view_title else 'TROC'); df_hist_view = df_hist[df_hist['ID'] == target_id]
                                     
                                     if not df_hist_view.empty:
                                         hist_trend = df_hist_view.groupby('Year')[['Total RVUs']].sum().reset_index()
@@ -730,15 +752,13 @@ if check_password():
                                         
                                         # Individual Histories
                                         if clinic_filter in ["TriStar", "Ascension"]:
-                                            st.markdown("---")
-                                            st.markdown("##### 🏥 Individual Clinic History")
+                                            st.markdown("---"); st.markdown("##### 🏥 Individual Clinic History")
                                             target_ids = TRISTAR_IDS if clinic_filter == "TriStar" else ASCENSION_IDS
                                             cols = st.columns(2)
                                             for idx, c_id in enumerate(target_ids):
                                                 c_name = CLINIC_CONFIG.get(c_id, {}).get('name', c_id)
                                                 c_hist = df_hist[df_hist['ID'] == c_id]
                                                 c_hist_grp = c_hist.groupby('Year')[['Total RVUs']].sum().reset_index()
-                                                
                                                 if not df_view.empty:
                                                     c_current = df_view[df_view['ID'] == c_id]
                                                     current_year = max_date.year
@@ -746,16 +766,12 @@ if check_password():
                                                     if ytd_c > 0:
                                                         new_r = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_c]})
                                                         c_hist_grp = pd.concat([c_hist_grp, new_r], ignore_index=True)
-                                                
                                                 if not c_hist_grp.empty:
                                                     fig_c = px.bar(c_hist_grp, x='Year', y='Total RVUs', text_auto='.2s', title=c_name)
                                                     fig_c.update_layout(height=350, font=dict(color="black"), font_color="black")
-                                                    with cols[idx % 2]:
-                                                        st.plotly_chart(fig_c, use_container_width=True)
-                                    else:
-                                        st.info("No historical data available.")
-
-                        # --- DETAILED BREAKDOWN (TriStar / Ascension) ---
+                                                    with cols[idx % 2]: st.plotly_chart(fig_c, use_container_width=True)
+                        
+                        # --- NEW: DETAILED BREAKDOWN FOR TRISTAR / ASCENSION ---
                         if clinic_filter in ["TriStar", "Ascension"]:
                             st.markdown("---")
                             st.subheader(f"🔍 Detailed Breakdown by Clinic ({view_title})")
@@ -805,12 +821,14 @@ if check_password():
                                     st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                                 st.markdown("---")
 
-                        # 4. PIE CHARTS (Single Clinic View)
                         if target_tag and not df_provider_raw.empty:
-                            # Prefer 'detail'
-                            pie_data_source = df_provider_raw[(df_provider_raw['Clinic_Tag'] == target_tag) & (df_provider_raw.get('source_type', '') == 'detail')]
-                            if pie_data_source.empty:
-                                pie_data_source = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
+                            pie_data_source = df_provider_raw
+                            if target_tag == 'Sumner': pie_data_source = df_provider_raw[df_provider_raw.get('source_type', '') == 'detail']
+                            elif target_tag: 
+                                # Use detail if available, else standard
+                                ds = df_provider_raw[(df_provider_raw['Clinic_Tag'] == target_tag) & (df_provider_raw.get('source_type', '') == 'detail')]
+                                if not ds.empty: pie_data_source = ds
+                                else: pie_data_source = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
 
                             if not pie_data_source.empty:
                                 try:
@@ -839,7 +857,6 @@ if check_password():
                                                     st.plotly_chart(fig_p2, use_container_width=True)
                                 except: st.info("Insufficient data for pie charts.")
 
-                        # 5. TABLES
                         if not df_view.empty:
                             c1, c2 = st.columns(2)
                             with c1:
@@ -857,7 +874,6 @@ if check_password():
                                     piv_q["Total"] = piv_q.sum(axis=1)
                                     st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
-                        # 7. MONTHLY DATA BY PROVIDER (Single Clinic View)
                         if target_tag in ["LROC", "TOPC", "TROC", "Sumner"] and not df_provider_raw.empty:
                             # Prefer 'detail'
                             prov_df = df_provider_raw[(df_provider_raw['Clinic_Tag'] == target_tag) & (df_provider_raw.get('source_type', '') == 'detail')]
@@ -889,6 +905,11 @@ if check_password():
                                         fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), x='New Patients', y='Name', orientation='h', text_auto=True, color='New Patients', color_continuous_scale='Greens', title=f"YTD New Patients ({latest_v_date.strftime('%b %Y')})")
                                         fig_np.update_layout(font=dict(color="black"), font_color="black")
                                         st.plotly_chart(fig_np, use_container_width=True)
+                                with st.container(border=True):
+                                    st.markdown(f"#### 📉 YoY Change: New Patients")
+                                    fig_diff_np = px.bar(latest_v_df.sort_values('NP_Diff', ascending=True), x='NP_Diff', y='Name', orientation='h', text_auto=True, color='NP_Diff', color_continuous_scale='RdBu')
+                                    fig_diff_np.update_layout(height=800, font=dict(color="black"), font_color="black")
+                                    st.plotly_chart(fig_diff_np, use_container_width=True)
 
             with tab_md:
                 col_nav_md, col_main_md = st.columns([1, 5])
