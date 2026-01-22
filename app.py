@@ -391,10 +391,7 @@ if check_password():
     def parse_financial_sheet(df, filename_date, tag, mode="Provider"):
         records = []
         try:
-            # Locate Headers
-            header_row = -1
-            col_map = {}
-            
+            header_row = -1; col_map = {}
             for i in range(min(15, len(df))):
                 row_vals = [str(x).upper().strip() for x in df.iloc[i].values]
                 if mode == "Provider":
@@ -416,31 +413,30 @@ if check_password():
             
             if header_row == -1 or not col_map: return pd.DataFrame()
 
-            # Extraction
             for i in range(header_row + 1, len(df)):
                 row = df.iloc[i].values
                 name_val = str(row[col_map.get('name', 0)]).strip()
                 
                 # Filter Logic
                 if mode == "Clinic":
-                    if tag in ["LROC", "TROC"] and "TOTAL" not in name_val.upper(): continue
+                    if tag in ["LROC", "TROC", "PROTON"] and "TOTAL" not in name_val.upper(): continue
                     if tag == "General":
-                         # Whitelist logic
                          whitelist = ["CENTENNIAL", "DICKSON", "MIDTOWN", "MURFREESBORO", "PROTON", "WEST", "SKYLINE", "STONECREST", "SUMMIT", "SUMNER", "TULLAHOMA"]
                          if not any(w in name_val.upper() for w in whitelist): continue
 
                 charges = clean_number(row[col_map.get('charges', 1)]) or 0
                 payments = clean_number(row[col_map.get('payments', 2)]) or 0
                 
-                # Name Cleanup
                 if mode == "Provider":
                     clean_name = match_provider(name_val)
                     if not clean_name and "TOTAL" in name_val.upper() and tag == "PROTON":
-                        clean_name = "TN Proton Center" # Special case for Proton Clinic View from Provider file
+                        clean_name = "TN Proton Center" 
                     elif not clean_name: continue
                 else:
                     clean_name = name_val.replace(" Rad", "").strip()
-                    if "TOTAL" in clean_name.upper(): clean_name = tag + " Total"
+                    if "TOTAL" in clean_name.upper(): 
+                        if tag == "PROTON": clean_name = "TN Proton Center"
+                        else: clean_name = tag + " Total"
 
                 records.append({
                     "Name": clean_name, "Month_Clean": filename_date,
@@ -482,27 +478,22 @@ if check_password():
             if "CPA" in filename:
                 file_date = get_date_from_filename(filename)
                 for sheet_name, df in xls.items():
-                    # 1. RAD BY PROVIDER
                     if "RAD BY PROVIDER" in filename:
                         res = parse_financial_sheet(df, file_date, "RAD", mode="Provider")
                         if not res.empty: financial_data.append(res)
-                    # 2. PROTON BY PROVIDER
                     elif "PROTON" in filename and "PROVIDER" in filename:
                         # Add as Provider Data
                         res_prov = parse_financial_sheet(df, file_date, "PROTON", mode="Provider")
                         if not res_prov.empty: financial_data.append(res_prov)
                         # Add Total row as Clinic Data
-                        res_clinic = parse_financial_sheet(df, file_date, "PROTON", mode="Clinic") # Will grab Total row
+                        res_clinic = parse_financial_sheet(df, file_date, "PROTON", mode="Clinic") 
                         if not res_clinic.empty: financial_data.append(res_clinic)
-                    # 3. LROC BY PROVIDER
                     elif "LROC" in filename and "PROVIDER" in filename:
                          res = parse_financial_sheet(df, file_date, "LROC", mode="Provider")
                          if not res.empty: financial_data.append(res)
-                    # 4. RAD CPA BY CLINIC
                     elif "RAD CPA BY CLINIC" in filename:
                         res = parse_financial_sheet(df, file_date, "General", mode="Clinic")
                         if not res.empty: financial_data.append(res)
-                    # 5. LROC/TROC CPA BY CLINIC
                     elif "LROC" in filename and "CLINIC" in filename:
                          res = parse_financial_sheet(df, file_date, "LROC", mode="Clinic")
                          if not res.empty: financial_data.append(res)
@@ -826,10 +817,11 @@ if check_password():
                                             st.markdown(f"#### 🍰 Work Breakdown: Who performed the work?")
                                             col_pie1, col_pie2 = st.columns(2)
                                             with col_pie1:
-                                                fig_p1 = px.pie(pie_agg_12m, values='Total RVUs', names='Name', hole=0.4, title="Last 12 Months")
-                                                fig_p1.update_traces(textposition='inside', textinfo='percent+label')
-                                                fig_p1.update_layout(font=dict(color="black"), font_color="black")
-                                                st.plotly_chart(fig_p1, use_container_width=True)
+                                                if not pie_agg_12m.empty:
+                                                    fig_p1 = px.pie(pie_agg_12m, values='Total RVUs', names='Name', hole=0.4, title="Last 12 Months")
+                                                    fig_p1.update_traces(textposition='inside', textinfo='percent+label')
+                                                    fig_p1.update_layout(font=dict(color="black"), font_color="black")
+                                                    st.plotly_chart(fig_p1, use_container_width=True)
                                             with col_pie2:
                                                 if not pie_agg_q.empty:
                                                     fig_p2 = px.pie(pie_agg_q, values='Total RVUs', names='Name', hole=0.4, title=f"Most Recent Quarter ({latest_q})")
@@ -857,7 +849,8 @@ if check_password():
 
                         if target_tag in ["LROC", "TOPC", "TROC", "Sumner"] and not df_provider_raw.empty:
                             prov_df = df_provider_raw[(df_provider_raw['Clinic_Tag'] == target_tag) & (df_provider_raw.get('source_type', '') == 'detail')]
-                            if prov_df.empty: prov_df = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
+                            if prov_df.empty:
+                                prov_df = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
                             
                             if not prov_df.empty:
                                 with st.container(border=True):
@@ -981,7 +974,7 @@ if check_password():
                     fin_view = st.radio("Select Financial View:", ["CPA By Provider", "CPA By Clinic"], key="fin_radio")
                     
                     if fin_view == "CPA By Provider":
-                         prov_fin = df_financial[df_financial['Mode'] == 'Provider']
+                         prov_fin = df_financial[(df_financial['Mode'] == 'Provider') & (df_financial['Name'] != "TN Proton Center")]
                          if not prov_fin.empty:
                              st.markdown("### 💰 CPA By Provider (YTD)")
                              latest_fin_date = prov_fin['Month_Clean'].max()
@@ -990,11 +983,11 @@ if check_password():
                              c1, c2 = st.columns(2)
                              with c1:
                                  fig_chg = px.bar(latest_prov.sort_values('Charges', ascending=True), x='Charges', y='Name', orientation='h', title=f"Total Charges ({latest_fin_date.strftime('%b %Y')})", text_auto='$.2s')
-                                 fig_chg.update_layout(font=dict(color="black"), font_color="black")
+                                 fig_chg.update_layout(height=1200, font=dict(color="black", size=18), font_color="black")
                                  st.plotly_chart(fig_chg, use_container_width=True)
                              with c2:
                                  fig_pay = px.bar(latest_prov.sort_values('Payments', ascending=True), x='Payments', y='Name', orientation='h', title=f"Total Payments ({latest_fin_date.strftime('%b %Y')})", text_auto='$.2s')
-                                 fig_pay.update_layout(font=dict(color="black"), font_color="black")
+                                 fig_pay.update_layout(height=1200, font=dict(color="black", size=18), font_color="black")
                                  st.plotly_chart(fig_pay, use_container_width=True)
                              
                              st.dataframe(latest_prov[['Name', 'Charges', 'Payments']].sort_values('Charges', ascending=False).style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}'}).background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
@@ -1009,11 +1002,11 @@ if check_password():
                             c1, c2 = st.columns(2)
                             with c1:
                                  fig_chg = px.bar(latest_clinic.sort_values('Charges', ascending=True), x='Charges', y='Name', orientation='h', title=f"Total Charges ({latest_fin_date.strftime('%b %Y')})", text_auto='$.2s')
-                                 fig_chg.update_layout(font=dict(color="black"), font_color="black")
+                                 fig_chg.update_layout(height=800, font=dict(color="black", size=18), font_color="black")
                                  st.plotly_chart(fig_chg, use_container_width=True)
                             with c2:
                                  fig_pay = px.bar(latest_clinic.sort_values('Payments', ascending=True), x='Payments', y='Name', orientation='h', title=f"Total Payments ({latest_fin_date.strftime('%b %Y')})", text_auto='$.2s')
-                                 fig_pay.update_layout(font=dict(color="black"), font_color="black")
+                                 fig_pay.update_layout(height=800, font=dict(color="black", size=18), font_color="black")
                                  st.plotly_chart(fig_pay, use_container_width=True)
                             
                             st.dataframe(latest_clinic[['Name', 'Charges', 'Payments']].sort_values('Charges', ascending=False).style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}'}).background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
