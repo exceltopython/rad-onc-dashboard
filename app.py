@@ -13,12 +13,36 @@ APP_PASSWORD = "RadOnc2026"
 # --- 1. HISTORICAL DATA ENTRY (2019-2024) ---
 # ==========================================
 HISTORICAL_DATA = {
-    2019: {"CENT": 18430, "Dickson": 11420, "Skyline": 13910, "Summit": 14690, "Stonecrest": 8600, "STW": 22030, "Midtown": 14730, "MURF": 38810, "Sumner": 14910, "TOPC": 15690, "LROC": 0, "TROC": 0},
-    2020: {"CENT": 19160, "Dickson": 12940, "Skyline": 13180, "Summit": 11540, "Stonecrest": 7470, "STW": 17070, "Midtown": 14560, "MURF": 37890, "Sumner": 14760, "TOPC": 22010, "LROC": 0, "TROC": 0},
-    2021: {"CENT": 14480, "Dickson": 10980, "Skyline": 11450, "Summit": 11700, "Stonecrest": 8610, "STW": 17970, "Midtown": 17890, "MURF": 37440, "Sumner": 17670, "TOPC": 28540, "LROC": 0, "TROC": 0},
-    2022: {"CENT": 15860, "Dickson": 13960, "Skyline": 14520, "Summit": 12390, "Stonecrest": 10580, "STW": 27650, "Midtown": 19020, "MURF": 37870, "Sumner": 20570, "TOPC": 28830, "LROC": 0, "TROC": 0},
-    2023: {"CENT": 19718, "Dickson": 11600, "Skyline": 17804, "Summit": 14151, "Stonecrest": 11647, "STW": 23717, "Midtown": 21017, "MURF": 42201, "Sumner": 22622, "TOPC": 27667, "LROC": 0, "TROC": 0},
-    2024: {"CENT": 22385, "Dickson": 12155, "Skyline": 15363, "Summit": 12892, "Stonecrest": 12524, "STW": 25409, "Midtown": 21033, "MURF": 45648, "Sumner": 23803, "TOPC": 33892, "LROC": 0, "TROC": 0}
+    2019: {
+        "CENT": 18430, "Dickson": 11420, "Skyline": 13910, "Summit": 14690, "Stonecrest": 8600,
+        "STW": 22030, "Midtown": 14730, "MURF": 38810, "Sumner": 14910, "TOPC": 15690,
+        "LROC": 0, "TROC": 0
+    },
+    2020: {
+        "CENT": 19160, "Dickson": 12940, "Skyline": 13180, "Summit": 11540, "Stonecrest": 7470,
+        "STW": 17070, "Midtown": 14560, "MURF": 37890, "Sumner": 14760, "TOPC": 22010,
+        "LROC": 0, "TROC": 0
+    },
+    2021: {
+        "CENT": 14480, "Dickson": 10980, "Skyline": 11450, "Summit": 11700, "Stonecrest": 8610,
+        "STW": 17970, "Midtown": 17890, "MURF": 37440, "Sumner": 17670, "TOPC": 28540,
+        "LROC": 0, "TROC": 0
+    },
+    2022: {
+        "CENT": 15860, "Dickson": 13960, "Skyline": 14520, "Summit": 12390, "Stonecrest": 10580,
+        "STW": 27650, "Midtown": 19020, "MURF": 37870, "Sumner": 20570, "TOPC": 28830,
+        "LROC": 0, "TROC": 0
+    },
+    2023: {
+        "CENT": 19718, "Dickson": 11600, "Skyline": 17804, "Summit": 14151, "Stonecrest": 11647,
+        "STW": 23717, "Midtown": 21017, "MURF": 42201, "Sumner": 22622, "TOPC": 27667,
+        "LROC": 0, "TROC": 0
+    },
+    2024: {
+        "CENT": 22385, "Dickson": 12155, "Skyline": 15363, "Summit": 12892, "Stonecrest": 12524,
+        "STW": 25409, "Midtown": 21033, "MURF": 45648, "Sumner": 23803, "TOPC": 33892,
+        "LROC": 0, "TROC": 0
+    }
 }
 
 def check_password():
@@ -135,20 +159,24 @@ if check_password():
         
     def find_date_row(df):
         months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
-        best_row = 1; max_score = 0
+        best_row = 1 
+        max_score = 0
         for r in range(min(10, len(df))):
             row_vals = df.iloc[r, 4:16]
             str_vals = [str(v).upper() for v in row_vals if pd.notna(v)]
             text_matches = sum(1 for v in str_vals if any(m in v for m in months))
             dt_matches = sum(1 for v in row_vals if isinstance(v, (datetime, pd.Timestamp)))
             total_score = text_matches + (dt_matches * 2) 
-            if total_score > max_score: max_score = total_score; best_row = r
+            if total_score > max_score:
+                max_score = total_score
+                best_row = r
         return best_row
 
     def get_date_from_filename(filename):
         match = re.search(r'(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s*(\d{2,4})', filename, re.IGNORECASE)
         if match:
-            month_str = match.group(1); year_str = match.group(2)
+            month_str = match.group(1)
+            year_str = match.group(2)
             if len(year_str) == 2: year_str = "20" + year_str
             return pd.to_datetime(f"{month_str} {year_str}")
         return datetime.now()
@@ -161,7 +189,8 @@ if check_password():
             val_str = val_str.replace(',', '').replace('%', '').replace('$', '')
             if val_str == "" or val_str == "-": return None
             return float(val_str)
-        except: return None
+        except:
+            return None
 
     def match_provider(name_str):
         try:
@@ -173,9 +202,11 @@ if check_password():
             parts = base.split()
             if not parts: return None
             last_name = parts[0].strip().upper() 
-            if last_name in PROVIDER_KEYS_UPPER: return PROVIDER_KEYS_UPPER[last_name]
+            if last_name in PROVIDER_KEYS_UPPER:
+                return PROVIDER_KEYS_UPPER[last_name]
             return None
-        except: return None
+        except:
+            return None
 
     def clean_provider_name_display(name_str):
         match = match_provider(name_str)
@@ -188,7 +219,13 @@ if check_password():
         for year, data in HISTORICAL_DATA.items():
             for clinic_id, rvu in data.items():
                 if clinic_id in CLINIC_CONFIG:
-                    records.append({"ID": clinic_id, "Name": CLINIC_CONFIG[clinic_id]["name"], "Year": year, "Total RVUs": rvu, "Source": "Historical"})
+                    records.append({
+                        "ID": clinic_id,
+                        "Name": CLINIC_CONFIG[clinic_id]["name"],
+                        "Year": year,
+                        "Total RVUs": rvu,
+                        "Source": "Historical"
+                    })
         return pd.DataFrame(records)
 
     def generate_narrative(df, entity_type="Provider", metric_col="Total RVUs", unit="wRVUs"):
@@ -200,14 +237,19 @@ if check_password():
         
         if metric_col == "Total RVUs":
             top_perf = latest_df.loc[latest_df['RVU per FTE'].idxmax()]
-            top_val = top_perf['RVU per FTE']; top_metric = "wRVUs/FTE"
+            top_val = top_perf['RVU per FTE']
+            top_metric = "wRVUs/FTE"
         else:
             top_perf = latest_df.loc[latest_df[metric_col].idxmax()]
-            top_val = top_perf[metric_col]; top_metric = unit
+            top_val = top_perf[metric_col]
+            top_metric = unit
 
-        return f"""**🤖 Automated Analysis ({latest_date.strftime('%B %Y')}):**
+        narrative = f"""
+        **🤖 Automated Analysis ({latest_date.strftime('%B %Y')}):**
         The {entity_type} group generated a total of **{total_vol:,.0f} {unit}** this month. 
-        * **🏆 Top Performer:** **{clean_provider_name_display(top_perf['Name'])}** led with **{top_val:,.0f} {top_metric}**."""
+        * **🏆 Top Performer:** **{clean_provider_name_display(top_perf['Name'])}** led with **{top_val:,.0f} {top_metric}**.
+        """
+        return narrative
 
     # --- PARSERS ---
 
@@ -218,6 +260,7 @@ if check_password():
         term_counts = {k: 0 for k in current_values}
         target_terms = list(current_values.keys())
         
+        # 1. Map Columns to Dates (Find Header)
         date_map = {} 
         header_row_found = False
         
@@ -281,13 +324,19 @@ if check_password():
     def parse_rvu_sheet(df, sheet_name, entity_type, clinic_tag="General", forced_fte=None):
         if entity_type == 'clinic':
             config = CLINIC_CONFIG.get(sheet_name, {"name": sheet_name, "fte": 1.0})
-            name = config['name']; fte = config['fte']
+            name = config['name']
+            fte = config['fte']
         else:
-            name = sheet_name; fte = forced_fte if forced_fte else PROVIDER_CONFIG.get(sheet_name, 1.0)
+            name = sheet_name 
+            fte = forced_fte if forced_fte else PROVIDER_CONFIG.get(sheet_name, 1.0)
         
         df.iloc[:, 0] = df.iloc[:, 0].astype(str).str.strip().str.upper()
-        mask = df.iloc[:, 0].isin(TARGET_CATEGORIES); filtered_df = df[mask]; data_rows = filtered_df.copy()
-        records = []; header_row_idx = find_date_row(df)
+        mask = df.iloc[:, 0].isin(TARGET_CATEGORIES)
+        filtered_df = df[mask]
+        data_rows = filtered_df.copy()
+        
+        records = []
+        header_row_idx = find_date_row(df)
         
         if len(df.columns) > 4:
             for col in df.columns[4:]:
@@ -295,21 +344,30 @@ if check_password():
                 if pd.isna(header_val): continue
                 col_sum = pd.to_numeric(data_rows[col], errors='coerce').sum()
                 records.append({
-                    "Type": entity_type, "ID": sheet_name, "Name": name, "FTE": fte,
-                    "Month": header_val, "Total RVUs": col_sum, "RVU per FTE": col_sum / fte if fte > 0 else 0,
-                    "Clinic_Tag": clinic_tag, "source_type": "standard"
+                    "Type": entity_type,
+                    "ID": sheet_name,
+                    "Name": name,
+                    "FTE": fte,
+                    "Month": header_val,
+                    "Total RVUs": col_sum,
+                    "RVU per FTE": col_sum / fte if fte > 0 else 0,
+                    "Clinic_Tag": clinic_tag,
+                    "source_type": "standard"
                 })
         return pd.DataFrame(records)
 
     def parse_visits_sheet(df, filename_date, clinic_tag="General"):
         records = []
+        local_logs = []
+        
         try:
+            # FIX: Start from row 4 (Excel row 5) to catch LROC data which starts early
+            # Do NOT wait for "PHYSICIANS ONLY" header
             data_start_row = 4
+
             for i in range(data_start_row, len(df)):
                 row = df.iloc[i].values
-                row_str_check = " ".join([str(x).upper() for x in row[:5]])
-                if "TOTAL" in row_str_check or "PAGE" in row_str_check or "DATE" in row_str_check: continue
-
+                
                 matched_name = None
                 for c in range(min(10, len(row))): 
                     val = str(row[c]).strip()
@@ -321,15 +379,26 @@ if check_password():
                 numbers = []
                 for val in row:
                     num = clean_number(val)
-                    if num is not None: numbers.append(num)
+                    if num is not None:
+                        numbers.append(num)
                 
-                visits = 0; visits_diff = 0; new_patients = 0; np_diff = 0
+                visits = 0
+                visits_diff = 0
+                new_patients = 0
+                np_diff = 0
+                
                 if len(numbers) >= 6:
-                    visits = numbers[0]; visits_diff = numbers[1]; new_patients = numbers[3]; np_diff = numbers[4]
+                    visits = numbers[0]
+                    visits_diff = numbers[1]
+                    new_patients = numbers[3]
+                    np_diff = numbers[4]
                 elif len(numbers) >= 4:
-                    visits = numbers[0]; visits_diff = numbers[1]; new_patients = numbers[3]
+                    visits = numbers[0]
+                    visits_diff = numbers[1]
+                    new_patients = numbers[3]
                 elif len(numbers) == 3:
-                    visits = numbers[0]; new_patients = numbers[2]
+                    visits = numbers[0]
+                    new_patients = numbers[2]
                 elif len(numbers) == 2: 
                     visits = numbers[0]; new_patients = numbers[1]
                 elif len(numbers) == 1:
@@ -370,7 +439,6 @@ if check_password():
             
             if header_row == -1 or not col_map: return pd.DataFrame()
 
-            # EXTRACTION
             for i in range(header_row + 1, len(df)):
                 row = df.iloc[i].values
                 name_val = str(row[col_map.get('name', 0)]).strip()
@@ -388,8 +456,6 @@ if check_password():
                 if mode == "Provider":
                     clean_name = match_provider(name_val)
                     if not clean_name and "TOTAL" in name_val.upper() and tag == "PROTON":
-                        # Catch Proton Total row to use as a "Clinic" record later if needed, 
-                        # but we handle that in the loop below specifically.
                         pass 
                     elif not clean_name: continue
                 else:
@@ -442,15 +508,10 @@ if check_password():
                         res = parse_financial_sheet(df, file_date, "RAD", mode="Provider")
                         if not res.empty: financial_data.append(res)
                     elif "PROTON" in filename and "PROVIDER" in filename:
-                        # 1. Provider Data
                         res_prov = parse_financial_sheet(df, file_date, "PROTON", mode="Provider")
                         if not res_prov.empty: financial_data.append(res_prov)
-                        
-                        # 2. Clinic Data (Extract Total Row manually if standard parser misses it)
-                        # The standard parser for "Clinic" looks for "SITE" header. Proton file doesn't have it.
-                        # So we look for the row with "Total" in the Provider column (index 1 usually)
+                        # Add Total row as Clinic Data
                         try:
-                             # Simple total extraction for Proton
                              total_row = df[df.iloc[:, 1].astype(str).str.contains("Total", case=False, na=False)]
                              if not total_row.empty:
                                  chg = clean_number(total_row.iloc[0, 2])
@@ -776,12 +837,8 @@ if check_password():
                                 st.markdown("---")
 
                         if target_tag and not df_provider_raw.empty:
-                            pie_data_source = df_provider_raw
-                            if target_tag == 'Sumner': pie_data_source = df_provider_raw[df_provider_raw.get('source_type', '') == 'detail']
-                            elif target_tag: 
-                                ds = df_provider_raw[(df_provider_raw['Clinic_Tag'] == target_tag) & (df_provider_raw.get('source_type', '') == 'detail')]
-                                if not ds.empty: pie_data_source = ds
-                                else: pie_data_source = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
+                            pie_data_source = df_provider_raw[(df_provider_raw['Clinic_Tag'] == target_tag) & (df_provider_raw.get('source_type', '') == 'detail')]
+                            if pie_data_source.empty: pie_data_source = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
 
                             if not pie_data_source.empty:
                                 try:
@@ -857,6 +914,11 @@ if check_password():
                                         fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), x='New Patients', y='Name', orientation='h', text_auto=True, color='New Patients', color_continuous_scale='Greens', title=f"YTD New Patients ({latest_v_date.strftime('%b %Y')})")
                                         fig_np.update_layout(font=dict(color="black"), font_color="black")
                                         st.plotly_chart(fig_np, use_container_width=True)
+                                with st.container(border=True):
+                                    st.markdown(f"#### 📉 YoY Change: New Patients")
+                                    fig_diff_np = px.bar(latest_v_df.sort_values('NP_Diff', ascending=True), x='NP_Diff', y='Name', orientation='h', text_auto=True, color='NP_Diff', color_continuous_scale='RdBu')
+                                    fig_diff_np.update_layout(height=800, font=dict(color="black"), font_color="black")
+                                    st.plotly_chart(fig_diff_np, use_container_width=True)
 
             with tab_md:
                 col_nav_md, col_main_md = st.columns([1, 5])
@@ -963,6 +1025,9 @@ if check_password():
                              # AGGREGATE DUPLICATES (e.g. Mondschein)
                              latest_prov = latest_prov.groupby('Name', as_index=False)[['Charges', 'Payments']].sum()
                              
+                             # Calculate % Payments/Charges
+                             latest_prov['% Payments/Charges'] = latest_prov.apply(lambda x: (x['Payments'] / x['Charges']) if x['Charges'] > 0 else 0, axis=1)
+
                              c1, c2 = st.columns(2)
                              with c1:
                                  fig_chg = px.bar(latest_prov.sort_values('Charges', ascending=True), x='Charges', y='Name', orientation='h', title=f"Total Charges ({latest_fin_date.strftime('%b %Y')})", text_auto='$.2s')
@@ -973,7 +1038,7 @@ if check_password():
                                  fig_pay.update_layout(height=1200, font=dict(color="black", size=18), font_color="black")
                                  st.plotly_chart(fig_pay, use_container_width=True)
                              
-                             st.dataframe(latest_prov[['Name', 'Charges', 'Payments']].sort_values('Charges', ascending=False).style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}'}).background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                             st.dataframe(latest_prov[['Name', 'Charges', 'Payments', '% Payments/Charges']].sort_values('Charges', ascending=False).style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}).background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                     
                     elif fin_view == "CPA By Clinic":
                         clinic_fin = df_financial[df_financial['Mode'] == 'Clinic']
@@ -981,6 +1046,9 @@ if check_password():
                             st.markdown("### 🏥 CPA By Clinic (Monthly/YTD)")
                             latest_fin_date = clinic_fin['Month_Clean'].max()
                             latest_clinic = clinic_fin[clinic_fin['Month_Clean'] == latest_fin_date]
+
+                            # Calculate % Payments/Charges
+                            latest_clinic['% Payments/Charges'] = latest_clinic.apply(lambda x: (x['Payments'] / x['Charges']) if x['Charges'] > 0 else 0, axis=1)
 
                             c1, c2 = st.columns(2)
                             with c1:
@@ -992,6 +1060,6 @@ if check_password():
                                  fig_pay.update_layout(height=800, font=dict(color="black", size=18), font_color="black")
                                  st.plotly_chart(fig_pay, use_container_width=True)
                             
-                            st.dataframe(latest_clinic[['Name', 'Charges', 'Payments']].sort_values('Charges', ascending=False).style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}'}).background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                            st.dataframe(latest_clinic[['Name', 'Charges', 'Payments', '% Payments/Charges']].sort_values('Charges', ascending=False).style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}).background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
     else:
         st.info("👋 Ready. View Only Mode: Add files to 'Reports' folder in GitHub to update data.")
