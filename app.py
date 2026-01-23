@@ -355,54 +355,44 @@ if check_password():
         except: pass
         return pd.DataFrame(records)
 
-    # --- NEW: PARSE POS NEW PATIENT TREND (Monthly Columns) ---
+    # --- NEW: PARSE POS NEW PATIENT TREND (Robust) ---
     def parse_pos_trend_sheet(df, filename_date):
         records = []
         try:
-            header_row_idx = -1; date_map = {} 
-            for r in range(min(20, len(df))): # Expanded search range
+            # Look for Header Row "NAME"
+            header_row_idx = -1
+            date_map = {} 
+            for r in range(min(20, len(df))):
                 row = df.iloc[r].values
-                for c in range(len(row)):
-                    val = row[c]
-                    # Check if val is ALREADY a datetime object
-                    if isinstance(val, (datetime, pd.Timestamp)):
-                         date_map[c] = val
-                         header_row_idx = r
-                    # Check string match
-                    else:
-                        s_val = str(val).strip()
-                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
-                             try:
-                                 dt = pd.to_datetime(s_val, format='%b-%y')
-                                 date_map[c] = dt
-                                 header_row_idx = r
-                             except: pass
-                if header_row_idx != -1 and len(date_map) > 2: break
+                first_cell = str(row[0]).strip().upper()
+                if "NAME" in first_cell:
+                    header_row_idx = r
+                    # Map columns
+                    for c in range(1, len(row)):
+                        val = row[c]
+                        if isinstance(val, (datetime, pd.Timestamp)):
+                             date_map[c] = val
+                        else:
+                             s_val = str(val).strip()
+                             # Match Jan-25
+                             if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
+                                 try:
+                                     dt = pd.to_datetime(s_val, format='%b-%y')
+                                     date_map[c] = dt
+                                 except: pass
+                    break
             
             if header_row_idx == -1: return pd.DataFrame()
 
+            # Iterate Data Rows
             for i in range(header_row_idx + 1, len(df)):
                 row = df.iloc[i].values
                 site_name = str(row[0]).strip()
+                if not site_name: continue
+
                 c_id = get_clinic_id_from_sheet(site_name)
                 
-                # Robust Mapping for POS Trend File
-                if not c_id:
-                    u_site = site_name.upper()
-                    if "SUMNER" in u_site: c_id = "Sumner"
-                    elif "LEBANON" in u_site: c_id = "LROC"
-                    elif "TULLAHOMA" in u_site: c_id = "TROC"
-                    elif "PROTON" in u_site: c_id = "TOPC"
-                    elif "CENTENNIAL" in u_site: c_id = "CENT"
-                    elif "DICKSON" in u_site: c_id = "Dickson"
-                    elif "MIDTOWN" in u_site: c_id = "Midtown"
-                    elif "MURFREESBORO" in u_site: c_id = "MURF"
-                    elif "WEST" in u_site: c_id = "STW"
-                    elif "SKYLINE" in u_site: c_id = "Skyline"
-                    elif "STONECREST" in u_site: c_id = "Stonecrest"
-                    elif "SUMMIT" in u_site: c_id = "Summit"
-                
-                if c_id:
+                if c_id and date_map:
                     for col_idx, dt in date_map.items():
                         if col_idx < len(row):
                             val = clean_number(row[col_idx])
@@ -861,7 +851,7 @@ if check_password():
                                     piv_p["Total"] = piv_p.sum(axis=1)
                                     st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
-                        # NEW: POS TREND FOR SINGLE CLINICS (LROC, TOPC, TROC, Sumner)
+                        # NEW: POS TREND FOR SINGLE CLINICS
                         if target_tag in ["LROC", "TOPC", "TROC", "Sumner"] and not df_pos_trend.empty:
                              pos_df = df_pos_trend[df_pos_trend['Clinic_Tag'] == target_tag]
                              if not pos_df.empty:
