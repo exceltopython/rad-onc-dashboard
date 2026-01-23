@@ -83,6 +83,22 @@ if check_password():
     IGNORED_SHEETS = ["RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
     SERVER_DIR = "Reports"
 
+    # *** EXACT ROW NAME MAPPING FOR POS TREND SHEETS ***
+    POS_ROW_MAPPING = {
+        "CENTENNIAL RAD": "CENT",
+        "DICKSON RAD": "Dickson",
+        "MIDTOWN RAD": "Midtown",
+        "MURFREESBORO RAD": "MURF",
+        "SAINT THOMAS WEST RAD": "STW",
+        "SKYLINE RAD": "Skyline",
+        "STONECREST RAD": "Stonecrest",
+        "SUMMIT RAD": "Summit",
+        "SUMNER RAD": "Sumner",
+        "LEBANON RAD": "LROC",
+        "TULLAHOMA RADIATION": "TROC",
+        "TO PROTON": "TOPC"
+    }
+
     class LocalFile:
         def __init__(self, path):
             self.path = path
@@ -356,7 +372,7 @@ if check_password():
         return pd.DataFrame(records)
 
     # --- NEW: PARSE POS NEW PATIENT TREND (Robust & Monthly) ---
-    def parse_pos_trend_sheet(df, filename_date):
+    def parse_pos_trend_sheet(df, filename, log):
         records = []
         try:
             # 1. FIND HEADER ROW WITH "NAME" (first cell)
@@ -365,10 +381,10 @@ if check_password():
             for r in range(min(20, len(df))):
                 row = df.iloc[r].values
                 first_cell = str(row[0]).strip().upper()
-                # Use fuzzy match for "NAME" header
                 if "NAME" in first_cell:
                     header_row_idx = r
-                    # Map columns (both datetime and string "Jan-25")
+                    log.append(f"  Found 'NAME' header at row {r} in {filename}")
+                    # Map columns
                     for c in range(1, len(row)):
                         val = row[c]
                         if isinstance(val, (datetime, pd.Timestamp)):
@@ -382,39 +398,48 @@ if check_password():
                                  except: pass
                     break
             
-            if header_row_idx == -1: return pd.DataFrame()
+            if header_row_idx == -1: 
+                log.append(f"  ❌ Could NOT find 'NAME' header in {filename}")
+                return pd.DataFrame()
 
-            # 2. ITERATE DATA ROWS (Fuzzy Name Matching)
+            log.append(f"  Date Columns Found: {[d.strftime('%b-%y') for d in date_map.values()]}")
+
+            # 2. ITERATE DATA ROWS (Exact Matching)
             for i in range(header_row_idx + 1, len(df)):
                 row = df.iloc[i].values
                 site_name = str(row[0]).strip().upper()
                 if not site_name: continue
 
-                # Fuzzy Map to Clinic IDs based on user's exact list
+                # Strict Mapping based on your provided list
                 c_id = None
-                if "CENTENNIAL" in site_name: c_id = "CENT"
-                elif "DICKSON" in site_name: c_id = "Dickson"
-                elif "MIDTOWN" in site_name: c_id = "Midtown"
-                elif "MURFREESBORO" in site_name: c_id = "MURF"
-                elif "SAINT THOMAS WEST" in site_name: c_id = "STW"
-                elif "SKYLINE" in site_name: c_id = "Skyline"
-                elif "STONECREST" in site_name: c_id = "Stonecrest"
-                elif "SUMMIT" in site_name: c_id = "Summit"
-                elif "SUMNER" in site_name: c_id = "Sumner"
-                elif "LEBANON" in site_name: c_id = "LROC"
-                elif "TULLAHOMA" in site_name: c_id = "TROC"
-                elif "TO PROTON" in site_name: c_id = "TOPC"
                 
-                if c_id and date_map:
-                    for col_idx, dt in date_map.items():
-                        if col_idx < len(row):
-                            val = clean_number(row[col_idx])
-                            if val is not None:
-                                records.append({
-                                    "Clinic_Tag": c_id, "Month_Clean": dt, "New Patients": val,
-                                    "Month_Label": dt.strftime('%b-%y'), "source_type": "pos_trend"
-                                })
-        except: pass
+                # Check EXACT mapping first
+                if site_name in POS_ROW_MAPPING:
+                    c_id = POS_ROW_MAPPING[site_name]
+                else:
+                    # Partial Fallback (just in case)
+                    for key, val in POS_ROW_MAPPING.items():
+                        if key in site_name: 
+                            c_id = val
+                            break
+                
+                if c_id:
+                    log.append(f"    Matched row '{site_name}' -> ID: {c_id}")
+                    if date_map:
+                        for col_idx, dt in date_map.items():
+                            if col_idx < len(row):
+                                val = clean_number(row[col_idx])
+                                if val is not None:
+                                    records.append({
+                                        "Clinic_Tag": c_id, "Month_Clean": dt, "New Patients": val,
+                                        "Month_Label": dt.strftime('%b-%y'), "source_type": "pos_trend"
+                                    })
+                else:
+                     log.append(f"    IGNORED row '{site_name}' (No ID Match)")
+
+        except Exception as e: 
+            log.append(f"  ❌ Error parsing {filename}: {str(e)}")
+            
         return pd.DataFrame(records)
 
     def get_clinic_id_from_sheet(sheet_name):
@@ -484,9 +509,11 @@ if check_password():
             if "NEW PATIENTS" in filename or "NEW PT" in filename:
                 file_date = get_date_from_filename(filename)
                 
+                # Check for POS TREND SHEET
                 for sheet_name, df in xls.items():
                     if "POS" in sheet_name.upper() and "TREND" in sheet_name.upper():
-                        res = parse_pos_trend_sheet(df, file_date)
+                        debug_log.append(f"🔍 Found POS Trend Sheet in {filename}")
+                        res = parse_pos_trend_sheet(df, filename, debug_log)
                         if not res.empty: pos_trend_data.append(res)
                 
                 visit_tag = "General"
@@ -598,7 +625,7 @@ if check_password():
             df_provider_global['RVU per FTE'] = df_provider_global.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
             df_provider_global.sort_values('Month_Clean', inplace=True)
 
-        return df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial, df_pos_trend
+        return df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial, df_pos_trend, debug_log
 
     # --- UI ---
     st.set_page_config(page_title="RadOnc Analytics", layout="wide", page_icon="🩺")
@@ -619,12 +646,20 @@ if check_password():
         else:
             st.info("ℹ️ No master files found on server.")
         uploaded_files = st.file_uploader("Add Temporary Files", type=['xlsx', 'xls'], accept_multiple_files=True)
+        
+        # DEBUG EXPANDER
+        with st.expander("🐞 Debug: New Patient Data"):
+            if 'debug_log' in locals():
+                for line in debug_log:
+                    st.write(line)
+            else:
+                st.write("No debug logs yet.")
     
     all_files = server_files + (uploaded_files if uploaded_files else [])
 
     if all_files:
         with st.spinner("Analyzing files..."):
-            df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend = process_files(all_files)
+            df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend, debug_log = process_files(all_files)
 
         if df_clinic.empty and df_md_global.empty and df_visits.empty and df_financial.empty and df_pos_trend.empty:
             st.error("No valid data found.")
@@ -715,8 +750,8 @@ if check_password():
                                             current_year = max_date.year
                                             ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
                                             if ytd_curr > 0:
-                                                new_r = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
-                                                hist_trend = pd.concat([hist_trend, new_r], ignore_index=True)
+                                                new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
+                                                hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
                                         fig_long = px.bar(hist_trend, x='Year', y='Total RVUs', text_auto='.2s')
                                         fig_long.update_layout(font=dict(color="black"), font_color="black")
                                         st.plotly_chart(fig_long, use_container_width=True)
