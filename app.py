@@ -13,36 +13,12 @@ APP_PASSWORD = "RadOnc2026"
 # --- 1. HISTORICAL DATA ENTRY (2019-2024) ---
 # ==========================================
 HISTORICAL_DATA = {
-    2019: {
-        "CENT": 18430, "Dickson": 11420, "Skyline": 13910, "Summit": 14690, "Stonecrest": 8600,
-        "STW": 22030, "Midtown": 14730, "MURF": 38810, "Sumner": 14910, "TOPC": 15690,
-        "LROC": 0, "TROC": 0
-    },
-    2020: {
-        "CENT": 19160, "Dickson": 12940, "Skyline": 13180, "Summit": 11540, "Stonecrest": 7470,
-        "STW": 17070, "Midtown": 14560, "MURF": 37890, "Sumner": 14760, "TOPC": 22010,
-        "LROC": 0, "TROC": 0
-    },
-    2021: {
-        "CENT": 14480, "Dickson": 10980, "Skyline": 11450, "Summit": 11700, "Stonecrest": 8610,
-        "STW": 17970, "Midtown": 17890, "MURF": 37440, "Sumner": 17670, "TOPC": 28540,
-        "LROC": 0, "TROC": 0
-    },
-    2022: {
-        "CENT": 15860, "Dickson": 13960, "Skyline": 14520, "Summit": 12390, "Stonecrest": 10580,
-        "STW": 27650, "Midtown": 19020, "MURF": 37870, "Sumner": 20570, "TOPC": 28830,
-        "LROC": 0, "TROC": 0
-    },
-    2023: {
-        "CENT": 19718, "Dickson": 11600, "Skyline": 17804, "Summit": 14151, "Stonecrest": 11647,
-        "STW": 23717, "Midtown": 21017, "MURF": 42201, "Sumner": 22622, "TOPC": 27667,
-        "LROC": 0, "TROC": 0
-    },
-    2024: {
-        "CENT": 22385, "Dickson": 12155, "Skyline": 15363, "Summit": 12892, "Stonecrest": 12524,
-        "STW": 25409, "Midtown": 21033, "MURF": 45648, "Sumner": 23803, "TOPC": 33892,
-        "LROC": 0, "TROC": 0
-    }
+    2019: {"CENT": 18430, "Dickson": 11420, "Skyline": 13910, "Summit": 14690, "Stonecrest": 8600, "STW": 22030, "Midtown": 14730, "MURF": 38810, "Sumner": 14910, "TOPC": 15690, "LROC": 0, "TROC": 0},
+    2020: {"CENT": 19160, "Dickson": 12940, "Skyline": 13180, "Summit": 11540, "Stonecrest": 7470, "STW": 17070, "Midtown": 14560, "MURF": 37890, "Sumner": 14760, "TOPC": 22010, "LROC": 0, "TROC": 0},
+    2021: {"CENT": 14480, "Dickson": 10980, "Skyline": 11450, "Summit": 11700, "Stonecrest": 8610, "STW": 17970, "Midtown": 17890, "MURF": 37440, "Sumner": 17670, "TOPC": 28540, "LROC": 0, "TROC": 0},
+    2022: {"CENT": 15860, "Dickson": 13960, "Skyline": 14520, "Summit": 12390, "Stonecrest": 10580, "STW": 27650, "Midtown": 19020, "MURF": 37870, "Sumner": 20570, "TOPC": 28830, "LROC": 0, "TROC": 0},
+    2023: {"CENT": 19718, "Dickson": 11600, "Skyline": 17804, "Summit": 14151, "Stonecrest": 11647, "STW": 23717, "Midtown": 21017, "MURF": 42201, "Sumner": 22622, "TOPC": 27667, "LROC": 0, "TROC": 0},
+    2024: {"CENT": 22385, "Dickson": 12155, "Skyline": 15363, "Summit": 12892, "Stonecrest": 12524, "STW": 25409, "Midtown": 21033, "MURF": 45648, "Sumner": 23803, "TOPC": 33892, "LROC": 0, "TROC": 0}
 }
 
 def check_password():
@@ -72,44 +48,15 @@ def inject_custom_css():
         header {visibility: hidden;}
         [data-testid="stToolbar"] {visibility: hidden;}
 
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 24px; 
-            background-color: transparent;
-            padding-bottom: 15px;
-            border-bottom: 1px solid #ddd;
-        }
-        .stTabs [data-baseweb="tab-list"] button {
-            background-color: #FFFFFF;
-            border: 1px solid #D1D5DB;
-            border-radius: 6px;
-            color: #4B5563; 
-            padding: 14px 30px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        }
-        .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
-            font-size: 20px !important; 
-            font-weight: 700 !important;
-            margin: 0px;
-        }
-        .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
-            background-color: #1E3A8A !important; 
-            color: #FFFFFF !important;
-            border-color: #1E3A8A;
-        }
-        .stTabs [data-baseweb="tab-highlight"] {
-            background-color: transparent !important;
-        }
+        .stTabs [data-baseweb="tab-list"] { gap: 24px; background-color: transparent; padding-bottom: 15px; border-bottom: 1px solid #ddd; }
+        .stTabs [data-baseweb="tab-list"] button { background-color: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 6px; color: #4B5563; padding: 14px 30px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p { font-size: 20px !important; font-weight: 700 !important; margin: 0px; }
+        .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] { background-color: #1E3A8A !important; color: #FFFFFF !important; border-color: #1E3A8A; }
+        .stTabs [data-baseweb="tab-highlight"] { background-color: transparent !important; }
         
         /* FORCE TABLE HEADERS TO BE BLACK AND BOLD */
-        div[data-testid="stDataFrame"] div[role="columnheader"] {
-            color: #000000 !important;
-            font-weight: 900 !important;
-            font-size: 14px !important;
-        }
-        [data-testid="stDataFrame"] th {
-            color: #000000 !important;
-            font-weight: 900 !important;
-        }
+        div[data-testid="stDataFrame"] div[role="columnheader"] { color: #000000 !important; font-weight: 900 !important; font-size: 14px !important; }
+        [data-testid="stDataFrame"] th { color: #000000 !important; font-weight: 900 !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -118,36 +65,20 @@ if check_password():
     
     # --- CONFIGURATION ---
     CLINIC_CONFIG = {
-        "CENT": {"name": "Centennial", "fte": 2.0},
-        "Dickson": {"name": "Horizon", "fte": 1.0},
-        "LROC": {"name": "LROC (Lebanon)", "fte": 1.0},
-        "Skyline": {"name": "Skyline", "fte": 1.0},
-        "Midtown": {"name": "ST Midtown", "fte": 1.6},
-        "MURF": {"name": "ST Rutherford", "fte": 3.0},
-        "STW": {"name": "ST West", "fte": 2.0},
-        "Stonecrest": {"name": "StoneCrest", "fte": 1.0},
-        "Summit": {"name": "Summit", "fte": 1.0},
-        "Sumner": {"name": "Sumner", "fte": 1.5},
-        "TROC": {"name": "TROC (Tullahoma)", "fte": 0.6},
-        "TOPC": {"name": "TN Proton Center", "fte": 0.0}
+        "CENT": {"name": "Centennial", "fte": 2.0}, "Dickson": {"name": "Horizon", "fte": 1.0}, "LROC": {"name": "LROC (Lebanon)", "fte": 1.0},
+        "Skyline": {"name": "Skyline", "fte": 1.0}, "Midtown": {"name": "ST Midtown", "fte": 1.6}, "MURF": {"name": "ST Rutherford", "fte": 3.0},
+        "STW": {"name": "ST West", "fte": 2.0}, "Stonecrest": {"name": "StoneCrest", "fte": 1.0}, "Summit": {"name": "Summit", "fte": 1.0},
+        "Sumner": {"name": "Sumner", "fte": 1.5}, "TROC": {"name": "TROC (Tullahoma)", "fte": 0.6}, "TOPC": {"name": "TN Proton Center", "fte": 0.0}
     }
-
     TRISTAR_IDS = ["CENT", "Skyline", "Dickson", "Summit", "Stonecrest"]
     ASCENSION_IDS = ["STW", "Midtown", "MURF"]
-
     PROVIDER_CONFIG = {
-        "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
-        "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedman": 1.0, 
-        "Gray": 1.0, "Jones": 1.0, "Lee": 1.0, "Lewis": 1.0,
-        "Lipscomb": 0.6, "Lydon": 1.0, "Mayo": 1.0, "Mondschein": 1.0,
-        "Nguyen": 1.0, "Osborne": 1.0, "Phillips": 1.0, "Sidrys": 1.0,
-        "Sittig": 1.0, "Strickler": 1.0, "Wakefield": 1.0, "Wendt": 1.0, "Whitaker": 1.0
+        "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0, "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedman": 1.0, 
+        "Gray": 1.0, "Jones": 1.0, "Lee": 1.0, "Lewis": 1.0, "Lipscomb": 0.6, "Lydon": 1.0, "Mayo": 1.0, "Mondschein": 1.0,
+        "Nguyen": 1.0, "Osborne": 1.0, "Phillips": 1.0, "Sidrys": 1.0, "Sittig": 1.0, "Strickler": 1.0, "Wakefield": 1.0, "Wendt": 1.0, "Whitaker": 1.0
     }
-    
     PROVIDER_KEYS_UPPER = {k.upper(): k for k in PROVIDER_CONFIG.keys()}
-
     APP_LIST = ["Burke", "Ellis", "Lewis", "Lydon"]
-    
     TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
     IGNORED_SHEETS = ["RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
     SERVER_DIR = "Reports"
@@ -159,24 +90,20 @@ if check_password():
         
     def find_date_row(df):
         months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
-        best_row = 1 
-        max_score = 0
+        best_row = 1; max_score = 0
         for r in range(min(10, len(df))):
             row_vals = df.iloc[r, 4:16]
             str_vals = [str(v).upper() for v in row_vals if pd.notna(v)]
             text_matches = sum(1 for v in str_vals if any(m in v for m in months))
             dt_matches = sum(1 for v in row_vals if isinstance(v, (datetime, pd.Timestamp)))
             total_score = text_matches + (dt_matches * 2) 
-            if total_score > max_score:
-                max_score = total_score
-                best_row = r
+            if total_score > max_score: max_score = total_score; best_row = r
         return best_row
 
     def get_date_from_filename(filename):
         match = re.search(r'(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s*(\d{2,4})', filename, re.IGNORECASE)
         if match:
-            month_str = match.group(1)
-            year_str = match.group(2)
+            month_str = match.group(1); year_str = match.group(2)
             if len(year_str) == 2: year_str = "20" + year_str
             return pd.to_datetime(f"{month_str} {year_str}")
         return datetime.now()
@@ -189,8 +116,7 @@ if check_password():
             val_str = val_str.replace(',', '').replace('%', '').replace('$', '')
             if val_str == "" or val_str == "-": return None
             return float(val_str)
-        except:
-            return None
+        except: return None
 
     def match_provider(name_str):
         try:
@@ -202,11 +128,9 @@ if check_password():
             parts = base.split()
             if not parts: return None
             last_name = parts[0].strip().upper() 
-            if last_name in PROVIDER_KEYS_UPPER:
-                return PROVIDER_KEYS_UPPER[last_name]
+            if last_name in PROVIDER_KEYS_UPPER: return PROVIDER_KEYS_UPPER[last_name]
             return None
-        except:
-            return None
+        except: return None
 
     def clean_provider_name_display(name_str):
         match = match_provider(name_str)
@@ -219,13 +143,7 @@ if check_password():
         for year, data in HISTORICAL_DATA.items():
             for clinic_id, rvu in data.items():
                 if clinic_id in CLINIC_CONFIG:
-                    records.append({
-                        "ID": clinic_id,
-                        "Name": CLINIC_CONFIG[clinic_id]["name"],
-                        "Year": year,
-                        "Total RVUs": rvu,
-                        "Source": "Historical"
-                    })
+                    records.append({"ID": clinic_id, "Name": CLINIC_CONFIG[clinic_id]["name"], "Year": year, "Total RVUs": rvu, "Source": "Historical"})
         return pd.DataFrame(records)
 
     def generate_narrative(df, entity_type="Provider", metric_col="Total RVUs", unit="wRVUs"):
@@ -237,19 +155,14 @@ if check_password():
         
         if metric_col == "Total RVUs":
             top_perf = latest_df.loc[latest_df['RVU per FTE'].idxmax()]
-            top_val = top_perf['RVU per FTE']
-            top_metric = "wRVUs/FTE"
+            top_val = top_perf['RVU per FTE']; top_metric = "wRVUs/FTE"
         else:
             top_perf = latest_df.loc[latest_df[metric_col].idxmax()]
-            top_val = top_perf[metric_col]
-            top_metric = unit
+            top_val = top_perf[metric_col]; top_metric = unit
 
-        narrative = f"""
-        **🤖 Automated Analysis ({latest_date.strftime('%B %Y')}):**
+        return f"""**🤖 Automated Analysis ({latest_date.strftime('%B %Y')}):**
         The {entity_type} group generated a total of **{total_vol:,.0f} {unit}** this month. 
-        * **🏆 Top Performer:** **{clean_provider_name_display(top_perf['Name'])}** led with **{top_val:,.0f} {top_metric}**.
-        """
-        return narrative
+        * **🏆 Top Performer:** **{clean_provider_name_display(top_perf['Name'])}** led with **{top_val:,.0f} {top_metric}**."""
 
     # --- PARSERS ---
 
@@ -262,7 +175,6 @@ if check_password():
         
         date_map = {} 
         header_row_found = False
-        
         for r in range(min(15, len(df))):
             row = df.iloc[r].values
             for c in range(len(row)):
@@ -317,25 +229,18 @@ if check_password():
                                             "Month_Label": filename_date.strftime('%b-%y'), "source_type": "detail",
                                             "Month_Clean": filename_date
                                         })
-
         return pd.DataFrame(records)
 
     def parse_rvu_sheet(df, sheet_name, entity_type, clinic_tag="General", forced_fte=None):
         if entity_type == 'clinic':
             config = CLINIC_CONFIG.get(sheet_name, {"name": sheet_name, "fte": 1.0})
-            name = config['name']
-            fte = config['fte']
+            name = config['name']; fte = config['fte']
         else:
-            name = sheet_name 
-            fte = forced_fte if forced_fte else PROVIDER_CONFIG.get(sheet_name, 1.0)
+            name = sheet_name; fte = forced_fte if forced_fte else PROVIDER_CONFIG.get(sheet_name, 1.0)
         
         df.iloc[:, 0] = df.iloc[:, 0].astype(str).str.strip().str.upper()
-        mask = df.iloc[:, 0].isin(TARGET_CATEGORIES)
-        filtered_df = df[mask]
-        data_rows = filtered_df.copy()
-        
-        records = []
-        header_row_idx = find_date_row(df)
+        mask = df.iloc[:, 0].isin(TARGET_CATEGORIES); filtered_df = df[mask]; data_rows = filtered_df.copy()
+        records = []; header_row_idx = find_date_row(df)
         
         if len(df.columns) > 4:
             for col in df.columns[4:]:
@@ -343,22 +248,14 @@ if check_password():
                 if pd.isna(header_val): continue
                 col_sum = pd.to_numeric(data_rows[col], errors='coerce').sum()
                 records.append({
-                    "Type": entity_type,
-                    "ID": sheet_name,
-                    "Name": name,
-                    "FTE": fte,
-                    "Month": header_val,
-                    "Total RVUs": col_sum,
-                    "RVU per FTE": col_sum / fte if fte > 0 else 0,
-                    "Clinic_Tag": clinic_tag,
-                    "source_type": "standard"
+                    "Type": entity_type, "ID": sheet_name, "Name": name, "FTE": fte,
+                    "Month": header_val, "Total RVUs": col_sum, "RVU per FTE": col_sum / fte if fte > 0 else 0,
+                    "Clinic_Tag": clinic_tag, "source_type": "standard"
                 })
         return pd.DataFrame(records)
 
     def parse_visits_sheet(df, filename_date, clinic_tag="General"):
         records = []
-        local_logs = []
-        
         try:
             data_start_row = 4
             for i in range(data_start_row, len(df)):
@@ -377,8 +274,7 @@ if check_password():
                 numbers = []
                 for val in row:
                     num = clean_number(val)
-                    if num is not None:
-                        numbers.append(num)
+                    if num is not None: numbers.append(num)
                 
                 visits = 0; visits_diff = 0; new_patients = 0; np_diff = 0
                 if len(numbers) >= 6:
@@ -401,7 +297,6 @@ if check_password():
         except: return pd.DataFrame()
         return pd.DataFrame(records), []
 
-    # --- FINANCIAL PARSERS ---
     def parse_financial_sheet(df, filename_date, tag, mode="Provider"):
         records = []
         try:
@@ -464,15 +359,11 @@ if check_password():
     def parse_pos_trend_sheet(df, filename_date):
         records = []
         try:
-            # 1. Find Header Row (Look for "Jan-25" type columns)
-            header_row_idx = -1
-            date_map = {} # {col_idx: timestamp}
-            
+            header_row_idx = -1; date_map = {} 
             for r in range(min(10, len(df))):
                 row = df.iloc[r].values
                 for c in range(len(row)):
                     val = str(row[c]).strip()
-                    # Pattern Match: Jan-25, Feb-25...
                     if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', val, re.IGNORECASE):
                          try:
                              dt = pd.to_datetime(val, format='%b-%y')
@@ -483,18 +374,18 @@ if check_password():
             
             if header_row_idx == -1: return pd.DataFrame()
 
-            # 2. Iterate Rows
             for i in range(header_row_idx + 1, len(df)):
                 row = df.iloc[i].values
                 site_name = str(row[0]).strip()
-                
-                # Match Site to ID
                 c_id = get_clinic_id_from_sheet(site_name)
-                # Special case for "Sumner Rad" -> "Sumner" (the helper handles "Sumner Prov", lets make sure)
-                if not c_id and "SUMNER" in site_name.upper(): c_id = "Sumner"
-                if not c_id and "LEBANON" in site_name.upper(): c_id = "LROC"
-                if not c_id and "TULLAHOMA" in site_name.upper(): c_id = "TROC"
-                if not c_id and "PROTON" in site_name.upper(): c_id = "TOPC"
+                
+                # Robust Mapping for POS Trend File
+                if not c_id:
+                    u_site = site_name.upper()
+                    if "SUMNER" in u_site: c_id = "Sumner"
+                    elif "LEBANON" in u_site: c_id = "LROC"
+                    elif "TULLAHOMA" in u_site: c_id = "TROC"
+                    elif "PROTON" in u_site: c_id = "TOPC"
                 
                 if c_id:
                     for col_idx, dt in date_map.items():
@@ -502,25 +393,22 @@ if check_password():
                             val = clean_number(row[col_idx])
                             if val is not None:
                                 records.append({
-                                    "Clinic_Tag": c_id,
-                                    "Month_Clean": dt,
-                                    "New Patients": val,
-                                    "Month_Label": dt.strftime('%b-%y'),
-                                    "source_type": "pos_trend"
+                                    "Clinic_Tag": c_id, "Month_Clean": dt, "New Patients": val,
+                                    "Month_Label": dt.strftime('%b-%y'), "source_type": "pos_trend"
                                 })
         except: pass
         return pd.DataFrame(records)
 
     def get_clinic_id_from_sheet(sheet_name):
-        s_clean = sheet_name.lower().replace(" prov", "").strip()
+        s_clean = sheet_name.lower().replace(" prov", "").replace(" rad", "").strip()
         for cid, cfg in CLINIC_CONFIG.items():
             if s_clean in cfg['name'].lower(): return cid
             if s_clean == cid.lower(): return cid
-        if "horizon" in s_clean: return "Dickson"
+        if "horizon" in s_clean or "dickson" in s_clean: return "Dickson"
         if "centennial" in s_clean: return "CENT"
         if "midtown" in s_clean: return "Midtown"
-        if "rutherford" in s_clean: return "MURF"
-        if "west" in s_clean: return "STW"
+        if "rutherford" in s_clean or "murfreesboro" in s_clean: return "MURF"
+        if "west" in s_clean or "saint thomas" in s_clean: return "STW"
         return None
 
     def process_files(file_objects):
@@ -538,7 +426,6 @@ if check_password():
             elif "TROC" in filename: file_tag = "TROC"
             elif "PROTON" in filename or "TOPC" in filename: file_tag = "TOPC"
 
-            # --- FINANCIALS HANDLING ---
             if "CPA" in filename:
                 file_date = get_date_from_filename(filename)
                 for sheet_name, df in xls.items():
@@ -559,7 +446,6 @@ if check_password():
                                      "Quarter": f"Q{file_date.quarter} {file_date.year}"
                                  }]))
                         except: pass
-
                     elif "LROC" in filename and "PROVIDER" in filename:
                          res = parse_financial_sheet(df, file_date, "LROC", mode="Provider")
                          if not res.empty: financial_data.append(res)
@@ -577,7 +463,6 @@ if check_password():
             if "NEW PATIENTS" in filename or "NEW PT" in filename:
                 file_date = get_date_from_filename(filename)
                 
-                # Check for POS TREND SHEET
                 for sheet_name, df in xls.items():
                     if "POS" in sheet_name.upper() and "TREND" in sheet_name.upper():
                         res = parse_pos_trend_sheet(df, file_date)
@@ -594,7 +479,6 @@ if check_password():
                         if not res.empty: visit_data.append(res)
                 continue 
 
-            # --- PROCESS SHEETS ---
             for sheet_name, df in xls.items():
                 s_lower = sheet_name.strip().lower()
                 
@@ -895,7 +779,6 @@ if check_password():
                                         pos_piv = pos_piv.reindex(columns=sorted_m)
                                         pos_piv["Total"] = pos_piv.sum(axis=1)
                                         st.dataframe(pos_piv.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-
                                 st.markdown("---")
 
                         if target_tag and not df_provider_raw.empty:
@@ -960,23 +843,23 @@ if check_password():
                                     piv_p["Total"] = piv_p.sum(axis=1)
                                     st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
-                        # NEW: POS TREND FOR SINGLE CLINICS
+                        # NEW: POS TREND FOR SINGLE CLINICS (LROC, TOPC, TROC, Sumner)
                         if target_tag in ["LROC", "TOPC", "TROC", "Sumner"] and not df_pos_trend.empty:
-                            pos_df = df_pos_trend[df_pos_trend['Clinic_Tag'] == target_tag]
-                            if not pos_df.empty:
-                                with st.container(border=True):
-                                    st.markdown("#### 🆕 New Patient Trend (Monthly)")
-                                    pos_agg = pos_df.groupby('Month_Clean')[['New Patients']].sum().reset_index().sort_values('Month_Clean')
-                                    fig_pos = px.bar(pos_agg, x='Month_Clean', y='New Patients', text_auto=True)
-                                    fig_pos.update_layout(font=dict(color="black"), font_color="black")
-                                    st.plotly_chart(fig_pos, use_container_width=True)
-                                    
-                                    pos_piv = pos_df.pivot_table(index="Clinic_Tag", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
-                                    sorted_m = pos_df.sort_values("Month_Clean")["Month_Label"].unique()
-                                    pos_piv = pos_piv.reindex(columns=sorted_m)
-                                    pos_piv["Total"] = pos_piv.sum(axis=1)
-                                    st.dataframe(pos_piv.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-
+                             pos_df = df_pos_trend[df_pos_trend['Clinic_Tag'] == target_tag]
+                             if not pos_df.empty:
+                                 with st.container(border=True):
+                                     st.markdown("#### 🆕 New Patient Trend (Monthly)")
+                                     pos_agg = pos_df.groupby('Month_Clean')[['New Patients']].sum().reset_index().sort_values('Month_Clean')
+                                     fig_pos = px.bar(pos_agg, x='Month_Clean', y='New Patients', text_auto=True)
+                                     fig_pos.update_layout(font=dict(color="black"), font_color="black")
+                                     st.plotly_chart(fig_pos, use_container_width=True)
+                                     
+                                     pos_piv = pos_df.pivot_table(index="Clinic_Tag", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
+                                     sorted_m = pos_df.sort_values("Month_Clean")["Month_Label"].unique()
+                                     pos_piv = pos_piv.reindex(columns=sorted_m)
+                                     pos_piv["Total"] = pos_piv.sum(axis=1)
+                                     st.dataframe(pos_piv.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                        
                         if target_tag in ["LROC", "TROC", "TOPC"] and not df_visits.empty:
                             clinic_visits = df_visits[df_visits['Clinic_Tag'] == target_tag]
                             if not clinic_visits.empty:
@@ -1000,7 +883,6 @@ if check_password():
                                     st.plotly_chart(fig_diff_np, use_container_width=True)
 
             with tab_md:
-                # ... (Existing MD Tab Code) ...
                 col_nav_md, col_main_md = st.columns([1, 5])
                 with col_nav_md:
                     st.markdown("### 📊 Metric")
