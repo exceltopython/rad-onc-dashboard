@@ -6,20 +6,20 @@ from datetime import datetime
 import os
 import re
 
-# --- 1. CONFIGURATION & STYLING (MOVED TO TOP) ---
+# --- 1. CONFIGURATION & STYLING ---
 st.set_page_config(page_title="RadOnc Analytics", layout="wide", page_icon="🩺")
 
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* HIDE STREAMLIT MENU, FOOTER, TOOLBAR, AND DEPLOY BUTTONS */
+        /* HIDE STREAMLIT MENU, FOOTER, TOOLBAR */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
         [data-testid="stToolbar"] {visibility: hidden;}
         [data-testid="stHeader"] {visibility: hidden;}
         .stDeployButton {display: none;}
-        
+
         .stTabs [data-baseweb="tab-list"] { gap: 24px; background-color: transparent; padding-bottom: 15px; border-bottom: 1px solid #ddd; }
         .stTabs [data-baseweb="tab-list"] button { background-color: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 6px; color: #4B5563; padding: 14px 30px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
         .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p { font-size: 20px !important; font-weight: 700 !important; margin: 0px; }
@@ -371,60 +371,65 @@ if check_password():
     def parse_pos_trend_sheet(df, filename, log):
         records = []
         try:
-            # 1. FIND HEADER ROW & NAME COLUMN
+            # 1. FIND HEADER ROW based on Date Columns
             header_row_idx = -1
-            name_col_idx = -1
             date_map = {} 
             
-            # Scan first 20 rows and ALL columns to find "NAME"
-            for r in range(min(20, len(df))):
+            # Scan first 30 rows
+            for r in range(min(30, len(df))):
                 row = df.iloc[r].values
+                temp_date_map = {}
+                
                 for c in range(len(row)):
-                    val_str = str(row[c]).strip().upper()
-                    if "NAME" == val_str:
-                        header_row_idx = r
-                        name_col_idx = c
-                        log.append(f"  ✅ Found 'NAME' in Row {r}, Column {c}")
-                        
-                        # Once "NAME" is found, scan the REST of that row for dates
-                        for c2 in range(c + 1, len(row)):
-                            val = row[c2]
-                            if isinstance(val, (datetime, pd.Timestamp)):
-                                date_map[c2] = val
-                            else:
-                                s_val = str(val).strip()
-                                if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
-                                    try:
-                                        dt = pd.to_datetime(s_val, format='%b-%y')
-                                        date_map[c2] = dt
-                                    except: pass
-                        break
-                if header_row_idx != -1: break
+                    val = row[c]
+                    if isinstance(val, (datetime, pd.Timestamp)):
+                         temp_date_map[c] = val
+                    else:
+                         s_val = str(val).strip()
+                         if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
+                             try:
+                                 dt = pd.to_datetime(s_val, format='%b-%y')
+                                 temp_date_map[c] = dt
+                             except: pass
+                
+                # If we found at least 2 date columns in this row, assume it's the header
+                if len(temp_date_map) >= 2:
+                    header_row_idx = r
+                    date_map = temp_date_map
+                    log.append(f"  ✅ Found header at Row {r} (Dates detected: {len(date_map)})")
+                    break
             
             if header_row_idx == -1: 
-                log.append(f"  ❌ Could NOT find 'NAME' header in {filename}")
+                log.append(f"  ❌ Could NOT find date headers in {filename}")
                 return pd.DataFrame()
 
-            # 2. ITERATE DATA ROWS (Using Dynamic Name Column)
+            # 2. ITERATE DATA ROWS (Check first 3 columns for Name)
             for i in range(header_row_idx + 1, len(df)):
                 row = df.iloc[i].values
-                if name_col_idx >= len(row): continue
                 
-                site_name = str(row[name_col_idx]).strip().upper()
-                if not site_name: continue
-
-                # Strict Mapping
+                # Check first 3 columns for a valid site name
                 c_id = None
-                if site_name in POS_ROW_MAPPING:
-                    c_id = POS_ROW_MAPPING[site_name]
-                else:
-                    for key, val in POS_ROW_MAPPING.items():
-                        if key in site_name:
-                            c_id = val
-                            break
+                site_name_found = ""
                 
-                if c_id and date_map:
-                    log.append(f"    Matched '{site_name}' -> {c_id}")
+                for col_idx in range(3): # Check columns 0, 1, 2
+                    if col_idx >= len(row): break
+                    val = str(row[col_idx]).strip().upper()
+                    
+                    if val and val != "NAN":
+                        if val in POS_ROW_MAPPING:
+                            c_id = POS_ROW_MAPPING[val]
+                            site_name_found = val
+                            break
+                        # Partial Fallback
+                        for key, mapped_id in POS_ROW_MAPPING.items():
+                            if key in val:
+                                c_id = mapped_id
+                                site_name_found = val
+                                break
+                    if c_id: break
+                
+                if c_id:
+                    log.append(f"    Matched row '{site_name_found}' -> ID: {c_id}")
                     for col_idx, dt in date_map.items():
                         if col_idx < len(row):
                             val = clean_number(row[col_idx])
@@ -434,7 +439,7 @@ if check_password():
                                     "Month_Label": dt.strftime('%b-%y'), "source_type": "pos_trend"
                                 })
                 else:
-                     # log.append(f"    IGNORED '{site_name}'")
+                     # log.append(f"    IGNORED row (No Match)")
                      pass
 
         except Exception as e: 
@@ -515,8 +520,10 @@ if check_password():
                         res = parse_pos_trend_sheet(df, filename, debug_log)
                         if not res.empty: 
                             pos_trend_data.append(res)
-                            debug_log.append(f"  ✅ Extracted {len(res)} records")
-                
+                            debug_log.append(f"  ✅ Extracted {len(res)} records from {sheet_name}")
+                        else:
+                            debug_log.append(f"  ⚠️ No records extracted from {sheet_name}")
+
                 visit_tag = "General"
                 if "LROC" in filename: visit_tag = "LROC"
                 elif "TROC" in filename: visit_tag = "TROC"
@@ -593,7 +600,13 @@ if check_password():
         df_provider_raw = pd.concat(provider_data, ignore_index=True) if provider_data else pd.DataFrame()
         df_visits = pd.concat(visit_data, ignore_index=True) if visit_data else pd.DataFrame()
         df_financial = pd.concat(financial_data, ignore_index=True) if financial_data else pd.DataFrame()
-        df_pos_trend = pd.concat(pos_trend_data, ignore_index=True) if pos_trend_data else pd.DataFrame()
+        
+        # FIX: Ensure df_pos_trend is initialized properly
+        if pos_trend_data:
+            df_pos_trend = pd.concat(pos_trend_data, ignore_index=True)
+        else:
+            # Create empty DF with expected columns to prevent KeyError
+            df_pos_trend = pd.DataFrame(columns=['Clinic_Tag', 'Month_Clean', 'New Patients', 'Month_Label', 'source_type'])
 
         # GLOBAL DATE FIXES
         if not df_provider_raw.empty:
@@ -646,8 +659,6 @@ if check_password():
         else:
             st.info("ℹ️ No master files found on server.")
         uploaded_files = st.file_uploader("Add Temporary Files", type=['xlsx', 'xls'], accept_multiple_files=True)
-        
-        # DEBUG EXPANDER
     
     all_files = server_files + (uploaded_files if uploaded_files else [])
 
@@ -710,7 +721,11 @@ if check_password():
                                     fig_trend = px.line(agg_trend, x='Month_Clean', y='Total RVUs', markers=True, title="Aggregate Trend")
                                 else:
                                     fig_trend = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
-                                fig_trend.update_layout(font=dict(color="black"), font_color="black")
+                                fig_trend.update_layout(
+                                    font=dict(color="black"), font_color="black",
+                                    xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
+                                    yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
+                                )
                                 fig_trend.update_yaxes(rangemode="tozero")
                                 st.plotly_chart(fig_trend, use_container_width=True)
 
@@ -725,14 +740,22 @@ if check_password():
                                         pct_change = ((last_q['Total RVUs'] - prior_q['Total RVUs']) / prior_q['Total RVUs']) * 100
                                         st.metric(label=f"Change: {prior_q['Quarter']} → {last_q['Quarter']}", value=f"{last_q['Total RVUs']:,.0f}", delta=f"{pct_change:+.1f}%")
                                     fig_q_bar = px.bar(q_agg, x='Quarter', y='Total RVUs', text_auto='.2s')
-                                    fig_q_bar.update_layout(font=dict(color="black"), font_color="black")
+                                    fig_q_bar.update_layout(
+                                        font=dict(color="black"), font_color="black",
+                                        xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
+                                        yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
+                                    )
                                     st.plotly_chart(fig_q_bar, use_container_width=True)
 
                             if clinic_filter in ["TriStar", "Ascension", "All"]:
                                 with st.container(border=True):
                                     st.markdown(f"#### 📈 {view_title}: Individual Clinic Trends")
                                     fig_ind = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
-                                    fig_ind.update_layout(font=dict(color="black"), font_color="black")
+                                    fig_ind.update_layout(
+                                        font=dict(color="black"), font_color="black",
+                                        xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
+                                        yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
+                                    )
                                     st.plotly_chart(fig_ind, use_container_width=True)
 
                             if clinic_filter in ["TriStar", "Ascension", "All", "LROC", "TOPC", "TROC", "Sumner"]:
@@ -754,7 +777,11 @@ if check_password():
                                                 new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
                                                 hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
                                         fig_long = px.bar(hist_trend, x='Year', y='Total RVUs', text_auto='.2s')
-                                        fig_long.update_layout(font=dict(color="black"), font_color="black")
+                                        fig_long.update_layout(
+                                            font=dict(color="black"), font_color="black",
+                                            xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
+                                            yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
+                                        )
                                         st.plotly_chart(fig_long, use_container_width=True)
                                         
                                         if clinic_filter in ["TriStar", "Ascension"]:
@@ -774,7 +801,11 @@ if check_password():
                                                         c_hist_grp = pd.concat([c_hist_grp, new_r], ignore_index=True)
                                                 if not c_hist_grp.empty:
                                                     fig_c = px.bar(c_hist_grp, x='Year', y='Total RVUs', text_auto='.2s', title=c_name)
-                                                    fig_c.update_layout(height=350, font=dict(color="black"), font_color="black")
+                                                    fig_c.update_layout(
+                                                        height=350, font=dict(color="black"), font_color="black",
+                                                        xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
+                                                        yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
+                                                    )
                                                     with cols[idx % 2]: st.plotly_chart(fig_c, use_container_width=True)
                         
                         if clinic_filter in ["TriStar", "Ascension"]:
@@ -828,7 +859,11 @@ if check_password():
                                             st.markdown(f"#### 🆕 {c_name}: New Patient Trend")
                                             pos_agg = pos_df.groupby('Month_Clean')[['New Patients']].sum().reset_index().sort_values('Month_Clean')
                                             fig_pos = px.bar(pos_agg, x='Month_Clean', y='New Patients', text_auto=True)
-                                            fig_pos.update_layout(font=dict(color="black"), font_color="black")
+                                            fig_pos.update_layout(
+                                                font=dict(color="black"), font_color="black",
+                                                xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
+                                                yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
+                                            )
                                             st.plotly_chart(fig_pos, use_container_width=True)
                                             
                                             pos_piv = pos_df.pivot_table(index="Clinic_Tag", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
@@ -908,7 +943,11 @@ if check_password():
                                      st.markdown("#### 🆕 New Patient Trend (Monthly)")
                                      pos_agg = pos_df.groupby('Month_Clean')[['New Patients']].sum().reset_index().sort_values('Month_Clean')
                                      fig_pos = px.bar(pos_agg, x='Month_Clean', y='New Patients', text_auto=True)
-                                     fig_pos.update_layout(font=dict(color="black"), font_color="black")
+                                     fig_pos.update_layout(
+                                        font=dict(color="black"), font_color="black",
+                                        xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
+                                        yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
+                                     )
                                      st.plotly_chart(fig_pos, use_container_width=True)
                                      
                                      pos_piv = pos_df.pivot_table(index="Clinic_Tag", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
@@ -927,11 +966,11 @@ if check_password():
                                     c_v1, c_v2 = st.columns(2)
                                     with c_v1:
                                         fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), x='Total Visits', y='Name', orientation='h', text_auto=True, color='Total Visits', color_continuous_scale='Blues', title=f"YTD Total Office Visits ({latest_v_date.strftime('%b %Y')})")
-                                        fig_ov.update_layout(font=dict(color="black"), font_color="black")
+                                        fig_ov.update_layout(height=800, font=dict(color="black"), font_color="black")
                                         st.plotly_chart(fig_ov, use_container_width=True)
                                     with c_v2:
                                         fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), x='New Patients', y='Name', orientation='h', text_auto=True, color='New Patients', color_continuous_scale='Greens', title=f"YTD New Patients ({latest_v_date.strftime('%b %Y')})")
-                                        fig_np.update_layout(font=dict(color="black"), font_color="black")
+                                        fig_np.update_layout(height=800, font=dict(color="black"), font_color="black")
                                         st.plotly_chart(fig_np, use_container_width=True)
                                 with st.container(border=True):
                                     st.markdown(f"#### 📉 YoY Change: New Patients")
@@ -953,19 +992,27 @@ if check_password():
                             with st.container(border=True):
                                 st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
                                 fig_trend = px.line(df_mds.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
-                                fig_trend.update_layout(font=dict(color="black"), font_color="black")
+                                fig_trend.update_layout(
+                                    font=dict(color="black"), font_color="black",
+                                    xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
+                                    yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
+                                )
                                 st.plotly_chart(fig_trend, use_container_width=True)
                             with st.container(border=True):
                                 st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({df_mds['Month_Clean'].max().year})")
                                 ytd_sum = df_mds[df_mds['Month_Clean'].dt.year == df_mds['Month_Clean'].max().year].groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
                                 fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
-                                fig_ytd.update_layout(font=dict(color="black"), font_color="black")
+                                fig_ytd.update_layout(
+                                    font=dict(color="black"), font_color="black",
+                                    xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
+                                    yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
+                                )
                                 st.plotly_chart(fig_ytd, use_container_width=True)
                             c1, c2 = st.columns(2)
                             with c1:
                                 st.markdown("#### 🔢 Monthly Data")
                                 piv = df_mds.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                # FIX: Sort MD Table Chronologically
+                                # Sort MD Table Chronologically
                                 sorted_months_md = df_mds.sort_values("Month_Clean")["Month_Label"].unique()
                                 piv = piv.reindex(columns=sorted_months_md)
                                 
@@ -1018,7 +1065,11 @@ if check_password():
                     with st.container(border=True):
                         st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
                         fig_trend = px.line(df_apps.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
-                        fig_trend.update_layout(font=dict(color="black"), font_color="black")
+                        fig_trend.update_layout(
+                            font=dict(color="black"), font_color="black",
+                            xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
+                            yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
+                        )
                         st.plotly_chart(fig_trend, use_container_width=True)
                     c1, c2 = st.columns(2)
                     with c1:
