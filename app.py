@@ -382,6 +382,7 @@ if check_password():
                 
                 for c in range(len(row)):
                     val = row[c]
+                    # Check for actual date object
                     if isinstance(val, (datetime, pd.Timestamp)):
                          temp_date_map[c] = val
                     else:
@@ -439,7 +440,6 @@ if check_password():
                                     "Month_Label": dt.strftime('%b-%y'), "source_type": "pos_trend"
                                 })
                 else:
-                     # log.append(f"    IGNORED row (No Match)")
                      pass
 
         except Exception as e: 
@@ -601,11 +601,10 @@ if check_password():
         df_visits = pd.concat(visit_data, ignore_index=True) if visit_data else pd.DataFrame()
         df_financial = pd.concat(financial_data, ignore_index=True) if financial_data else pd.DataFrame()
         
-        # FIX: Ensure df_pos_trend is initialized properly
+        # FIX: Ensure df_pos_trend is initialized properly even if empty
         if pos_trend_data:
             df_pos_trend = pd.concat(pos_trend_data, ignore_index=True)
         else:
-            # Create empty DF with expected columns to prevent KeyError
             df_pos_trend = pd.DataFrame(columns=['Clinic_Tag', 'Month_Clean', 'New Patients', 'Month_Label', 'source_type'])
 
         # GLOBAL DATE FIXES
@@ -659,6 +658,8 @@ if check_password():
         else:
             st.info("ℹ️ No master files found on server.")
         uploaded_files = st.file_uploader("Add Temporary Files", type=['xlsx', 'xls'], accept_multiple_files=True)
+        
+        # DEBUG EXPANDER
     
     all_files = server_files + (uploaded_files if uploaded_files else [])
 
@@ -808,6 +809,31 @@ if check_password():
                                                     )
                                                     with cols[idx % 2]: st.plotly_chart(fig_c, use_container_width=True)
                         
+                        if clinic_filter == "All":
+                            if not df_pos_trend.empty:
+                                st.markdown("---")
+                                st.markdown("### 🆕 Network-Wide New Patients (Most Recent Month)")
+                                
+                                max_date_np = df_pos_trend['Month_Clean'].max()
+                                np_latest = df_pos_trend[df_pos_trend['Month_Clean'] == max_date_np].copy()
+                                
+                                if not np_latest.empty:
+                                    np_latest['Display_Name'] = np_latest['Clinic_Tag'].apply(lambda x: CLINIC_CONFIG.get(x, {}).get('name', x))
+                                    
+                                    fig_np_net = px.bar(np_latest.sort_values('New Patients', ascending=False), 
+                                                        x='Display_Name', y='New Patients', 
+                                                        text_auto=True, 
+                                                        title=f"New Patients: {max_date_np.strftime('%B %Y')}")
+                                    fig_np_net.update_layout(
+                                        font=dict(color="black"), font_color="black",
+                                        xaxis=dict(title=None, color="black", tickfont=dict(color="black")),
+                                        yaxis=dict(color="black", title="Count", tickfont=dict(color="black"))
+                                    )
+                                    st.plotly_chart(fig_np_net, use_container_width=True)
+
+                                    piv_np_net = np_latest.pivot_table(index="Month_Label", columns="Display_Name", values="New Patients", aggfunc="sum").fillna(0)
+                                    st.dataframe(piv_np_net.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+
                         if clinic_filter in ["TriStar", "Ascension"]:
                             st.markdown("---")
                             st.subheader(f"🔍 Detailed Breakdown by Clinic ({view_title})")
@@ -1012,7 +1038,7 @@ if check_password():
                             with c1:
                                 st.markdown("#### 🔢 Monthly Data")
                                 piv = df_mds.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                # Sort MD Table Chronologically
+                                # FIX: Sort MD Table Chronologically
                                 sorted_months_md = df_mds.sort_values("Month_Clean")["Month_Label"].unique()
                                 piv = piv.reindex(columns=sorted_months_md)
                                 
