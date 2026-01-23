@@ -383,7 +383,7 @@ if check_password():
                 first_cell = str(row[0]).strip().upper()
                 if "NAME" in first_cell:
                     header_row_idx = r
-                    log.append(f"  Found 'NAME' header at row {r} in {filename}")
+                    log.append(f"  ✅ Found 'NAME' header at row {r} in {filename}")
                     # Map columns
                     for c in range(1, len(row)):
                         val = row[c]
@@ -391,6 +391,7 @@ if check_password():
                              date_map[c] = val
                         else:
                              s_val = str(val).strip()
+                             # Match Jan-25
                              if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
                                  try:
                                      dt = pd.to_datetime(s_val, format='%b-%y')
@@ -401,8 +402,6 @@ if check_password():
             if header_row_idx == -1: 
                 log.append(f"  ❌ Could NOT find 'NAME' header in {filename}")
                 return pd.DataFrame()
-
-            log.append(f"  Date Columns Found: {[d.strftime('%b-%y') for d in date_map.values()]}")
 
             # 2. ITERATE DATA ROWS (Exact Matching)
             for i in range(header_row_idx + 1, len(df)):
@@ -424,7 +423,6 @@ if check_password():
                             break
                 
                 if c_id:
-                    log.append(f"    Matched row '{site_name}' -> ID: {c_id}")
                     if date_map:
                         for col_idx, dt in date_map.items():
                             if col_idx < len(row):
@@ -435,7 +433,7 @@ if check_password():
                                         "Month_Label": dt.strftime('%b-%y'), "source_type": "pos_trend"
                                     })
                 else:
-                     log.append(f"    IGNORED row '{site_name}' (No ID Match)")
+                     pass
 
         except Exception as e: 
             log.append(f"  ❌ Error parsing {filename}: {str(e)}")
@@ -472,6 +470,7 @@ if check_password():
             elif "TROC" in filename: file_tag = "TROC"
             elif "PROTON" in filename or "TOPC" in filename: file_tag = "TOPC"
 
+            # --- FINANCIALS HANDLING ---
             if "CPA" in filename:
                 file_date = get_date_from_filename(filename)
                 for sheet_name, df in xls.items():
@@ -506,16 +505,25 @@ if check_password():
                          if not res.empty: financial_data.append(res)
                 continue
 
-            if "NEW PATIENTS" in filename or "NEW PT" in filename:
+            if "NEW" in filename and ("PATIENT" in filename or "PT" in filename):
                 file_date = get_date_from_filename(filename)
+                debug_log.append(f"📂 Processing New Patient File: {filename}")
                 
                 # Check for POS TREND SHEET
+                found_pos = False
                 for sheet_name, df in xls.items():
                     if "POS" in sheet_name.upper() and "TREND" in sheet_name.upper():
-                        debug_log.append(f"🔍 Found POS Trend Sheet in {filename}")
+                        found_pos = True
                         res = parse_pos_trend_sheet(df, filename, debug_log)
-                        if not res.empty: pos_trend_data.append(res)
-                
+                        if not res.empty: 
+                            pos_trend_data.append(res)
+                            debug_log.append(f"  ✅ Extracted {len(res)} records from {sheet_name}")
+                        else:
+                            debug_log.append(f"  ⚠️ No records extracted from {sheet_name}")
+
+                if not found_pos:
+                     debug_log.append(f"  ❌ No 'POS ... Trend' sheet found in {filename}")
+
                 visit_tag = "General"
                 if "LROC" in filename: visit_tag = "LROC"
                 elif "TROC" in filename: visit_tag = "TROC"
@@ -527,6 +535,7 @@ if check_password():
                         if not res.empty: visit_data.append(res)
                 continue 
 
+            # --- PROCESS SHEETS ---
             for sheet_name, df in xls.items():
                 s_lower = sheet_name.strip().lower()
                 
@@ -646,20 +655,19 @@ if check_password():
         else:
             st.info("ℹ️ No master files found on server.")
         uploaded_files = st.file_uploader("Add Temporary Files", type=['xlsx', 'xls'], accept_multiple_files=True)
-        
-        # DEBUG EXPANDER
-        with st.expander("🐞 Debug: New Patient Data"):
-            if 'debug_log' in locals():
-                for line in debug_log:
-                    st.write(line)
-            else:
-                st.write("No debug logs yet.")
     
     all_files = server_files + (uploaded_files if uploaded_files else [])
 
     if all_files:
         with st.spinner("Analyzing files..."):
             df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend, debug_log = process_files(all_files)
+
+        with st.sidebar:
+            with st.expander("🐞 Debug: New Patient Data"):
+                if debug_log:
+                    for line in debug_log: st.write(line)
+                else:
+                    st.write("No debug logs yet.")
 
         if df_clinic.empty and df_md_global.empty and df_visits.empty and df_financial.empty and df_pos_trend.empty:
             st.error("No valid data found.")
@@ -899,7 +907,7 @@ if check_password():
                                     piv_p["Total"] = piv_p.sum(axis=1)
                                     st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
-                        # NEW: POS TREND FOR SINGLE CLINICS (LROC, TOPC, TROC, Sumner)
+                        # NEW: POS TREND FOR SINGLE CLINICS
                         if target_tag in ["LROC", "TOPC", "TROC", "Sumner"] and not df_pos_trend.empty:
                              pos_df = df_pos_trend[df_pos_trend['Clinic_Tag'] == target_tag]
                              if not pos_df.empty:
