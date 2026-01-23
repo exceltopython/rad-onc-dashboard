@@ -371,69 +371,75 @@ if check_password():
         except: pass
         return pd.DataFrame(records)
 
-    # --- NEW: PARSE POS NEW PATIENT TREND (Robust & Monthly) ---
+    # --- NEW: PARSE POS NEW PATIENT TREND (Smart Date Detection) ---
     def parse_pos_trend_sheet(df, filename, log):
         records = []
         try:
-            # 1. FIND HEADER ROW WITH "NAME" (first cell)
+            # 1. FIND HEADER ROW based on Date Columns (Not just "NAME")
             header_row_idx = -1
             date_map = {} 
-            for r in range(min(20, len(df))):
+            
+            # Scan deeper (30 rows)
+            for r in range(min(30, len(df))):
                 row = df.iloc[r].values
-                first_cell = str(row[0]).strip().upper()
-                if "NAME" in first_cell:
+                temp_date_map = {}
+                
+                for c in range(len(row)):
+                    val = row[c]
+                    # Check for actual date object
+                    if isinstance(val, (datetime, pd.Timestamp)):
+                        temp_date_map[c] = val
+                    # Check for string "Jan-25"
+                    else:
+                        s_val = str(val).strip()
+                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
+                            try:
+                                dt = pd.to_datetime(s_val, format='%b-%y')
+                                temp_date_map[c] = dt
+                            except: pass
+                
+                # If we found at least 2 date columns in this row, assume it's the header
+                if len(temp_date_map) >= 2:
                     header_row_idx = r
-                    log.append(f"  ✅ Found 'NAME' header at row {r} in {filename}")
-                    # Map columns
-                    for c in range(1, len(row)):
-                        val = row[c]
-                        if isinstance(val, (datetime, pd.Timestamp)):
-                             date_map[c] = val
-                        else:
-                             s_val = str(val).strip()
-                             # Match Jan-25
-                             if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
-                                 try:
-                                     dt = pd.to_datetime(s_val, format='%b-%y')
-                                     date_map[c] = dt
-                                 except: pass
+                    date_map = temp_date_map
+                    log.append(f"  ✅ Found header at Row {r} (Dates detected: {len(date_map)})")
                     break
             
             if header_row_idx == -1: 
-                log.append(f"  ❌ Could NOT find 'NAME' header in {filename}")
+                log.append(f"  ❌ Could NOT find date headers in {filename}")
                 return pd.DataFrame()
 
-            # 2. ITERATE DATA ROWS (Exact Matching)
+            # 2. ITERATE DATA ROWS
             for i in range(header_row_idx + 1, len(df)):
                 row = df.iloc[i].values
                 site_name = str(row[0]).strip().upper()
                 if not site_name: continue
 
-                # Strict Mapping based on your provided list
+                # Strict Mapping based on user's exact list
                 c_id = None
                 
                 # Check EXACT mapping first
                 if site_name in POS_ROW_MAPPING:
                     c_id = POS_ROW_MAPPING[site_name]
                 else:
-                    # Partial Fallback (just in case)
+                    # Partial Fallback
                     for key, val in POS_ROW_MAPPING.items():
                         if key in site_name: 
                             c_id = val
                             break
                 
                 if c_id:
-                    if date_map:
-                        for col_idx, dt in date_map.items():
-                            if col_idx < len(row):
-                                val = clean_number(row[col_idx])
-                                if val is not None:
-                                    records.append({
-                                        "Clinic_Tag": c_id, "Month_Clean": dt, "New Patients": val,
-                                        "Month_Label": dt.strftime('%b-%y'), "source_type": "pos_trend"
-                                    })
+                    log.append(f"    Matched row '{site_name}' -> ID: {c_id}")
+                    for col_idx, dt in date_map.items():
+                        if col_idx < len(row):
+                            val = clean_number(row[col_idx])
+                            if val is not None:
+                                records.append({
+                                    "Clinic_Tag": c_id, "Month_Clean": dt, "New Patients": val,
+                                    "Month_Label": dt.strftime('%b-%y'), "source_type": "pos_trend"
+                                })
                 else:
-                     pass
+                     log.append(f"    IGNORED row '{site_name}'")
 
         except Exception as e: 
             log.append(f"  ❌ Error parsing {filename}: {str(e)}")
@@ -470,7 +476,6 @@ if check_password():
             elif "TROC" in filename: file_tag = "TROC"
             elif "PROTON" in filename or "TOPC" in filename: file_tag = "TOPC"
 
-            # --- FINANCIALS HANDLING ---
             if "CPA" in filename:
                 file_date = get_date_from_filename(filename)
                 for sheet_name, df in xls.items():
@@ -535,7 +540,6 @@ if check_password():
                         if not res.empty: visit_data.append(res)
                 continue 
 
-            # --- PROCESS SHEETS ---
             for sheet_name, df in xls.items():
                 s_lower = sheet_name.strip().lower()
                 
@@ -655,19 +659,22 @@ if check_password():
         else:
             st.info("ℹ️ No master files found on server.")
         uploaded_files = st.file_uploader("Add Temporary Files", type=['xlsx', 'xls'], accept_multiple_files=True)
+        
+        # DEBUG EXPANDER (Rendered AFTER processing below)
     
     all_files = server_files + (uploaded_files if uploaded_files else [])
 
     if all_files:
         with st.spinner("Analyzing files..."):
             df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend, debug_log = process_files(all_files)
-
+        
+        # DISPLAY DEBUG LOG NOW
         with st.sidebar:
-            with st.expander("🐞 Debug: New Patient Data"):
+             with st.expander("🐞 Debug: New Patient Data"):
                 if debug_log:
                     for line in debug_log: st.write(line)
                 else:
-                    st.write("No debug logs yet.")
+                    st.write("No debug logs captured.")
 
         if df_clinic.empty and df_md_global.empty and df_visits.empty and df_financial.empty and df_pos_trend.empty:
             st.error("No valid data found.")
@@ -907,7 +914,7 @@ if check_password():
                                     piv_p["Total"] = piv_p.sum(axis=1)
                                     st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
-                        # NEW: POS TREND FOR SINGLE CLINICS
+                        # NEW: POS TREND FOR SINGLE CLINICS (LROC, TOPC, TROC, Sumner)
                         if target_tag in ["LROC", "TOPC", "TROC", "Sumner"] and not df_pos_trend.empty:
                              pos_df = df_pos_trend[df_pos_trend['Clinic_Tag'] == target_tag]
                              if not pos_df.empty:
@@ -1031,10 +1038,6 @@ if check_password():
                     with c1:
                         st.markdown("#### 🔢 Monthly Data")
                         piv = df_apps.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                        # FIX: Sort APP Table Chronologically
-                        sorted_months_app = df_apps.sort_values("Month_Clean")["Month_Label"].unique()
-                        piv = piv.reindex(columns=sorted_months_app)
-                        
                         piv["Total"] = piv.sum(axis=1)
                         st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                     with c2:
