@@ -83,6 +83,22 @@ if check_password():
     IGNORED_SHEETS = ["RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
     SERVER_DIR = "Reports"
 
+    # *** EXACT ROW NAME MAPPING FOR POS TREND SHEETS ***
+    POS_ROW_MAPPING = {
+        "CENTENNIAL RAD": "CENT",
+        "DICKSON RAD": "Dickson",
+        "MIDTOWN RAD": "Midtown",
+        "MURFREESBORO RAD": "MURF",
+        "SAINT THOMAS WEST RAD": "STW",
+        "SKYLINE RAD": "Skyline",
+        "STONECREST RAD": "Stonecrest",
+        "SUMMIT RAD": "Summit",
+        "SUMNER RAD": "Sumner",
+        "LEBANON RAD": "LROC",
+        "TULLAHOMA RADIATION": "TROC",
+        "TO PROTON": "TOPC"
+    }
+
     class LocalFile:
         def __init__(self, path):
             self.path = path
@@ -359,7 +375,7 @@ if check_password():
     def parse_pos_trend_sheet(df, filename_date):
         records = []
         try:
-            # 1. FIND HEADER ROW WITH "NAME"
+            # 1. FIND HEADER ROW WITH "NAME" (first cell)
             header_row_idx = -1
             date_map = {} 
             for r in range(min(20, len(df))):
@@ -384,28 +400,25 @@ if check_password():
             
             if header_row_idx == -1: return pd.DataFrame()
 
-            # 2. ITERATE DATA ROWS (Exact Matching)
+            # 2. ITERATE DATA ROWS
             for i in range(header_row_idx + 1, len(df)):
                 row = df.iloc[i].values
                 site_name = str(row[0]).strip()
                 if not site_name: continue
 
-                # Strict Mapping based on your screenshots
+                # Strict Mapping based on your provided list
                 u_site = site_name.upper()
                 c_id = None
                 
-                if "CENTENNIAL" in u_site: c_id = "CENT"
-                elif "DICKSON" in u_site: c_id = "Dickson"
-                elif "MIDTOWN" in u_site: c_id = "Midtown"
-                elif "MURFREESBORO" in u_site: c_id = "MURF"
-                elif "SAINT THOMAS WEST" in u_site: c_id = "STW"
-                elif "SKYLINE" in u_site: c_id = "Skyline"
-                elif "STONECREST" in u_site: c_id = "Stonecrest"
-                elif "SUMMIT" in u_site: c_id = "Summit"
-                elif "SUMNER" in u_site: c_id = "Sumner"
-                elif "LEBANON" in u_site: c_id = "LROC"
-                elif "TULLAHOMA" in u_site: c_id = "TROC"
-                elif "TO PROTON" in u_site: c_id = "TOPC"
+                # Use the EXACT mapping provided
+                if u_site in POS_ROW_MAPPING:
+                    c_id = POS_ROW_MAPPING[u_site]
+                else:
+                    # Fallback partial matching if exact string not in dict (safety net)
+                    for key, val in POS_ROW_MAPPING.items():
+                         if key in u_site:
+                             c_id = val
+                             break
                 
                 if c_id and date_map:
                     for col_idx, dt in date_map.items():
