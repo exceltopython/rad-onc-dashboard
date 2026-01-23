@@ -360,18 +360,24 @@ if check_password():
         records = []
         try:
             header_row_idx = -1; date_map = {} 
-            # Expanded search to 20 rows
-            for r in range(min(20, len(df))):
+            for r in range(min(20, len(df))): # Expanded search range
                 row = df.iloc[r].values
                 for c in range(len(row)):
-                    val = str(row[c]).strip()
-                    if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', val, re.IGNORECASE):
-                         try:
-                             dt = pd.to_datetime(val, format='%b-%y')
-                             date_map[c] = dt
-                             header_row_idx = r
-                         except: pass
-                if header_row_idx != -1: break
+                    val = row[c]
+                    # Check if val is ALREADY a datetime object
+                    if isinstance(val, (datetime, pd.Timestamp)):
+                         date_map[c] = val
+                         header_row_idx = r
+                    # Check string match
+                    else:
+                        s_val = str(val).strip()
+                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
+                             try:
+                                 dt = pd.to_datetime(s_val, format='%b-%y')
+                                 date_map[c] = dt
+                                 header_row_idx = r
+                             except: pass
+                if header_row_idx != -1 and len(date_map) > 2: break
             
             if header_row_idx == -1: return pd.DataFrame()
 
@@ -387,6 +393,14 @@ if check_password():
                     elif "LEBANON" in u_site: c_id = "LROC"
                     elif "TULLAHOMA" in u_site: c_id = "TROC"
                     elif "PROTON" in u_site: c_id = "TOPC"
+                    elif "CENTENNIAL" in u_site: c_id = "CENT"
+                    elif "DICKSON" in u_site: c_id = "Dickson"
+                    elif "MIDTOWN" in u_site: c_id = "Midtown"
+                    elif "MURFREESBORO" in u_site: c_id = "MURF"
+                    elif "WEST" in u_site: c_id = "STW"
+                    elif "SKYLINE" in u_site: c_id = "Skyline"
+                    elif "STONECREST" in u_site: c_id = "Stonecrest"
+                    elif "SUMMIT" in u_site: c_id = "Summit"
                 
                 if c_id:
                     for col_idx, dt in date_map.items():
@@ -410,6 +424,9 @@ if check_password():
         if "midtown" in s_clean: return "Midtown"
         if "rutherford" in s_clean or "murfreesboro" in s_clean: return "MURF"
         if "west" in s_clean or "saint thomas" in s_clean: return "STW"
+        if "lebanon" in s_clean: return "LROC"
+        if "tullahoma" in s_clean: return "TROC"
+        if "to proton" in s_clean: return "TOPC"
         return None
 
     def process_files(file_objects):
@@ -465,7 +482,6 @@ if check_password():
                 file_date = get_date_from_filename(filename)
                 
                 for sheet_name, df in xls.items():
-                    # Parse POS Trend Sheet
                     if "POS" in sheet_name.upper() and "TREND" in sheet_name.upper():
                         res = parse_pos_trend_sheet(df, file_date)
                         if not res.empty: pos_trend_data.append(res)
@@ -696,8 +712,8 @@ if check_password():
                                             current_year = max_date.year
                                             ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
                                             if ytd_curr > 0:
-                                                new_r = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
-                                                hist_trend = pd.concat([hist_trend, new_r], ignore_index=True)
+                                                new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
+                                                hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
                                         fig_long = px.bar(hist_trend, x='Year', y='Total RVUs', text_auto='.2s')
                                         fig_long.update_layout(font=dict(color="black"), font_color="black")
                                         st.plotly_chart(fig_long, use_container_width=True)
