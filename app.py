@@ -371,65 +371,60 @@ if check_password():
     def parse_pos_trend_sheet(df, filename, log):
         records = []
         try:
-            # 1. FIND HEADER ROW based on Date Columns
+            # 1. FIND HEADER ROW & NAME COLUMN
             header_row_idx = -1
+            name_col_idx = -1
             date_map = {} 
             
-            # Scan first 30 rows
-            for r in range(min(30, len(df))):
+            # Scan first 20 rows and ALL columns to find "NAME"
+            for r in range(min(20, len(df))):
                 row = df.iloc[r].values
-                temp_date_map = {}
-                
                 for c in range(len(row)):
-                    val = row[c]
-                    if isinstance(val, (datetime, pd.Timestamp)):
-                         temp_date_map[c] = val
-                    else:
-                         s_val = str(val).strip()
-                         if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
-                             try:
-                                 dt = pd.to_datetime(s_val, format='%b-%y')
-                                 temp_date_map[c] = dt
-                             except: pass
-                
-                # If we found at least 2 date columns in this row, assume it's the header
-                if len(temp_date_map) >= 2:
-                    header_row_idx = r
-                    date_map = temp_date_map
-                    log.append(f"  ✅ Found header at Row {r} (Dates detected: {len(date_map)})")
-                    break
+                    val_str = str(row[c]).strip().upper()
+                    if "NAME" == val_str:
+                        header_row_idx = r
+                        name_col_idx = c
+                        log.append(f"  ✅ Found 'NAME' in Row {r}, Column {c}")
+                        
+                        # Once "NAME" is found, scan the REST of that row for dates
+                        for c2 in range(c + 1, len(row)):
+                            val = row[c2]
+                            if isinstance(val, (datetime, pd.Timestamp)):
+                                date_map[c2] = val
+                            else:
+                                s_val = str(val).strip()
+                                if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
+                                    try:
+                                        dt = pd.to_datetime(s_val, format='%b-%y')
+                                        date_map[c2] = dt
+                                    except: pass
+                        break
+                if header_row_idx != -1: break
             
             if header_row_idx == -1: 
-                log.append(f"  ❌ Could NOT find date headers in {filename}")
+                log.append(f"  ❌ Could NOT find 'NAME' header in {filename}")
                 return pd.DataFrame()
 
-            # 2. ITERATE DATA ROWS (Check first 3 columns for Name)
+            # 2. ITERATE DATA ROWS (Using Dynamic Name Column)
             for i in range(header_row_idx + 1, len(df)):
                 row = df.iloc[i].values
+                if name_col_idx >= len(row): continue
                 
-                # Check first 3 columns for a valid site name
+                site_name = str(row[name_col_idx]).strip().upper()
+                if not site_name: continue
+
+                # Strict Mapping
                 c_id = None
-                site_name_found = ""
-                
-                for col_idx in range(3): # Check columns 0, 1, 2
-                    if col_idx >= len(row): break
-                    val = str(row[col_idx]).strip().upper()
-                    
-                    if val and val != "NAN":
-                        if val in POS_ROW_MAPPING:
-                            c_id = POS_ROW_MAPPING[val]
-                            site_name_found = val
+                if site_name in POS_ROW_MAPPING:
+                    c_id = POS_ROW_MAPPING[site_name]
+                else:
+                    for key, val in POS_ROW_MAPPING.items():
+                        if key in site_name:
+                            c_id = val
                             break
-                        # Partial Fallback
-                        for key, mapped_id in POS_ROW_MAPPING.items():
-                            if key in val:
-                                c_id = mapped_id
-                                site_name_found = val
-                                break
-                    if c_id: break
                 
-                if c_id:
-                    log.append(f"    Matched row '{site_name_found}' -> ID: {c_id}")
+                if c_id and date_map:
+                    log.append(f"    Matched '{site_name}' -> {c_id}")
                     for col_idx, dt in date_map.items():
                         if col_idx < len(row):
                             val = clean_number(row[col_idx])
@@ -439,7 +434,7 @@ if check_password():
                                     "Month_Label": dt.strftime('%b-%y'), "source_type": "pos_trend"
                                 })
                 else:
-                     # log.append(f"    IGNORED row (No Match)")
+                     # log.append(f"    IGNORED '{site_name}'")
                      pass
 
         except Exception as e: 
@@ -523,6 +518,9 @@ if check_password():
                             debug_log.append(f"  ✅ Extracted {len(res)} records from {sheet_name}")
                         else:
                             debug_log.append(f"  ⚠️ No records extracted from {sheet_name}")
+
+                if not found_pos:
+                     debug_log.append(f"  ❌ No 'POS ... Trend' sheet found in {filename}")
 
                 visit_tag = "General"
                 if "LROC" in filename: visit_tag = "LROC"
@@ -659,6 +657,8 @@ if check_password():
         else:
             st.info("ℹ️ No master files found on server.")
         uploaded_files = st.file_uploader("Add Temporary Files", type=['xlsx', 'xls'], accept_multiple_files=True)
+        
+        # DEBUG EXPANDER
     
     all_files = server_files + (uploaded_files if uploaded_files else [])
 
@@ -808,6 +808,31 @@ if check_password():
                                                     )
                                                     with cols[idx % 2]: st.plotly_chart(fig_c, use_container_width=True)
                         
+                        if clinic_filter == "All":
+                            if not df_pos_trend.empty:
+                                st.markdown("---")
+                                st.markdown("### 🆕 Network-Wide New Patients (Most Recent Month)")
+                                
+                                max_date_np = df_pos_trend['Month_Clean'].max()
+                                np_latest = df_pos_trend[df_pos_trend['Month_Clean'] == max_date_np].copy()
+                                
+                                if not np_latest.empty:
+                                    np_latest['Display_Name'] = np_latest['Clinic_Tag'].apply(lambda x: CLINIC_CONFIG.get(x, {}).get('name', x))
+                                    
+                                    fig_np_net = px.bar(np_latest.sort_values('New Patients', ascending=False), 
+                                                        x='Display_Name', y='New Patients', 
+                                                        text_auto=True, 
+                                                        title=f"New Patients: {max_date_np.strftime('%B %Y')}")
+                                    fig_np_net.update_layout(
+                                        font=dict(color="black"), font_color="black",
+                                        xaxis=dict(title=None, color="black", tickfont=dict(color="black")),
+                                        yaxis=dict(color="black", title="Count", tickfont=dict(color="black"))
+                                    )
+                                    st.plotly_chart(fig_np_net, use_container_width=True)
+
+                                    piv_np_net = np_latest.pivot_table(index="Month_Label", columns="Display_Name", values="New Patients", aggfunc="sum").fillna(0)
+                                    st.dataframe(piv_np_net.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+
                         if clinic_filter in ["TriStar", "Ascension"]:
                             st.markdown("---")
                             st.subheader(f"🔍 Detailed Breakdown by Clinic ({view_title})")
@@ -1012,7 +1037,7 @@ if check_password():
                             with c1:
                                 st.markdown("#### 🔢 Monthly Data")
                                 piv = df_mds.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                # Sort MD Table Chronologically
+                                # FIX: Sort MD Table Chronologically
                                 sorted_months_md = df_mds.sort_values("Month_Clean")["Month_Label"].unique()
                                 piv = piv.reindex(columns=sorted_months_md)
                                 
