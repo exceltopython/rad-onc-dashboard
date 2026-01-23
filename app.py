@@ -355,11 +355,11 @@ if check_password():
         except: pass
         return pd.DataFrame(records)
 
-    # --- NEW: PARSE POS NEW PATIENT TREND (Robust) ---
+    # --- NEW: PARSE POS NEW PATIENT TREND (Robust & Monthly) ---
     def parse_pos_trend_sheet(df, filename_date):
         records = []
         try:
-            # Look for Header Row "NAME"
+            # 1. FIND HEADER ROW WITH "NAME"
             header_row_idx = -1
             date_map = {} 
             for r in range(min(20, len(df))):
@@ -384,13 +384,28 @@ if check_password():
             
             if header_row_idx == -1: return pd.DataFrame()
 
-            # Iterate Data Rows
+            # 2. ITERATE DATA ROWS (Exact Matching)
             for i in range(header_row_idx + 1, len(df)):
                 row = df.iloc[i].values
                 site_name = str(row[0]).strip()
                 if not site_name: continue
 
-                c_id = get_clinic_id_from_sheet(site_name)
+                # Strict Mapping based on your screenshots
+                u_site = site_name.upper()
+                c_id = None
+                
+                if "CENTENNIAL" in u_site: c_id = "CENT"
+                elif "DICKSON" in u_site: c_id = "Dickson"
+                elif "MIDTOWN" in u_site: c_id = "Midtown"
+                elif "MURFREESBORO" in u_site: c_id = "MURF"
+                elif "SAINT THOMAS WEST" in u_site: c_id = "STW"
+                elif "SKYLINE" in u_site: c_id = "Skyline"
+                elif "STONECREST" in u_site: c_id = "Stonecrest"
+                elif "SUMMIT" in u_site: c_id = "Summit"
+                elif "SUMNER" in u_site: c_id = "Sumner"
+                elif "LEBANON" in u_site: c_id = "LROC"
+                elif "TULLAHOMA" in u_site: c_id = "TROC"
+                elif "TO PROTON" in u_site: c_id = "TOPC"
                 
                 if c_id and date_map:
                     for col_idx, dt in date_map.items():
@@ -851,7 +866,7 @@ if check_password():
                                     piv_p["Total"] = piv_p.sum(axis=1)
                                     st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
-                        # NEW: POS TREND FOR SINGLE CLINICS
+                        # NEW: POS TREND FOR SINGLE CLINICS (LROC, TOPC, TROC, Sumner)
                         if target_tag in ["LROC", "TOPC", "TROC", "Sumner"] and not df_pos_trend.empty:
                              pos_df = df_pos_trend[df_pos_trend['Clinic_Tag'] == target_tag]
                              if not pos_df.empty:
@@ -975,6 +990,10 @@ if check_password():
                     with c1:
                         st.markdown("#### 🔢 Monthly Data")
                         piv = df_apps.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                        # FIX: Sort APP Table Chronologically
+                        sorted_months_app = df_apps.sort_values("Month_Clean")["Month_Label"].unique()
+                        piv = piv.reindex(columns=sorted_months_app)
+                        
                         piv["Total"] = piv.sum(axis=1)
                         st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                     with c2:
