@@ -83,22 +83,6 @@ if check_password():
     IGNORED_SHEETS = ["RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
     SERVER_DIR = "Reports"
 
-    # *** EXACT ROW NAME MAPPING FOR POS TREND SHEETS ***
-    POS_ROW_MAPPING = {
-        "CENTENNIAL RAD": "CENT",
-        "DICKSON RAD": "Dickson",
-        "MIDTOWN RAD": "Midtown",
-        "MURFREESBORO RAD": "MURF",
-        "SAINT THOMAS WEST RAD": "STW",
-        "SKYLINE RAD": "Skyline",
-        "STONECREST RAD": "Stonecrest",
-        "SUMMIT RAD": "Summit",
-        "SUMNER RAD": "Sumner",
-        "LEBANON RAD": "LROC",
-        "TULLAHOMA RADIATION": "TROC",
-        "TO PROTON": "TOPC"
-    }
-
     class LocalFile:
         def __init__(self, path):
             self.path = path
@@ -381,16 +365,16 @@ if check_password():
             for r in range(min(20, len(df))):
                 row = df.iloc[r].values
                 first_cell = str(row[0]).strip().upper()
+                # Use fuzzy match for "NAME" header
                 if "NAME" in first_cell:
                     header_row_idx = r
-                    # Map columns
+                    # Map columns (both datetime and string "Jan-25")
                     for c in range(1, len(row)):
                         val = row[c]
                         if isinstance(val, (datetime, pd.Timestamp)):
                              date_map[c] = val
                         else:
                              s_val = str(val).strip()
-                             # Match Jan-25
                              if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
                                  try:
                                      dt = pd.to_datetime(s_val, format='%b-%y')
@@ -400,25 +384,26 @@ if check_password():
             
             if header_row_idx == -1: return pd.DataFrame()
 
-            # 2. ITERATE DATA ROWS
+            # 2. ITERATE DATA ROWS (Fuzzy Name Matching)
             for i in range(header_row_idx + 1, len(df)):
                 row = df.iloc[i].values
-                site_name = str(row[0]).strip()
+                site_name = str(row[0]).strip().upper()
                 if not site_name: continue
 
-                # Strict Mapping based on your provided list
-                u_site = site_name.upper()
+                # Fuzzy Map to Clinic IDs based on user's exact list
                 c_id = None
-                
-                # Use the EXACT mapping provided
-                if u_site in POS_ROW_MAPPING:
-                    c_id = POS_ROW_MAPPING[u_site]
-                else:
-                    # Fallback partial matching if exact string not in dict (safety net)
-                    for key, val in POS_ROW_MAPPING.items():
-                         if key in u_site:
-                             c_id = val
-                             break
+                if "CENTENNIAL" in site_name: c_id = "CENT"
+                elif "DICKSON" in site_name: c_id = "Dickson"
+                elif "MIDTOWN" in site_name: c_id = "Midtown"
+                elif "MURFREESBORO" in site_name: c_id = "MURF"
+                elif "SAINT THOMAS WEST" in site_name: c_id = "STW"
+                elif "SKYLINE" in site_name: c_id = "Skyline"
+                elif "STONECREST" in site_name: c_id = "Stonecrest"
+                elif "SUMMIT" in site_name: c_id = "Summit"
+                elif "SUMNER" in site_name: c_id = "Sumner"
+                elif "LEBANON" in site_name: c_id = "LROC"
+                elif "TULLAHOMA" in site_name: c_id = "TROC"
+                elif "TO PROTON" in site_name: c_id = "TOPC"
                 
                 if c_id and date_map:
                     for col_idx, dt in date_map.items():
@@ -730,8 +715,8 @@ if check_password():
                                             current_year = max_date.year
                                             ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
                                             if ytd_curr > 0:
-                                                new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
-                                                hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
+                                                new_r = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
+                                                hist_trend = pd.concat([hist_trend, new_r], ignore_index=True)
                                         fig_long = px.bar(hist_trend, x='Year', y='Total RVUs', text_auto='.2s')
                                         fig_long.update_layout(font=dict(color="black"), font_color="black")
                                         st.plotly_chart(fig_long, use_container_width=True)
