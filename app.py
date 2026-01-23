@@ -260,7 +260,6 @@ if check_password():
         term_counts = {k: 0 for k in current_values}
         target_terms = list(current_values.keys())
         
-        # 1. Map Columns to Dates (Find Header)
         date_map = {} 
         header_row_found = False
         
@@ -361,13 +360,12 @@ if check_password():
         local_logs = []
         
         try:
-            # FIX: Start from row 4 (Excel row 5) to catch LROC data which starts early
-            # Do NOT wait for "PHYSICIANS ONLY" header
             data_start_row = 4
-
             for i in range(data_start_row, len(df)):
                 row = df.iloc[i].values
-                
+                row_str_check = " ".join([str(x).upper() for x in row[:5]])
+                if "TOTAL" in row_str_check or "PAGE" in row_str_check or "DATE" in row_str_check: continue
+
                 matched_name = None
                 for c in range(min(10, len(row))): 
                     val = str(row[c]).strip()
@@ -382,23 +380,13 @@ if check_password():
                     if num is not None:
                         numbers.append(num)
                 
-                visits = 0
-                visits_diff = 0
-                new_patients = 0
-                np_diff = 0
-                
+                visits = 0; visits_diff = 0; new_patients = 0; np_diff = 0
                 if len(numbers) >= 6:
-                    visits = numbers[0]
-                    visits_diff = numbers[1]
-                    new_patients = numbers[3]
-                    np_diff = numbers[4]
+                    visits = numbers[0]; visits_diff = numbers[1]; new_patients = numbers[3]; np_diff = numbers[4]
                 elif len(numbers) >= 4:
-                    visits = numbers[0]
-                    visits_diff = numbers[1]
-                    new_patients = numbers[3]
+                    visits = numbers[0]; visits_diff = numbers[1]; new_patients = numbers[3]
                 elif len(numbers) == 3:
-                    visits = numbers[0]
-                    new_patients = numbers[2]
+                    visits = numbers[0]; new_patients = numbers[2]
                 elif len(numbers) == 2: 
                     visits = numbers[0]; new_patients = numbers[1]
                 elif len(numbers) == 1:
@@ -443,7 +431,6 @@ if check_password():
                 row = df.iloc[i].values
                 name_val = str(row[col_map.get('name', 0)]).strip()
                 
-                # Filter Logic for Clinics
                 if mode == "Clinic":
                     if tag in ["LROC", "TROC", "PROTON"] and "TOTAL" not in name_val.upper(): continue
                     if tag == "General":
@@ -473,6 +460,57 @@ if check_password():
         except: pass
         return pd.DataFrame(records)
 
+    # --- NEW: PARSE POS NEW PATIENT TREND (Monthly Columns) ---
+    def parse_pos_trend_sheet(df, filename_date):
+        records = []
+        try:
+            # 1. Find Header Row (Look for "Jan-25" type columns)
+            header_row_idx = -1
+            date_map = {} # {col_idx: timestamp}
+            
+            for r in range(min(10, len(df))):
+                row = df.iloc[r].values
+                for c in range(len(row)):
+                    val = str(row[c]).strip()
+                    # Pattern Match: Jan-25, Feb-25...
+                    if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', val, re.IGNORECASE):
+                         try:
+                             dt = pd.to_datetime(val, format='%b-%y')
+                             date_map[c] = dt
+                             header_row_idx = r
+                         except: pass
+                if header_row_idx != -1: break
+            
+            if header_row_idx == -1: return pd.DataFrame()
+
+            # 2. Iterate Rows
+            for i in range(header_row_idx + 1, len(df)):
+                row = df.iloc[i].values
+                site_name = str(row[0]).strip()
+                
+                # Match Site to ID
+                c_id = get_clinic_id_from_sheet(site_name)
+                # Special case for "Sumner Rad" -> "Sumner" (the helper handles "Sumner Prov", lets make sure)
+                if not c_id and "SUMNER" in site_name.upper(): c_id = "Sumner"
+                if not c_id and "LEBANON" in site_name.upper(): c_id = "LROC"
+                if not c_id and "TULLAHOMA" in site_name.upper(): c_id = "TROC"
+                if not c_id and "PROTON" in site_name.upper(): c_id = "TOPC"
+                
+                if c_id:
+                    for col_idx, dt in date_map.items():
+                        if col_idx < len(row):
+                            val = clean_number(row[col_idx])
+                            if val is not None:
+                                records.append({
+                                    "Clinic_Tag": c_id,
+                                    "Month_Clean": dt,
+                                    "New Patients": val,
+                                    "Month_Label": dt.strftime('%b-%y'),
+                                    "source_type": "pos_trend"
+                                })
+        except: pass
+        return pd.DataFrame(records)
+
     def get_clinic_id_from_sheet(sheet_name):
         s_clean = sheet_name.lower().replace(" prov", "").strip()
         for cid, cfg in CLINIC_CONFIG.items():
@@ -486,7 +524,7 @@ if check_password():
         return None
 
     def process_files(file_objects):
-        clinic_data = []; provider_data = []; visit_data = []; financial_data = []
+        clinic_data = []; provider_data = []; visit_data = []; financial_data = []; pos_trend_data = []
         debug_log = []
 
         for file_obj in file_objects:
@@ -510,7 +548,6 @@ if check_password():
                     elif "PROTON" in filename and "PROVIDER" in filename:
                         res_prov = parse_financial_sheet(df, file_date, "PROTON", mode="Provider")
                         if not res_prov.empty: financial_data.append(res_prov)
-                        # Add Total row as Clinic Data
                         try:
                              total_row = df[df.iloc[:, 1].astype(str).str.contains("Total", case=False, na=False)]
                              if not total_row.empty:
@@ -539,6 +576,13 @@ if check_password():
 
             if "NEW PATIENTS" in filename or "NEW PT" in filename:
                 file_date = get_date_from_filename(filename)
+                
+                # Check for POS TREND SHEET
+                for sheet_name, df in xls.items():
+                    if "POS" in sheet_name.upper() and "TREND" in sheet_name.upper():
+                        res = parse_pos_trend_sheet(df, file_date)
+                        if not res.empty: pos_trend_data.append(res)
+                
                 visit_tag = "General"
                 if "LROC" in filename: visit_tag = "LROC"
                 elif "TROC" in filename: visit_tag = "TROC"
@@ -616,6 +660,7 @@ if check_password():
         df_provider_raw = pd.concat(provider_data, ignore_index=True) if provider_data else pd.DataFrame()
         df_visits = pd.concat(visit_data, ignore_index=True) if visit_data else pd.DataFrame()
         df_financial = pd.concat(financial_data, ignore_index=True) if financial_data else pd.DataFrame()
+        df_pos_trend = pd.concat(pos_trend_data, ignore_index=True) if pos_trend_data else pd.DataFrame()
 
         # GLOBAL DATE FIXES
         if not df_provider_raw.empty:
@@ -648,7 +693,7 @@ if check_password():
             df_provider_global['RVU per FTE'] = df_provider_global.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
             df_provider_global.sort_values('Month_Clean', inplace=True)
 
-        return df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial
+        return df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial, df_pos_trend
 
     # --- UI ---
     st.set_page_config(page_title="RadOnc Analytics", layout="wide", page_icon="🩺")
@@ -674,9 +719,9 @@ if check_password():
 
     if all_files:
         with st.spinner("Analyzing files..."):
-            df_clinic, df_md_global, df_provider_raw, df_visits, df_financial = process_files(all_files)
+            df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend = process_files(all_files)
 
-        if df_clinic.empty and df_md_global.empty and df_visits.empty and df_financial.empty:
+        if df_clinic.empty and df_md_global.empty and df_visits.empty and df_financial.empty and df_pos_trend.empty:
             st.error("No valid data found.")
         else:
             if not df_md_global.empty:
@@ -688,7 +733,6 @@ if check_password():
             tab_c, tab_md, tab_app, tab_fin = st.tabs(["🏥 Clinic Analytics", "👨‍⚕️ MD Analytics", "👩‍⚕️ APP Analytics", "💰 Financials"])
 
             with tab_c:
-                # ... (Previous Clinic Tab Code) ...
                 if df_clinic.empty:
                     st.info("No Clinic data found.")
                 else:
@@ -834,6 +878,24 @@ if check_password():
                                     piv_p = piv_p.reindex(columns=sorted_months_p)
                                     piv_p["Total"] = piv_p.sum(axis=1)
                                     st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+
+                                # NEW: POS TREND FOR INDIVIDUAL CLINICS
+                                pos_df = df_pos_trend[df_pos_trend['Clinic_Tag'] == c_id]
+                                if not pos_df.empty:
+                                    with st.container(border=True):
+                                        st.markdown(f"#### 🆕 {c_name}: New Patient Trend")
+                                        pos_agg = pos_df.groupby('Month_Clean')[['New Patients']].sum().reset_index().sort_values('Month_Clean')
+                                        fig_pos = px.bar(pos_agg, x='Month_Clean', y='New Patients', text_auto=True)
+                                        fig_pos.update_layout(font=dict(color="black"), font_color="black")
+                                        st.plotly_chart(fig_pos, use_container_width=True)
+                                        
+                                        # Table
+                                        pos_piv = pos_df.pivot_table(index="Clinic_Tag", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
+                                        sorted_m = pos_df.sort_values("Month_Clean")["Month_Label"].unique()
+                                        pos_piv = pos_piv.reindex(columns=sorted_m)
+                                        pos_piv["Total"] = pos_piv.sum(axis=1)
+                                        st.dataframe(pos_piv.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+
                                 st.markdown("---")
 
                         if target_tag and not df_provider_raw.empty:
@@ -897,7 +959,24 @@ if check_password():
                                     piv_p = piv_p.reindex(columns=sorted_months_p)
                                     piv_p["Total"] = piv_p.sum(axis=1)
                                     st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-                        
+
+                        # NEW: POS TREND FOR SINGLE CLINICS
+                        if target_tag in ["LROC", "TOPC", "TROC", "Sumner"] and not df_pos_trend.empty:
+                            pos_df = df_pos_trend[df_pos_trend['Clinic_Tag'] == target_tag]
+                            if not pos_df.empty:
+                                with st.container(border=True):
+                                    st.markdown("#### 🆕 New Patient Trend (Monthly)")
+                                    pos_agg = pos_df.groupby('Month_Clean')[['New Patients']].sum().reset_index().sort_values('Month_Clean')
+                                    fig_pos = px.bar(pos_agg, x='Month_Clean', y='New Patients', text_auto=True)
+                                    fig_pos.update_layout(font=dict(color="black"), font_color="black")
+                                    st.plotly_chart(fig_pos, use_container_width=True)
+                                    
+                                    pos_piv = pos_df.pivot_table(index="Clinic_Tag", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
+                                    sorted_m = pos_df.sort_values("Month_Clean")["Month_Label"].unique()
+                                    pos_piv = pos_piv.reindex(columns=sorted_m)
+                                    pos_piv["Total"] = pos_piv.sum(axis=1)
+                                    st.dataframe(pos_piv.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+
                         if target_tag in ["LROC", "TROC", "TOPC"] and not df_visits.empty:
                             clinic_visits = df_visits[df_visits['Clinic_Tag'] == target_tag]
                             if not clinic_visits.empty:
@@ -921,6 +1000,7 @@ if check_password():
                                     st.plotly_chart(fig_diff_np, use_container_width=True)
 
             with tab_md:
+                # ... (Existing MD Tab Code) ...
                 col_nav_md, col_main_md = st.columns([1, 5])
                 with col_nav_md:
                     st.markdown("### 📊 Metric")
