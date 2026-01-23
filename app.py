@@ -371,15 +371,14 @@ if check_password():
         except: pass
         return pd.DataFrame(records)
 
-    # --- NEW: PARSE POS NEW PATIENT TREND (Smart Date Detection) ---
+    # --- NEW: PARSE POS NEW PATIENT TREND (Smart Date Detection + Multi-Column Check) ---
     def parse_pos_trend_sheet(df, filename, log):
         records = []
         try:
-            # 1. FIND HEADER ROW based on Date Columns (Not just "NAME")
+            # 1. FIND HEADER ROW based on Date Columns
             header_row_idx = -1
             date_map = {} 
             
-            # Scan deeper (30 rows)
             for r in range(min(30, len(df))):
                 row = df.iloc[r].values
                 temp_date_map = {}
@@ -388,7 +387,7 @@ if check_password():
                     val = row[c]
                     # Check for actual date object
                     if isinstance(val, (datetime, pd.Timestamp)):
-                        temp_date_map[c] = val
+                         temp_date_map[c] = val
                     # Check for string "Jan-25"
                     else:
                         s_val = str(val).strip()
@@ -409,27 +408,32 @@ if check_password():
                 log.append(f"  ❌ Could NOT find date headers in {filename}")
                 return pd.DataFrame()
 
-            # 2. ITERATE DATA ROWS
+            # 2. ITERATE DATA ROWS (Check first 3 columns for Name)
             for i in range(header_row_idx + 1, len(df)):
                 row = df.iloc[i].values
-                site_name = str(row[0]).strip().upper()
-                if not site_name: continue
-
-                # Strict Mapping based on user's exact list
-                c_id = None
                 
-                # Check EXACT mapping first
-                if site_name in POS_ROW_MAPPING:
-                    c_id = POS_ROW_MAPPING[site_name]
-                else:
-                    # Partial Fallback
-                    for key, val in POS_ROW_MAPPING.items():
-                        if key in site_name: 
-                            c_id = val
+                # Check first 3 columns for a valid site name
+                c_id = None
+                site_name_found = ""
+                
+                for col_idx in range(3): # Check columns 0, 1, 2
+                    val = str(row[col_idx]).strip().upper()
+                    if val and val != "NAN":
+                        # Check EXACT mapping first
+                        if val in POS_ROW_MAPPING:
+                            c_id = POS_ROW_MAPPING[val]
+                            site_name_found = val
                             break
+                        # Partial Fallback
+                        for key, mapped_id in POS_ROW_MAPPING.items():
+                            if key in val:
+                                c_id = mapped_id
+                                site_name_found = val
+                                break
+                    if c_id: break
                 
                 if c_id:
-                    log.append(f"    Matched row '{site_name}' -> ID: {c_id}")
+                    log.append(f"    Matched row '{site_name_found}' -> ID: {c_id}")
                     for col_idx, dt in date_map.items():
                         if col_idx < len(row):
                             val = clean_number(row[col_idx])
@@ -439,7 +443,8 @@ if check_password():
                                     "Month_Label": dt.strftime('%b-%y'), "source_type": "pos_trend"
                                 })
                 else:
-                     log.append(f"    IGNORED row '{site_name}'")
+                     # log.append(f"    IGNORED row (No Match)")
+                     pass
 
         except Exception as e: 
             log.append(f"  ❌ Error parsing {filename}: {str(e)}")
@@ -660,21 +665,18 @@ if check_password():
             st.info("ℹ️ No master files found on server.")
         uploaded_files = st.file_uploader("Add Temporary Files", type=['xlsx', 'xls'], accept_multiple_files=True)
         
-        # DEBUG EXPANDER (Rendered AFTER processing below)
+        # DEBUG EXPANDER
+        with st.expander("🐞 Debug: New Patient Data"):
+            if 'debug_log' in locals():
+                for line in debug_log: st.write(line)
+            else:
+                st.write("No debug logs yet.")
     
     all_files = server_files + (uploaded_files if uploaded_files else [])
 
     if all_files:
         with st.spinner("Analyzing files..."):
             df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend, debug_log = process_files(all_files)
-        
-        # DISPLAY DEBUG LOG NOW
-        with st.sidebar:
-             with st.expander("🐞 Debug: New Patient Data"):
-                if debug_log:
-                    for line in debug_log: st.write(line)
-                else:
-                    st.write("No debug logs captured.")
 
         if df_clinic.empty and df_md_global.empty and df_visits.empty and df_financial.empty and df_pos_trend.empty:
             st.error("No valid data found.")
@@ -765,7 +767,7 @@ if check_password():
                                             current_year = max_date.year
                                             ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
                                             if ytd_curr > 0:
-                                                new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
+                                                new_r = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
                                                 hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
                                         fig_long = px.bar(hist_trend, x='Year', y='Total RVUs', text_auto='.2s')
                                         fig_long.update_layout(font=dict(color="black"), font_color="black")
@@ -1038,6 +1040,10 @@ if check_password():
                     with c1:
                         st.markdown("#### 🔢 Monthly Data")
                         piv = df_apps.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                        # FIX: Sort APP Table Chronologically
+                        sorted_months_app = df_apps.sort_values("Month_Clean")["Month_Label"].unique()
+                        piv = piv.reindex(columns=sorted_months_app)
+                        
                         piv["Total"] = piv.sum(axis=1)
                         st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                     with c2:
