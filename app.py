@@ -385,13 +385,14 @@ if check_password():
                     # Check for actual date object
                     if isinstance(val, (datetime, pd.Timestamp)):
                          temp_date_map[c] = val
+                    # Check for string "Jan-25"
                     else:
-                         s_val = str(val).strip()
-                         if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
-                             try:
-                                 dt = pd.to_datetime(s_val, format='%b-%y')
-                                 temp_date_map[c] = dt
-                             except: pass
+                        s_val = str(val).strip()
+                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
+                            try:
+                                dt = pd.to_datetime(s_val, format='%b-%y')
+                                temp_date_map[c] = dt
+                            except: pass
                 
                 # If we found at least 2 date columns in this row, assume it's the header
                 if len(temp_date_map) >= 2:
@@ -514,15 +515,20 @@ if check_password():
             if "NEW" in filename and ("PATIENT" in filename or "PT" in filename):
                 file_date = get_date_from_filename(filename)
                 debug_log.append(f"📂 Processing New Patient File: {filename}")
+                found_pos = False
                 
                 for sheet_name, df in xls.items():
                     if "POS" in sheet_name.upper() and "TREND" in sheet_name.upper():
+                        found_pos = True
                         res = parse_pos_trend_sheet(df, filename, debug_log)
                         if not res.empty: 
                             pos_trend_data.append(res)
                             debug_log.append(f"  ✅ Extracted {len(res)} records from {sheet_name}")
                         else:
                             debug_log.append(f"  ⚠️ No records extracted from {sheet_name}")
+
+                if not found_pos:
+                     debug_log.append(f"  ❌ No 'POS ... Trend' sheet found in {filename}")
 
                 visit_tag = "General"
                 if "LROC" in filename: visit_tag = "LROC"
@@ -1147,23 +1153,33 @@ if check_password():
                     elif fin_view == "CPA By Clinic":
                         clinic_fin = df_financial[df_financial['Mode'] == 'Clinic']
                         if not clinic_fin.empty:
-                            st.markdown("### 🏥 CPA By Clinic (Monthly/YTD)")
-                            latest_fin_date = clinic_fin['Month_Clean'].max()
-                            latest_clinic = clinic_fin[clinic_fin['Month_Clean'] == latest_fin_date]
-
-                            # Calculate % Payments/Charges
-                            latest_clinic['% Payments/Charges'] = latest_clinic.apply(lambda x: (x['Payments'] / x['Charges']) if x['Charges'] > 0 else 0, axis=1)
-
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                 fig_chg = px.bar(latest_clinic.sort_values('Charges', ascending=True), x='Charges', y='Name', orientation='h', title=f"Total Charges ({latest_fin_date.strftime('%b %Y')})", text_auto='$.2s')
-                                 fig_chg.update_layout(height=800, font=dict(color="black", size=18), font_color="black")
-                                 st.plotly_chart(fig_chg, use_container_width=True)
-                            with c2:
-                                 fig_pay = px.bar(latest_clinic.sort_values('Payments', ascending=True), x='Payments', y='Name', orientation='h', title=f"Total Payments ({latest_fin_date.strftime('%b %Y')})", text_auto='$.2s')
-                                 fig_pay.update_layout(height=800, font=dict(color="black", size=18), font_color="black")
-                                 st.plotly_chart(fig_pay, use_container_width=True)
+                            st.markdown("### 🏥 CPA By Clinic")
                             
-                            st.dataframe(latest_clinic[['Name', 'Charges', 'Payments', '% Payments/Charges']].sort_values('Charges', ascending=False).style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}).background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                            # 1. Year-To-Date (YTD) Aggregation
+                            ytd_df = clinic_fin.groupby('Name')[['Charges', 'Payments']].sum().reset_index()
+                            ytd_df['% Payments/Charges'] = ytd_df.apply(lambda x: (x['Payments'] / x['Charges']) if x['Charges'] > 0 else 0, axis=1)
+                            
+                            st.markdown("#### 📆 Year to Date Charges & Payments")
+                            st.dataframe(ytd_df.sort_values('Charges', ascending=False).style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}).background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+
+                            st.markdown("---")
+                            
+                            # 2. Monthly Data Table
+                            st.markdown("#### 📅 Monthly Data Breakdown")
+                            # Pivot to show Months as Columns or just a clean list
+                            # Let's do a pivot table: Row=Name, Col=Month, Values=Charges/Payments (Combined)
+                            # To keep it clean, let's just show a table sorted by Month and Name
+                            
+                            display_cols = ['Name', 'Month_Label', 'Charges', 'Payments']
+                            monthly_display = clinic_fin[display_cols].sort_values(['Month_Label', 'Name'], ascending=False)
+                            
+                            # Calculate monthly ratio for display
+                            monthly_display['% Payments/Charges'] = monthly_display.apply(lambda x: (x['Payments'] / x['Charges']) if x['Charges'] > 0 else 0, axis=1)
+                            
+                            # Re-sort chronologically for the display
+                            monthly_display['Month_Sort'] = pd.to_datetime(monthly_display['Month_Label'], format='%b-%y')
+                            monthly_display = monthly_display.sort_values(['Month_Sort', 'Name'], ascending=[False, True]).drop(columns=['Month_Sort'])
+                            
+                            st.dataframe(monthly_display.style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}).background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
     else:
         st.info("👋 Ready. View Only Mode: Add files to 'Reports' folder in GitHub to update data.")
