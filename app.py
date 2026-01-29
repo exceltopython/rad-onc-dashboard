@@ -605,11 +605,17 @@ if check_password():
         df_visits = pd.concat(visit_data, ignore_index=True) if visit_data else pd.DataFrame()
         df_financial = pd.concat(financial_data, ignore_index=True) if financial_data else pd.DataFrame()
         
-        # FIX: Ensure df_pos_trend is initialized properly even if empty
+        # FIX: Ensure df_pos_trend is initialized properly
         if pos_trend_data:
             df_pos_trend = pd.concat(pos_trend_data, ignore_index=True)
         else:
             df_pos_trend = pd.DataFrame(columns=['Clinic_Tag', 'Month_Clean', 'New Patients', 'Month_Label', 'source_type'])
+
+        # FIX: Ensure Month_Label exists in Financial Data
+        if not df_financial.empty:
+            df_financial['Month_Clean'] = pd.to_datetime(df_financial['Month_Clean'], errors='coerce')
+            df_financial.dropna(subset=['Month_Clean'], inplace=True)
+            df_financial['Month_Label'] = df_financial['Month_Clean'].dt.strftime('%b-%y')
 
         # GLOBAL DATE FIXES
         if not df_provider_raw.empty:
@@ -1164,7 +1170,7 @@ if check_password():
                             
                             # 2. Monthly Data Table
                             st.markdown("#### 📅 Monthly Data Breakdown")
-                            # Pivot to show Months as Columns or just a clean list
+                            
                             display_cols = ['Name', 'Month_Label', 'Charges', 'Payments']
                             monthly_display = clinic_fin[display_cols].sort_values(['Month_Label', 'Name'], ascending=False)
                             
