@@ -382,17 +382,15 @@ if check_password():
                 
                 for c in range(len(row)):
                     val = row[c]
-                    # Check for actual date object
                     if isinstance(val, (datetime, pd.Timestamp)):
                          temp_date_map[c] = val
-                    # Check for string "Jan-25"
                     else:
-                        s_val = str(val).strip()
-                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
-                            try:
-                                dt = pd.to_datetime(s_val, format='%b-%y')
-                                temp_date_map[c] = dt
-                            except: pass
+                         s_val = str(val).strip()
+                         if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
+                             try:
+                                 dt = pd.to_datetime(s_val, format='%b-%y')
+                                 temp_date_map[c] = dt
+                             except: pass
                 
                 # If we found at least 2 date columns in this row, assume it's the header
                 if len(temp_date_map) >= 2:
@@ -1167,9 +1165,6 @@ if check_password():
                             # 2. Monthly Data Table
                             st.markdown("#### 📅 Monthly Data Breakdown")
                             # Pivot to show Months as Columns or just a clean list
-                            # Let's do a pivot table: Row=Name, Col=Month, Values=Charges/Payments (Combined)
-                            # To keep it clean, let's just show a table sorted by Month and Name
-                            
                             display_cols = ['Name', 'Month_Label', 'Charges', 'Payments']
                             monthly_display = clinic_fin[display_cols].sort_values(['Month_Label', 'Name'], ascending=False)
                             
