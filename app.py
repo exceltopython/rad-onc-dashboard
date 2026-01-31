@@ -49,7 +49,7 @@ def check_password():
         st.text_input("🔒 Enter Dashboard Password:", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
-        st.text_input("❌ App down for improvements. Come back later", type="password", on_change=password_entered, key="password")
+        st.text_input("❌ App down for improvements. Come back soon", type="password", on_change=password_entered, key="password")
         return False
     else:
         return True
@@ -389,6 +389,10 @@ if check_password():
                     elif not clean_name: continue
                 else:
                     clean_name = name_val.replace(" Rad", "").strip()
+                    # FIX: Merge "Stonecrest - New" into "Stonecrest"
+                    if "STONECREST" in clean_name.upper() and "NEW" in clean_name.upper():
+                        clean_name = "Stonecrest"
+                        
                     if "TOTAL" in clean_name.upper(): 
                         if tag == "PROTON": clean_name = "TN Proton Center"
                         else: clean_name = tag + " Total"
@@ -1269,4 +1273,3 @@ if check_password():
                             st.dataframe(monthly_display.style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}).background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
     else:
         st.info("👋 Ready. View Only Mode: Add files to 'Reports' folder in GitHub to update data.")
-
