@@ -35,7 +35,7 @@ def inject_custom_css():
 inject_custom_css()
 
 # --- PASSWORD CONFIGURATION ---
-APP_PASSWORD = "RadOnc2026"
+APP_PASSWORD = "RadOnc2026rj"
 
 def check_password():
     def password_entered():
@@ -49,7 +49,7 @@ def check_password():
         st.text_input("🔒 Enter Dashboard Password:", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
-        st.text_input("❌ Password incorrect. Try again:", type="password", on_change=password_entered, key="password")
+        st.text_input("❌ App down for improvements. Come back later", type="password", on_change=password_entered, key="password")
         return False
     else:
         return True
@@ -1269,3 +1269,4 @@ if check_password():
                             st.dataframe(monthly_display.style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}).background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
     else:
         st.info("👋 Ready. View Only Mode: Add files to 'Reports' folder in GitHub to update data.")
+
