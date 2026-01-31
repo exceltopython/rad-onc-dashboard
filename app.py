@@ -906,16 +906,16 @@ if check_password():
                                     piv_np_net = np_latest.pivot_table(index="Month_Label", columns="Display_Name", values="New Patients", aggfunc="sum").fillna(0)
                                     st.dataframe(piv_np_net.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
-                            # --- NEW: CONSULTS SECTION ---
+                            # --- NEW: CONSULTS (TX PLAN) SECTION ---
                             if not df_consults.empty:
                                 st.markdown("---")
-                                st.markdown("### 🩺 Consults (CPT 77263 Count)")
+                                st.markdown("### 📝 Tx Plan Complex (CPT 77263)")
                                 
                                 # Sort chronologically
                                 sorted_m = df_consults.sort_values("Month_Clean")["Month_Label"].unique()
                                 
-                                # FIX: Use .fillna(0) after reindexing to prevent NaN errors
-                                piv_consult = df_consults.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
+                                # FIX: Use .fillna(0) AND .astype(float) to ensure numeric integrity
+                                piv_consult = df_consults.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum")
                                 piv_consult = piv_consult.reindex(columns=sorted_m).fillna(0)
                                 piv_consult["Total"] = piv_consult.sum(axis=1)
                                 
@@ -961,7 +961,7 @@ if check_password():
                                     st.markdown(f"#### 🧑‍⚕️ {c_name}: Monthly Data (by Provider)")
                                     piv_p = clinic_prov_df.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
                                     sorted_months_p = clinic_prov_df.sort_values("Month_Clean")["Month_Label"].unique()
-                                    piv_p = piv_p.reindex(columns=sorted_months_p)
+                                    piv_p = piv_p.reindex(columns=sorted_months_p).fillna(0)
                                     piv_p["Total"] = piv_p.sum(axis=1)
                                     st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
@@ -982,7 +982,7 @@ if check_password():
                                             
                                             pos_piv = pos_df.pivot_table(index="Clinic_Tag", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
                                             sorted_m = pos_df.sort_values("Month_Clean")["Month_Label"].unique()
-                                            pos_piv = pos_piv.reindex(columns=sorted_m)
+                                            pos_piv = pos_piv.reindex(columns=sorted_m).fillna(0)
                                             pos_piv["Total"] = pos_piv.sum(axis=1)
                                             st.dataframe(pos_piv.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                                 st.markdown("---")
@@ -1025,7 +1025,7 @@ if check_password():
                                     st.markdown("#### 🔢 Monthly Data")
                                     piv = df_view.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
                                     sorted_months = df_view.sort_values("Month_Clean")["Month_Label"].unique()
-                                    piv = piv.reindex(columns=sorted_months)
+                                    piv = piv.reindex(columns=sorted_months).fillna(0)
                                     piv["Total"] = piv.sum(axis=1)
                                     st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                             with c2:
@@ -1045,7 +1045,7 @@ if check_password():
                                     st.markdown("#### 🧑‍⚕️ Monthly Data (by Provider)")
                                     piv_p = prov_df.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
                                     sorted_months_p = prov_df.sort_values("Month_Clean")["Month_Label"].unique()
-                                    piv_p = piv_p.reindex(columns=sorted_months_p)
+                                    piv_p = piv_p.reindex(columns=sorted_months_p).fillna(0)
                                     piv_p["Total"] = piv_p.sum(axis=1)
                                     st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
@@ -1066,7 +1066,7 @@ if check_password():
                                      
                                      pos_piv = pos_df.pivot_table(index="Clinic_Tag", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
                                      sorted_m = pos_df.sort_values("Month_Clean")["Month_Label"].unique()
-                                     pos_piv = pos_piv.reindex(columns=sorted_m)
+                                     pos_piv = pos_piv.reindex(columns=sorted_m).fillna(0)
                                      pos_piv["Total"] = pos_piv.sum(axis=1)
                                      st.dataframe(pos_piv.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                         
@@ -1128,7 +1128,7 @@ if check_password():
                                 piv = df_mds.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
                                 # FIX: Sort MD Table Chronologically
                                 sorted_months_md = df_mds.sort_values("Month_Clean")["Month_Label"].unique()
-                                piv = piv.reindex(columns=sorted_months_md)
+                                piv = piv.reindex(columns=sorted_months_md).fillna(0)
                                 
                                 piv["Total"] = piv.sum(axis=1)
                                 st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
@@ -1191,7 +1191,7 @@ if check_password():
                         piv = df_apps.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
                         # FIX: Sort APP Table Chronologically
                         sorted_months_app = df_apps.sort_values("Month_Clean")["Month_Label"].unique()
-                        piv = piv.reindex(columns=sorted_months_app)
+                        piv = piv.reindex(columns=sorted_months_app).fillna(0)
                         
                         piv["Total"] = piv.sum(axis=1)
                         st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
