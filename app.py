@@ -981,7 +981,7 @@ if check_password():
                                 piv_consult = piv_consult.reindex(columns=sorted_m).fillna(0)
                                 piv_consult["Total"] = piv_consult.sum(axis=1)
                                 
-                                st.dataframe(piv_consult.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=600)
+                                st.dataframe(piv_consult.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=800)
 
 
                         if clinic_filter in ["TriStar", "Ascension"]:
