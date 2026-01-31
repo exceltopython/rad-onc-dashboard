@@ -389,13 +389,13 @@ if check_password():
                     elif not clean_name: continue
                 else:
                     clean_name = name_val.replace(" Rad", "").strip()
-                    # FIX: Merge "Stonecrest - New" into "Stonecrest"
-                    if "STONECREST" in clean_name.upper() and "NEW" in clean_name.upper():
-                        clean_name = "Stonecrest"
-                        
                     if "TOTAL" in clean_name.upper(): 
                         if tag == "PROTON": clean_name = "TN Proton Center"
                         else: clean_name = tag + " Total"
+                    
+                    # Merge Stonecrest variants
+                    if "STONECREST" in clean_name.upper():
+                         clean_name = "Stonecrest"
 
                 records.append({
                     "Name": clean_name, "Month_Clean": filename_date,
@@ -421,15 +421,17 @@ if check_password():
                 
                 for c in range(len(row)):
                     val = row[c]
+                    # Check for actual date object
                     if isinstance(val, (datetime, pd.Timestamp)):
                          temp_date_map[c] = val
+                    # Check for string "Jan-25"
                     else:
-                         s_val = str(val).strip()
-                         if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
-                             try:
-                                 dt = pd.to_datetime(s_val, format='%b-%y')
-                                 temp_date_map[c] = dt
-                             except: pass
+                        s_val = str(val).strip()
+                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
+                            try:
+                                dt = pd.to_datetime(s_val, format='%b-%y')
+                                temp_date_map[c] = dt
+                            except: pass
                 
                 # If we found at least 2 date columns in this row, assume it's the header
                 if len(temp_date_map) >= 2:
@@ -912,8 +914,9 @@ if check_password():
                                 # Sort chronologically
                                 sorted_m = df_consults.sort_values("Month_Clean")["Month_Label"].unique()
                                 
+                                # FIX: Use .fillna(0) after reindexing to prevent NaN errors
                                 piv_consult = df_consults.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
-                                piv_consult = piv_consult.reindex(columns=sorted_m)
+                                piv_consult = piv_consult.reindex(columns=sorted_m).fillna(0)
                                 piv_consult["Total"] = piv_consult.sum(axis=1)
                                 
                                 st.dataframe(piv_consult.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
