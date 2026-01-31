@@ -270,7 +270,7 @@ if check_password():
                 })
         return pd.DataFrame(records)
 
-    # --- NEW: SPECIFIC PARSER FOR CPT 77263 CONSULTS (DEBUGGING INCLUDED) ---
+    # --- NEW: SPECIFIC PARSER FOR CPT 77263 CONSULTS (FIXED DATE CHECK) ---
     def parse_consults_data(df, sheet_name, log):
         records = []
         try:
@@ -290,17 +290,17 @@ if check_password():
                 for col in df.columns[4:]: # Assuming dates start after col 4
                     header_val = df.iloc[header_row_idx, col]
                     
-                    # STRICT DATE CHECK (The Fix)
-                    is_date = False
+                    # STRICT DATE CHECK: Skip if header is not a valid date
+                    is_valid_date = False
                     if isinstance(header_val, (datetime, pd.Timestamp)):
-                        is_date = True
+                        is_valid_date = True
                     elif isinstance(header_val, str):
-                        # Use Regex to ensure it looks like "Jan-25"
+                        # Regex match for Jan-25
                         if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
-                            is_date = True
+                            is_valid_date = True
                     
-                    if not is_date:
-                        continue # Skip "Total", "Avg", "%", "YTD"
+                    if not is_valid_date:
+                        continue # Skip "Total", "AVG", "%" columns
                     
                     val = clean_number(df.iloc[cpt_row_idx, col])
                     if val is not None:
@@ -1271,22 +1271,8 @@ if check_password():
                             ytd_df = clinic_fin.groupby('Name')[['Charges', 'Payments']].sum().reset_index()
                             ytd_df['% Payments/Charges'] = ytd_df.apply(lambda x: (x['Payments'] / x['Charges']) if x['Charges'] > 0 else 0, axis=1)
                             
-                            # TOTAL ROW LOGIC
-                            total_charges = ytd_df['Charges'].sum()
-                            total_payments = ytd_df['Payments'].sum()
-                            total_ratio = (total_payments / total_charges) if total_charges > 0 else 0
-                            
-                            total_row = pd.DataFrame([{
-                                "Name": "TOTAL",
-                                "Charges": total_charges,
-                                "Payments": total_payments,
-                                "% Payments/Charges": total_ratio
-                            }])
-                            
-                            ytd_display = pd.concat([ytd_df.sort_values('Charges', ascending=False), total_row], ignore_index=True)
-
                             st.markdown("#### 📆 Year to Date Charges & Payments")
-                            st.dataframe(ytd_display.style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}).background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=600)
+                            st.dataframe(ytd_df.sort_values('Charges', ascending=False).style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}).background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
                             st.markdown("---")
                             
