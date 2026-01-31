@@ -182,7 +182,7 @@ if check_password():
 
     # --- PARSERS ---
 
-    def parse_detailed_prov_sheet(df, filename_date, clinic_id):
+    def parse_detailed_prov_sheet(df, filename_date, clinic_id, log):
         records = []
         current_provider = None
         current_values = {"E&M OFFICE CODES": 0.0, "RADIATION CODES": 0.0, "SPECIAL PROCEDURES": 0.0}
@@ -245,6 +245,8 @@ if check_password():
                                             "Month_Label": filename_date.strftime('%b-%y'), "source_type": "detail",
                                             "Month_Clean": filename_date
                                         })
+        if len(records) > 0:
+            log.append(f"    ✅ Extracted {len(records)} detailed provider rows for {clinic_id}")
         return pd.DataFrame(records)
 
     def parse_rvu_sheet(df, sheet_name, entity_type, clinic_tag="General", forced_fte=None):
@@ -525,6 +527,7 @@ if check_password():
         clinic_data = []; provider_data = []; visit_data = []; financial_data = []; pos_trend_data = []; consult_data = []
         debug_log = []
         consult_log = [] # Separate log for consults
+        prov_log = [] # Separate log for providers
 
         for file_obj in file_objects:
             if isinstance(file_obj, LocalFile):
@@ -608,10 +611,10 @@ if check_password():
                     file_date = get_date_from_filename(filename)
                     c_id = get_clinic_id_from_sheet(sheet_name)
                     if c_id:
-                        res = parse_detailed_prov_sheet(df, file_date, c_id)
+                        res = parse_detailed_prov_sheet(df, file_date, c_id, prov_log)
                         if not res.empty: provider_data.append(res)
                     elif "sumner" in s_lower:
-                         res = parse_detailed_prov_sheet(df, file_date, "Sumner")
+                         res = parse_detailed_prov_sheet(df, file_date, "Sumner", prov_log)
                          if not res.empty: provider_data.append(res)
                     continue
 
@@ -632,7 +635,8 @@ if check_password():
                     if not res_consult.empty:
                         consult_data.append(res_consult)
                     
-                    # DO NOT CONTINUE - Let it fall through to provider check below!
+                    # DO NOT CONTINUE - Fall through to allow provider extraction if present!
+                    # (This was the cause of missing MD data)
 
                 # --- Fallback for LROC/TROC special handling in Productivity Trend sheets ---
                 if "PRODUCTIVITY TREND" in s_upper: 
@@ -652,7 +656,9 @@ if check_password():
                 if "PROTON POS" in s_upper: continue
 
                 res = parse_rvu_sheet(df, clean_name, 'provider', clinic_tag=file_tag)
-                if not res.empty: provider_data.append(res)
+                if not res.empty: 
+                    provider_data.append(res)
+                    prov_log.append(f"  ✅ Extracted provider data for {clean_name} ({len(res)} rows)")
 
             if file_tag == "TOPC":
                 proton_providers_temp = []
@@ -725,7 +731,10 @@ if check_password():
                 return pd.NaT
                 
             df_provider_raw['Month_Clean'] = df_provider_raw['Month'].apply(parse_date_safe)
+            
+            # Drop invalid dates silently (logs already captured them if needed)
             df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
+            
             df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
             df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
 
@@ -751,7 +760,7 @@ if check_password():
             df_provider_global['RVU per FTE'] = df_provider_global.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
             df_provider_global.sort_values('Month_Clean', inplace=True)
 
-        return df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, debug_log, consult_log
+        return df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, debug_log, consult_log, prov_log
 
     # --- UI ---
     st.title("🩺 Radiation Oncology Division Analytics")
@@ -778,7 +787,7 @@ if check_password():
 
     if all_files:
         with st.spinner("Analyzing files..."):
-            df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, debug_log, consult_log = process_files(all_files)
+            df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, debug_log, consult_log, prov_log = process_files(all_files)
         
         with st.sidebar:
              with st.expander("🐞 Debug: New Patient Data"):
@@ -792,6 +801,12 @@ if check_password():
                     for line in consult_log: st.write(line)
                 else:
                     st.write("No logs.")
+             
+             with st.expander("🐞 Debug: MD/APP Data"):
+                if prov_log:
+                    for line in prov_log: st.write(line)
+                else:
+                    st.write("No provider data extracted.")
 
         if df_clinic.empty and df_md_global.empty and df_visits.empty and df_financial.empty and df_pos_trend.empty:
             st.error("No valid data found.")
@@ -1032,8 +1047,7 @@ if check_password():
                                             pos_piv = pos_piv.reindex(columns=sorted_m).fillna(0)
                                             pos_piv["Total"] = pos_piv.sum(axis=1)
                                             st.dataframe(pos_piv.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-                                st.markdown("---")
-
+                        
                         if target_tag and not df_provider_raw.empty:
                             pie_data_source = df_provider_raw[(df_provider_raw['Clinic_Tag'] == target_tag) & (df_provider_raw.get('source_type', '') == 'detail')]
                             if pie_data_source.empty: pie_data_source = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
