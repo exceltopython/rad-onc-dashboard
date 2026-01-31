@@ -270,18 +270,19 @@ if check_password():
                 })
         return pd.DataFrame(records)
 
-    # --- NEW: SPECIFIC PARSER FOR CPT 77263 CONSULTS ---
-    def parse_consults_data(df, sheet_name):
+    # --- NEW: SPECIFIC PARSER FOR CPT 77263 CONSULTS (DEBUGGING INCLUDED) ---
+    def parse_consults_data(df, sheet_name, log):
         records = []
         try:
             header_row_idx = find_date_row(df)
             
-            # Find the row containing 77263
+            # Find the row containing 77263 explicitly in Column A (index 0)
             cpt_row_idx = -1
             for r in range(len(df)):
                 row_val = str(df.iloc[r, 0]).strip()
                 if CONSULT_CPT in row_val:
                     cpt_row_idx = r
+                    log.append(f"    ✅ Found {CONSULT_CPT} in row {r} for {sheet_name}")
                     break
             
             if cpt_row_idx != -1:
@@ -298,7 +299,13 @@ if check_password():
                             "Name": sheet_name, "Month": header_val, 
                             "Count": count, "Clinic_Tag": sheet_name
                         })
-        except: pass
+                        log.append(f"      -> Extracted {count:.1f} ({val} wRVU) for {header_val}")
+            else:
+                log.append(f"    ❌ {CONSULT_CPT} NOT found in column A for {sheet_name}")
+
+        except Exception as e:
+            log.append(f"    ❌ Error parsing {sheet_name}: {str(e)}")
+            
         return pd.DataFrame(records)
 
     def parse_visits_sheet(df, filename_date, clinic_tag="General"):
@@ -470,7 +477,7 @@ if check_password():
                     if c_id: break
                 
                 if c_id:
-                    log.append(f"    Matched row '{site_name_found}' -> ID: {c_id}")
+                    # log.append(f"    Matched row '{site_name_found}' -> ID: {c_id}")
                     for col_idx, dt in date_map.items():
                         if col_idx < len(row):
                             val = clean_number(row[col_idx])
@@ -505,6 +512,7 @@ if check_password():
     def process_files(file_objects):
         clinic_data = []; provider_data = []; visit_data = []; financial_data = []; pos_trend_data = []; consult_data = []
         debug_log = []
+        consult_log = [] # Separate log for consults
 
         for file_obj in file_objects:
             if isinstance(file_obj, LocalFile):
@@ -605,8 +613,9 @@ if check_password():
                     if clean_name in CLINIC_CONFIG:
                         consult_name = CLINIC_CONFIG[clean_name]["name"]
                     
+                    consult_log.append(f"Checking {clean_name} for 77263...")
                     # Extract Consult Counts
-                    res_consult = parse_consults_data(df, consult_name)
+                    res_consult = parse_consults_data(df, consult_name, consult_log)
                     if not res_consult.empty:
                         consult_data.append(res_consult)
 
@@ -710,7 +719,7 @@ if check_password():
             df_provider_global['RVU per FTE'] = df_provider_global.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
             df_provider_global.sort_values('Month_Clean', inplace=True)
 
-        return df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, debug_log
+        return df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, debug_log, consult_log
 
     # --- UI ---
     st.title("🩺 Radiation Oncology Division Analytics")
@@ -737,7 +746,7 @@ if check_password():
 
     if all_files:
         with st.spinner("Analyzing files..."):
-            df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, debug_log = process_files(all_files)
+            df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, debug_log, consult_log = process_files(all_files)
         
         with st.sidebar:
              with st.expander("🐞 Debug: New Patient Data"):
@@ -745,6 +754,12 @@ if check_password():
                     for line in debug_log: st.write(line)
                 else:
                     st.write("No debug logs captured.")
+             
+             with st.expander("🐞 Debug: Tx Plan (77263) Extraction"):
+                if consult_log:
+                    for line in consult_log: st.write(line)
+                else:
+                    st.write("No logs.")
 
         if df_clinic.empty and df_md_global.empty and df_visits.empty and df_financial.empty and df_pos_trend.empty:
             st.error("No valid data found.")
@@ -906,7 +921,7 @@ if check_password():
                                     piv_np_net = np_latest.pivot_table(index="Month_Label", columns="Display_Name", values="New Patients", aggfunc="sum").fillna(0)
                                     st.dataframe(piv_np_net.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
-                            # --- NEW: CONSULTS (TX PLAN) SECTION ---
+                            # --- NEW: TX PLAN (CPT 77263) SECTION ---
                             if not df_consults.empty:
                                 st.markdown("---")
                                 st.markdown("### 📝 Tx Plan Complex (CPT 77263)")
