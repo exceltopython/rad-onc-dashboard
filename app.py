@@ -678,6 +678,10 @@ if check_password():
         if consult_data:
             df_consults = pd.concat(consult_data, ignore_index=True)
             df_consults['Month_Clean'] = pd.to_datetime(df_consults['Month'], errors='coerce')
+            
+            # CRITICAL FIX: Drop rows where date parsing failed (removes "Total", "Avg", "%", etc.)
+            df_consults.dropna(subset=['Month_Clean'], inplace=True)
+            
             df_consults['Month_Label'] = df_consults['Month_Clean'].dt.strftime('%b-%y')
         else:
              df_consults = pd.DataFrame(columns=['Name', 'Month', 'Count', 'Month_Label'])
