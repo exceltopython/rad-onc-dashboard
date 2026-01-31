@@ -289,7 +289,18 @@ if check_password():
                 # Extract monthly data
                 for col in df.columns[4:]: # Assuming dates start after col 4
                     header_val = df.iloc[header_row_idx, col]
-                    if pd.isna(header_val): continue
+                    
+                    # STRICT DATE CHECK (The Fix)
+                    is_date = False
+                    if isinstance(header_val, (datetime, pd.Timestamp)):
+                        is_date = True
+                    elif isinstance(header_val, str):
+                        # Use Regex to ensure it looks like "Jan-25"
+                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
+                            is_date = True
+                    
+                    if not is_date:
+                        continue # Skip "Total", "Avg", "%", "YTD"
                     
                     val = clean_number(df.iloc[cpt_row_idx, col])
                     if val is not None:
