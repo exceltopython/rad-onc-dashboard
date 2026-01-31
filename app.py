@@ -290,20 +290,17 @@ if check_password():
                 for col in df.columns[4:]: # Assuming dates start after col 4
                     header_val = df.iloc[header_row_idx, col]
                     
-                    # STRICT DATE CHECK + CONVERSION
-                    valid_date_obj = None
-                    
+                    # STRICT DATE CHECK: Skip if header is not a valid date
+                    is_valid_date = False
                     if isinstance(header_val, (datetime, pd.Timestamp)):
-                        valid_date_obj = header_val
+                        is_valid_date = True
                     elif isinstance(header_val, str):
                         s_val = header_val.strip()
                         # Strict Regex match for Jan-25 style headers
                         if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
-                            try:
-                                valid_date_obj = pd.to_datetime(s_val, format='%b-%y')
-                            except: pass
+                            is_valid_date = True
                     
-                    if valid_date_obj is None:
+                    if not is_valid_date:
                         continue # Skip "Total", "AVG", "YTD", "%" columns
                     
                     val = clean_number(df.iloc[cpt_row_idx, col])
@@ -311,10 +308,10 @@ if check_password():
                         # Convert wRVU to Count
                         count = val / CONSULT_CONVERSION
                         records.append({
-                            "Name": sheet_name, "Month": valid_date_obj, 
+                            "Name": sheet_name, "Month": header_val, 
                             "Count": count, "Clinic_Tag": sheet_name
                         })
-                        log.append(f"      -> Extracted {count:.1f} ({val} wRVU) for {valid_date_obj.strftime('%b-%y')}")
+                        log.append(f"      -> Extracted {count:.1f} ({val} wRVU) for {header_val}")
             else:
                 log.append(f"    ❌ {CONSULT_CPT} NOT found in column A for {sheet_name}")
 
@@ -605,6 +602,7 @@ if check_password():
 
             for sheet_name, df in xls.items():
                 s_lower = sheet_name.strip().lower()
+                clean_name = sheet_name.strip()
                 
                 if s_lower.endswith(" prov"):
                     file_date = get_date_from_filename(filename)
@@ -620,32 +618,35 @@ if check_password():
                 s_upper = sheet_name.upper()
                 if any(ignored in s_upper for ignored in IGNORED_SHEETS): continue
                 
-                # --- NEW: Check for Consults in Productivity Trend Sheets ---
-                if "PRODUCTIVITY TREND" in s_upper: 
-                    clean_name = sheet_name.strip()
-                    # Map to pretty name
-                    consult_name = clean_name
-                    if clean_name in CLINIC_CONFIG:
-                        consult_name = CLINIC_CONFIG[clean_name]["name"]
+                # --- CHECK FOR CLINIC SHEETS ---
+                if clean_name in CLINIC_CONFIG:
+                    # 1. Parse Standard RVUs
+                    res = parse_rvu_sheet(df, clean_name, 'clinic', clinic_tag="General")
+                    if not res.empty: clinic_data.append(res)
                     
+                    # 2. Parse 77263 (Tx Plan) for this clinic
+                    # Use the pretty name from config for the display
+                    pretty_name = CLINIC_CONFIG[clean_name]["name"]
                     consult_log.append(f"Checking {clean_name} for 77263...")
-                    # Extract Consult Counts
-                    res_consult = parse_consults_data(df, consult_name, consult_log)
+                    res_consult = parse_consults_data(df, pretty_name, consult_log)
                     if not res_consult.empty:
                         consult_data.append(res_consult)
+                    
+                    continue # Stop processing this sheet
 
+                # --- Fallback for LROC/TROC special handling in Productivity Trend sheets ---
+                if "PRODUCTIVITY TREND" in s_upper: 
                     if file_tag in ["LROC", "TROC"]:
                         res = parse_rvu_sheet(df, file_tag, 'clinic', clinic_tag=file_tag)
                         if not res.empty: clinic_data.append(res)
+                        
+                        # Also check for 77263 here for LROC/TROC
+                        pretty_name = CLINIC_CONFIG[file_tag]["name"]
+                        res_consult = parse_consults_data(df, pretty_name, consult_log)
+                        if not res_consult.empty: consult_data.append(res_consult)
                     continue
 
                 if "PROTON" in s_upper and file_tag == "TOPC": continue 
-                
-                clean_name = sheet_name.strip()
-                if clean_name in CLINIC_CONFIG:
-                    res = parse_rvu_sheet(df, clean_name, 'clinic', clinic_tag="General")
-                    if not res.empty: clinic_data.append(res)
-                    continue
                 
                 if clean_name.upper() == "FRIEDMEN": clean_name = "Friedman"
                 if "PROTON POS" in s_upper: continue
