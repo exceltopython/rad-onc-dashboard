@@ -715,10 +715,16 @@ if check_password():
             df_financial['Month_Label'] = df_financial['Month_Clean'].dt.strftime('%b-%y')
 
         # GLOBAL DATE FIXES
+        # --- ROBUST PROVIDER DATE PARSING ---
         if not df_provider_raw.empty:
-            df_provider_raw['Month_Clean'] = pd.to_datetime(df_provider_raw['Month'], format='%b-%y', errors='coerce')
-            mask = df_provider_raw['Month_Clean'].isna()
-            if mask.any(): df_provider_raw.loc[mask, 'Month_Clean'] = pd.to_datetime(df_provider_raw.loc[mask, 'Month'], errors='coerce')
+            def parse_date_safe(x):
+                if isinstance(x, (datetime, pd.Timestamp)): return x
+                if isinstance(x, str):
+                    try: return pd.to_datetime(x, format='%b-%y')
+                    except: return pd.NaT
+                return pd.NaT
+                
+            df_provider_raw['Month_Clean'] = df_provider_raw['Month'].apply(parse_date_safe)
             df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
             df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
             df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
@@ -960,7 +966,7 @@ if check_password():
                                 piv_consult = piv_consult.reindex(columns=sorted_m).fillna(0)
                                 piv_consult["Total"] = piv_consult.sum(axis=1)
                                 
-                                st.dataframe(piv_consult.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                                st.dataframe(piv_consult.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=600)
 
 
                         if clinic_filter in ["TriStar", "Ascension"]:
