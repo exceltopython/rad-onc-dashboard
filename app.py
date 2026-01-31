@@ -86,6 +86,10 @@ if check_password():
     TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
     IGNORED_SHEETS = ["RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
     SERVER_DIR = "Reports"
+    
+    # CONSULT CPT CONFIG
+    CONSULT_CPT = "77263"
+    CONSULT_CONVERSION = 3.14
 
     # *** EXACT ROW NAME MAPPING FOR POS TREND SHEETS ***
     POS_ROW_MAPPING = {
@@ -264,6 +268,37 @@ if check_password():
                     "Month": header_val, "Total RVUs": col_sum, "RVU per FTE": col_sum / fte if fte > 0 else 0,
                     "Clinic_Tag": clinic_tag, "source_type": "standard"
                 })
+        return pd.DataFrame(records)
+
+    # --- NEW: SPECIFIC PARSER FOR CPT 77263 CONSULTS ---
+    def parse_consults_data(df, sheet_name):
+        records = []
+        try:
+            header_row_idx = find_date_row(df)
+            
+            # Find the row containing 77263
+            cpt_row_idx = -1
+            for r in range(len(df)):
+                row_val = str(df.iloc[r, 0]).strip()
+                if CONSULT_CPT in row_val:
+                    cpt_row_idx = r
+                    break
+            
+            if cpt_row_idx != -1:
+                # Extract monthly data
+                for col in df.columns[4:]: # Assuming dates start after col 4
+                    header_val = df.iloc[header_row_idx, col]
+                    if pd.isna(header_val): continue
+                    
+                    val = clean_number(df.iloc[cpt_row_idx, col])
+                    if val is not None:
+                        # Convert wRVU to Count
+                        count = val / CONSULT_CONVERSION
+                        records.append({
+                            "Name": sheet_name, "Month": header_val, 
+                            "Count": count, "Clinic_Tag": sheet_name
+                        })
+        except: pass
         return pd.DataFrame(records)
 
     def parse_visits_sheet(df, filename_date, clinic_tag="General"):
@@ -462,7 +497,7 @@ if check_password():
         return None
 
     def process_files(file_objects):
-        clinic_data = []; provider_data = []; visit_data = []; financial_data = []; pos_trend_data = []
+        clinic_data = []; provider_data = []; visit_data = []; financial_data = []; pos_trend_data = []; consult_data = []
         debug_log = []
 
         for file_obj in file_objects:
@@ -555,7 +590,20 @@ if check_password():
 
                 s_upper = sheet_name.upper()
                 if any(ignored in s_upper for ignored in IGNORED_SHEETS): continue
+                
+                # --- NEW: Check for Consults in Productivity Trend Sheets ---
                 if "PRODUCTIVITY TREND" in s_upper: 
+                    clean_name = sheet_name.strip()
+                    # Map to pretty name
+                    consult_name = clean_name
+                    if clean_name in CLINIC_CONFIG:
+                        consult_name = CLINIC_CONFIG[clean_name]["name"]
+                    
+                    # Extract Consult Counts
+                    res_consult = parse_consults_data(df, consult_name)
+                    if not res_consult.empty:
+                        consult_data.append(res_consult)
+
                     if file_tag in ["LROC", "TROC"]:
                         res = parse_rvu_sheet(df, file_tag, 'clinic', clinic_tag=file_tag)
                         if not res.empty: clinic_data.append(res)
@@ -605,11 +653,19 @@ if check_password():
         df_visits = pd.concat(visit_data, ignore_index=True) if visit_data else pd.DataFrame()
         df_financial = pd.concat(financial_data, ignore_index=True) if financial_data else pd.DataFrame()
         
-        # FIX: Ensure df_pos_trend is initialized properly
+        # FIX: Ensure df_pos_trend is initialized properly even if empty
         if pos_trend_data:
             df_pos_trend = pd.concat(pos_trend_data, ignore_index=True)
         else:
             df_pos_trend = pd.DataFrame(columns=['Clinic_Tag', 'Month_Clean', 'New Patients', 'Month_Label', 'source_type'])
+
+        # FIX: Ensure df_consults is initialized
+        if consult_data:
+            df_consults = pd.concat(consult_data, ignore_index=True)
+            df_consults['Month_Clean'] = pd.to_datetime(df_consults['Month'], errors='coerce')
+            df_consults['Month_Label'] = df_consults['Month_Clean'].dt.strftime('%b-%y')
+        else:
+             df_consults = pd.DataFrame(columns=['Name', 'Month', 'Count', 'Month_Label'])
 
         # FIX: Ensure Month_Label exists in Financial Data
         if not df_financial.empty:
@@ -648,7 +704,7 @@ if check_password():
             df_provider_global['RVU per FTE'] = df_provider_global.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
             df_provider_global.sort_values('Month_Clean', inplace=True)
 
-        return df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial, df_pos_trend, debug_log
+        return df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, debug_log
 
     # --- UI ---
     st.title("🩺 Radiation Oncology Division Analytics")
@@ -675,7 +731,7 @@ if check_password():
 
     if all_files:
         with st.spinner("Analyzing files..."):
-            df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend, debug_log = process_files(all_files)
+            df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, debug_log = process_files(all_files)
         
         with st.sidebar:
              with st.expander("🐞 Debug: New Patient Data"):
@@ -843,6 +899,21 @@ if check_password():
 
                                     piv_np_net = np_latest.pivot_table(index="Month_Label", columns="Display_Name", values="New Patients", aggfunc="sum").fillna(0)
                                     st.dataframe(piv_np_net.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+
+                            # --- NEW: CONSULTS SECTION ---
+                            if not df_consults.empty:
+                                st.markdown("---")
+                                st.markdown("### 🩺 Consults (CPT 77263 Count)")
+                                
+                                # Sort chronologically
+                                sorted_m = df_consults.sort_values("Month_Clean")["Month_Label"].unique()
+                                
+                                piv_consult = df_consults.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
+                                piv_consult = piv_consult.reindex(columns=sorted_m)
+                                piv_consult["Total"] = piv_consult.sum(axis=1)
+                                
+                                st.dataframe(piv_consult.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+
 
                         if clinic_filter in ["TriStar", "Ascension"]:
                             st.markdown("---")
@@ -1163,8 +1234,22 @@ if check_password():
                             ytd_df = clinic_fin.groupby('Name')[['Charges', 'Payments']].sum().reset_index()
                             ytd_df['% Payments/Charges'] = ytd_df.apply(lambda x: (x['Payments'] / x['Charges']) if x['Charges'] > 0 else 0, axis=1)
                             
+                            # TOTAL ROW LOGIC
+                            total_charges = ytd_df['Charges'].sum()
+                            total_payments = ytd_df['Payments'].sum()
+                            total_ratio = (total_payments / total_charges) if total_charges > 0 else 0
+                            
+                            total_row = pd.DataFrame([{
+                                "Name": "TOTAL",
+                                "Charges": total_charges,
+                                "Payments": total_payments,
+                                "% Payments/Charges": total_ratio
+                            }])
+                            
+                            ytd_display = pd.concat([ytd_df.sort_values('Charges', ascending=False), total_row], ignore_index=True)
+
                             st.markdown("#### 📆 Year to Date Charges & Payments")
-                            st.dataframe(ytd_df.sort_values('Charges', ascending=False).style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}).background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                            st.dataframe(ytd_display.style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}).background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=600)
 
                             st.markdown("---")
                             
