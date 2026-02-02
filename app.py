@@ -91,6 +91,14 @@ if check_password():
     CONSULT_CPT = "77263"
     CONSULT_CONVERSION = 3.14
 
+    # APP FOLLOW-UP CPT CONFIG
+    APP_CPT_RATES = {
+        "99212": 0.7,
+        "99213": 1.3,
+        "99214": 1.92,
+        "99215": 2.8
+    }
+
     # *** EXACT ROW NAME MAPPING FOR POS TREND SHEETS ***
     POS_ROW_MAPPING = {
         "CENTENNIAL RAD": "CENT", "DICKSON RAD": "Dickson", "MIDTOWN RAD": "Midtown",
@@ -249,6 +257,46 @@ if check_password():
             log.append(f"    ✅ Extracted {len(records)} detailed provider rows for {clinic_id}")
         return pd.DataFrame(records)
 
+    # --- NEW: PARSER FOR APP FOLLOW-UP CODES (99212-99215) ---
+    def parse_app_cpt_data(df, provider_name, log):
+        records = []
+        try:
+            header_row_idx = find_date_row(df)
+            
+            for cpt_code, rate in APP_CPT_RATES.items():
+                cpt_row_idx = -1
+                for r in range(len(df)):
+                    row_val = str(df.iloc[r, 0]).strip()
+                    if row_val.startswith(cpt_code):
+                        cpt_row_idx = r
+                        break
+                
+                if cpt_row_idx != -1:
+                    for col in df.columns[4:]: 
+                        header_val = df.iloc[header_row_idx, col]
+                        is_valid_date = False
+                        if isinstance(header_val, (datetime, pd.Timestamp)): is_valid_date = True
+                        elif isinstance(header_val, str):
+                            if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
+                                is_valid_date = True
+                        
+                        if not is_valid_date: continue 
+                        
+                        val = clean_number(df.iloc[cpt_row_idx, col])
+                        if val is not None and val != 0:
+                            count = val / rate
+                            records.append({
+                                "Name": provider_name, 
+                                "Month": header_val, 
+                                "Count": count, 
+                                "CPT Code": cpt_code,
+                                "Rate": rate
+                            })
+        except Exception as e:
+            log.append(f"    ❌ Error parsing APP CPT for {provider_name}: {str(e)}")
+        
+        return pd.DataFrame(records)
+
     def parse_rvu_sheet(df, sheet_name, entity_type, clinic_tag="General", forced_fte=None):
         if entity_type == 'clinic':
             config = CLINIC_CONFIG.get(sheet_name, {"name": sheet_name, "fte": 1.0})
@@ -272,13 +320,11 @@ if check_password():
                 })
         return pd.DataFrame(records)
 
-    # --- NEW: SPECIFIC PARSER FOR CPT 77263 CONSULTS (FIXED DATE CHECK) ---
+    # --- SPECIFIC PARSER FOR CPT 77263 CONSULTS (FIXED DATE CHECK) ---
     def parse_consults_data(df, sheet_name, log):
         records = []
         try:
             header_row_idx = find_date_row(df)
-            
-            # Find the row containing 77263 explicitly in Column A (index 0)
             cpt_row_idx = -1
             for r in range(len(df)):
                 row_val = str(df.iloc[r, 0]).strip()
@@ -288,32 +334,23 @@ if check_password():
                     break
             
             if cpt_row_idx != -1:
-                # Extract monthly data
-                for col in df.columns[4:]: # Assuming dates start after col 4
+                for col in df.columns[4:]: 
                     header_val = df.iloc[header_row_idx, col]
-                    
-                    # STRICT DATE CHECK: Skip if header is not a valid date
                     is_valid_date = False
-                    if isinstance(header_val, (datetime, pd.Timestamp)):
-                        is_valid_date = True
+                    if isinstance(header_val, (datetime, pd.Timestamp)): is_valid_date = True
                     elif isinstance(header_val, str):
-                        s_val = header_val.strip()
-                        # Strict Regex match for Jan-25 style headers
-                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
+                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
                             is_valid_date = True
                     
-                    if not is_valid_date:
-                        continue # Skip "Total", "AVG", "YTD", "%" columns
+                    if not is_valid_date: continue 
                     
                     val = clean_number(df.iloc[cpt_row_idx, col])
                     if val is not None:
-                        # Convert wRVU to Count
                         count = val / CONSULT_CONVERSION
                         records.append({
                             "Name": sheet_name, "Month": header_val, 
                             "Count": count, "Clinic_Tag": sheet_name
                         })
-                        log.append(f"      -> Extracted {count:.1f} ({val} wRVU) for {header_val}")
             else:
                 log.append(f"    ❌ {CONSULT_CPT} NOT found in column A for {sheet_name}")
 
@@ -414,7 +451,6 @@ if check_password():
                         if tag == "PROTON": clean_name = "TN Proton Center"
                         else: clean_name = tag + " Total"
                     
-                    # Merge Stonecrest variants
                     if "STONECREST" in clean_name.upper():
                          clean_name = "Stonecrest"
 
@@ -427,25 +463,18 @@ if check_password():
         except: pass
         return pd.DataFrame(records)
 
-    # --- NEW: PARSE POS NEW PATIENT TREND (Dynamic Column Detection) ---
     def parse_pos_trend_sheet(df, filename, log):
         records = []
         try:
-            # 1. FIND HEADER ROW based on Date Columns
             header_row_idx = -1
             date_map = {} 
-            
-            # Scan first 30 rows
             for r in range(min(30, len(df))):
                 row = df.iloc[r].values
                 temp_date_map = {}
-                
                 for c in range(len(row)):
                     val = row[c]
-                    # Check for actual date object
                     if isinstance(val, (datetime, pd.Timestamp)):
                          temp_date_map[c] = val
-                    # Check for string "Jan-25"
                     else:
                         s_val = str(val).strip()
                         if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
@@ -453,8 +482,6 @@ if check_password():
                                 dt = pd.to_datetime(s_val, format='%b-%y')
                                 temp_date_map[c] = dt
                             except: pass
-                
-                # If we found at least 2 date columns in this row, assume it's the header
                 if len(temp_date_map) >= 2:
                     header_row_idx = r
                     date_map = temp_date_map
@@ -465,24 +492,18 @@ if check_password():
                 log.append(f"  ❌ Could NOT find date headers in {filename}")
                 return pd.DataFrame()
 
-            # 2. ITERATE DATA ROWS (Check first 3 columns for Name)
             for i in range(header_row_idx + 1, len(df)):
                 row = df.iloc[i].values
-                
-                # Check first 3 columns for a valid site name
                 c_id = None
                 site_name_found = ""
-                
-                for col_idx in range(3): # Check columns 0, 1, 2
+                for col_idx in range(3): 
                     if col_idx >= len(row): break
                     val = str(row[col_idx]).strip().upper()
-                    
                     if val and val != "NAN":
                         if val in POS_ROW_MAPPING:
                             c_id = POS_ROW_MAPPING[val]
                             site_name_found = val
                             break
-                        # Partial Fallback
                         for key, mapped_id in POS_ROW_MAPPING.items():
                             if key in val:
                                 c_id = mapped_id
@@ -491,7 +512,6 @@ if check_password():
                     if c_id: break
                 
                 if c_id:
-                    # log.append(f"    Matched row '{site_name_found}' -> ID: {c_id}")
                     for col_idx, dt in date_map.items():
                         if col_idx < len(row):
                             val = clean_number(row[col_idx])
@@ -500,8 +520,6 @@ if check_password():
                                     "Clinic_Tag": c_id, "Month_Clean": dt, "New Patients": val,
                                     "Month_Label": dt.strftime('%b-%y'), "source_type": "pos_trend"
                                 })
-                else:
-                     pass
 
         except Exception as e: 
             log.append(f"  ❌ Error parsing {filename}: {str(e)}")
@@ -524,10 +542,10 @@ if check_password():
         return None
 
     def process_files(file_objects):
-        clinic_data = []; provider_data = []; visit_data = []; financial_data = []; pos_trend_data = []; consult_data = []
+        clinic_data = []; provider_data = []; visit_data = []; financial_data = []; pos_trend_data = []; consult_data = []; app_cpt_data = []
         debug_log = []
-        consult_log = [] # Separate log for consults
-        prov_log = [] # Separate log for providers
+        consult_log = [] 
+        prov_log = [] 
 
         for file_obj in file_objects:
             if isinstance(file_obj, LocalFile):
@@ -578,7 +596,6 @@ if check_password():
                 file_date = get_date_from_filename(filename)
                 debug_log.append(f"📂 Processing New Patient File: {filename}")
                 found_pos = False
-                
                 for sheet_name, df in xls.items():
                     if "POS" in sheet_name.upper() and "TREND" in sheet_name.upper():
                         found_pos = True
@@ -607,6 +624,13 @@ if check_password():
                 s_lower = sheet_name.strip().lower()
                 clean_name = sheet_name.strip()
                 
+                # CHECK FOR APP PROVIDER SHEETS FOR DETAILED CPT
+                match_app = match_provider(clean_name)
+                if match_app and match_app in APP_LIST:
+                    res_cpt = parse_app_cpt_data(df, match_app, prov_log)
+                    if not res_cpt.empty:
+                        app_cpt_data.append(res_cpt)
+                
                 if s_lower.endswith(" prov"):
                     file_date = get_date_from_filename(filename)
                     c_id = get_clinic_id_from_sheet(sheet_name)
@@ -621,37 +645,26 @@ if check_password():
                 s_upper = sheet_name.upper()
                 if any(ignored in s_upper for ignored in IGNORED_SHEETS): continue
                 
-                # --- CHECK FOR CLINIC SHEETS ---
                 if clean_name in CLINIC_CONFIG:
-                    # 1. Parse Standard RVUs
                     res = parse_rvu_sheet(df, clean_name, 'clinic', clinic_tag="General")
                     if not res.empty: clinic_data.append(res)
-                    
-                    # 2. Parse 77263 (Tx Plan) for this clinic
-                    # Use the pretty name from config for the display
                     pretty_name = CLINIC_CONFIG[clean_name]["name"]
                     consult_log.append(f"Checking {clean_name} for 77263...")
                     res_consult = parse_consults_data(df, pretty_name, consult_log)
                     if not res_consult.empty:
                         consult_data.append(res_consult)
-                    
-                    # DO NOT CONTINUE - Fall through to allow provider extraction if present!
-                    # (This was the cause of missing MD data)
+                    # Fall through to allow provider extraction if present!
 
-                # --- Fallback for LROC/TROC special handling in Productivity Trend sheets ---
                 if "PRODUCTIVITY TREND" in s_upper: 
                     if file_tag in ["LROC", "TROC"]:
                         res = parse_rvu_sheet(df, file_tag, 'clinic', clinic_tag=file_tag)
                         if not res.empty: clinic_data.append(res)
-                        
-                        # Also check for 77263 here for LROC/TROC
                         pretty_name = CLINIC_CONFIG[file_tag]["name"]
                         res_consult = parse_consults_data(df, pretty_name, consult_log)
                         if not res_consult.empty: consult_data.append(res_consult)
                     continue
 
                 if "PROTON" in s_upper and file_tag == "TOPC": continue 
-                
                 if clean_name.upper() == "FRIEDMEN": clean_name = "Friedman"
                 if "PROTON POS" in s_upper: continue
 
@@ -690,38 +703,44 @@ if check_password():
         df_visits = pd.concat(visit_data, ignore_index=True) if visit_data else pd.DataFrame()
         df_financial = pd.concat(financial_data, ignore_index=True) if financial_data else pd.DataFrame()
         
-        # FIX: Ensure df_pos_trend is initialized properly even if empty
         if pos_trend_data:
             df_pos_trend = pd.concat(pos_trend_data, ignore_index=True)
         else:
             df_pos_trend = pd.DataFrame(columns=['Clinic_Tag', 'Month_Clean', 'New Patients', 'Month_Label', 'source_type'])
 
-        # FIX: Ensure df_consults is initialized with correct date handling
         if consult_data:
             df_consults = pd.concat(consult_data, ignore_index=True)
-            
-            # Robust Date Conversion
             def parse_date_safe(x):
                 if isinstance(x, (datetime, pd.Timestamp)): return x
                 if isinstance(x, str):
                     try: return pd.to_datetime(x, format='%b-%y')
                     except: return pd.NaT
                 return pd.NaT
-
             df_consults['Month_Clean'] = df_consults['Month'].apply(parse_date_safe)
             df_consults.dropna(subset=['Month_Clean'], inplace=True)
             df_consults['Month_Label'] = df_consults['Month_Clean'].dt.strftime('%b-%y')
         else:
              df_consults = pd.DataFrame(columns=['Name', 'Month', 'Count', 'Month_Label'])
+        
+        if app_cpt_data:
+            df_app_cpt = pd.concat(app_cpt_data, ignore_index=True)
+            def parse_date_safe(x):
+                if isinstance(x, (datetime, pd.Timestamp)): return x
+                if isinstance(x, str):
+                    try: return pd.to_datetime(x, format='%b-%y')
+                    except: return pd.NaT
+                return pd.NaT
+            df_app_cpt['Month_Clean'] = df_app_cpt['Month'].apply(parse_date_safe)
+            df_app_cpt.dropna(subset=['Month_Clean'], inplace=True)
+            df_app_cpt['Month_Label'] = df_app_cpt['Month_Clean'].dt.strftime('%b-%y')
+        else:
+            df_app_cpt = pd.DataFrame(columns=['Name', 'Month', 'Count', 'CPT Code', 'Month_Label'])
 
-        # FIX: Ensure Month_Label exists in Financial Data
         if not df_financial.empty:
             df_financial['Month_Clean'] = pd.to_datetime(df_financial['Month_Clean'], errors='coerce')
             df_financial.dropna(subset=['Month_Clean'], inplace=True)
             df_financial['Month_Label'] = df_financial['Month_Clean'].dt.strftime('%b-%y')
 
-        # GLOBAL DATE FIXES
-        # --- ROBUST PROVIDER DATE PARSING ---
         if not df_provider_raw.empty:
             def parse_date_safe(x):
                 if isinstance(x, (datetime, pd.Timestamp)): return x
@@ -729,12 +748,8 @@ if check_password():
                     try: return pd.to_datetime(x, format='%b-%y')
                     except: return pd.NaT
                 return pd.NaT
-                
             df_provider_raw['Month_Clean'] = df_provider_raw['Month'].apply(parse_date_safe)
-            
-            # Drop invalid dates silently (logs already captured them if needed)
             df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
-            
             df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
             df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
 
@@ -760,7 +775,7 @@ if check_password():
             df_provider_global['RVU per FTE'] = df_provider_global.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
             df_provider_global.sort_values('Month_Clean', inplace=True)
 
-        return df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, debug_log, consult_log, prov_log
+        return df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, df_app_cpt, debug_log, consult_log, prov_log
 
     # --- UI ---
     st.title("🩺 Radiation Oncology Division Analytics")
@@ -781,27 +796,13 @@ if check_password():
             st.info("ℹ️ No master files found on server.")
         uploaded_files = st.file_uploader("Add Temporary Files", type=['xlsx', 'xls'], accept_multiple_files=True)
         
-        # DEBUG EXPANDER
-    
     all_files = server_files + (uploaded_files if uploaded_files else [])
 
     if all_files:
         with st.spinner("Analyzing files..."):
-            df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, debug_log, consult_log, prov_log = process_files(all_files)
+            df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, df_app_cpt, debug_log, consult_log, prov_log = process_files(all_files)
         
         with st.sidebar:
-             with st.expander("🐞 Debug: New Patient Data"):
-                if debug_log:
-                    for line in debug_log: st.write(line)
-                else:
-                    st.write("No debug logs captured.")
-             
-             with st.expander("🐞 Debug: Tx Plan (77263) Extraction"):
-                if consult_log:
-                    for line in consult_log: st.write(line)
-                else:
-                    st.write("No logs.")
-             
              with st.expander("🐞 Debug: MD/APP Data"):
                 if prov_log:
                     for line in prov_log: st.write(line)
@@ -812,14 +813,10 @@ if check_password():
             st.error("No valid data found.")
         else:
             if not df_md_global.empty:
-                # -----------------------------------------------------------
-                # FIXED PROVIDER FILTERING LOGIC
-                # -----------------------------------------------------------
                 # 1. Filter APPs based on the known APP List
                 df_apps = df_md_global[df_md_global['Name'].isin(APP_LIST)]
                 
                 # 2. Filter MDs: Must be in PROVIDER_CONFIG *AND* NOT in APP_LIST
-                #    This removes "CENT", "MURF", etc. because they are not in PROVIDER_CONFIG keys.
                 valid_providers = set(PROVIDER_CONFIG.keys())
                 df_mds = df_md_global[
                     (df_md_global['Name'].isin(valid_providers)) & 
@@ -903,376 +900,80 @@ if check_password():
                                         yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
                                     )
                                     st.plotly_chart(fig_ind, use_container_width=True)
-
-                            if clinic_filter in ["TriStar", "Ascension", "All", "LROC", "TOPC", "TROC", "Sumner"]:
-                                with st.container(border=True):
-                                    st.markdown(f"#### 📈 Long-Term History ({view_title})")
-                                    df_hist = get_historical_df()
-                                    if clinic_filter == "TriStar": df_hist_view = df_hist[df_hist['ID'].isin(TRISTAR_IDS)]
-                                    elif clinic_filter == "Ascension": df_hist_view = df_hist[df_hist['ID'].isin(ASCENSION_IDS)]
-                                    elif clinic_filter == "All": df_hist_view = df_hist.copy()
-                                    elif clinic_filter == "Sumner": df_hist_view = df_hist[df_hist['ID'] == 'Sumner']
-                                    else: target_id = 'LROC' if 'LROC' in clinic_filter else ('TOPC' if 'Proton' in view_title else 'TROC'); df_hist_view = df_hist[df_hist['ID'] == target_id]
                                     
-                                    if not df_hist_view.empty:
-                                        hist_trend = df_hist_view.groupby('Year')[['Total RVUs']].sum().reset_index()
-                                        if not df_view.empty:
-                                            current_year = max_date.year
-                                            ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
-                                            if ytd_curr > 0:
-                                                new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
-                                                hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
-                                        fig_long = px.bar(hist_trend, x='Year', y='Total RVUs', text_auto='.2s')
-                                        fig_long.update_layout(
-                                            font=dict(color="black"), font_color="black",
-                                            xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                            yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                        )
-                                        st.plotly_chart(fig_long, use_container_width=True)
-                                        
-                                        if clinic_filter in ["TriStar", "Ascension"]:
-                                            st.markdown("---"); st.markdown("##### 🏥 Individual Clinic History")
-                                            target_ids = TRISTAR_IDS if clinic_filter == "TriStar" else ASCENSION_IDS
-                                            cols = st.columns(2)
-                                            for idx, c_id in enumerate(target_ids):
-                                                c_name = CLINIC_CONFIG.get(c_id, {}).get('name', c_id)
-                                                c_hist = df_hist[df_hist['ID'] == c_id]
-                                                c_hist_grp = c_hist.groupby('Year')[['Total RVUs']].sum().reset_index()
-                                                if not df_view.empty:
-                                                    c_current = df_view[df_view['ID'] == c_id]
-                                                    current_year = max_date.year
-                                                    ytd_c = c_current[c_current['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
-                                                    if ytd_c > 0:
-                                                        new_r = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_c]})
-                                                        c_hist_grp = pd.concat([c_hist_grp, new_r], ignore_index=True)
-                                                if not c_hist_grp.empty:
-                                                    fig_c = px.bar(c_hist_grp, x='Year', y='Total RVUs', text_auto='.2s', title=c_name)
-                                                    fig_c.update_layout(
-                                                        height=350, font=dict(color="black"), font_color="black",
-                                                        xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                                        yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                                    )
-                                                    with cols[idx % 2]: st.plotly_chart(fig_c, use_container_width=True)
-                        
-                        if clinic_filter == "All":
-                            if not df_pos_trend.empty:
-                                st.markdown("---")
-                                st.markdown("### 🆕 Network-Wide New Patients (Most Recent Month)")
-                                
-                                max_date_np = df_pos_trend['Month_Clean'].max()
-                                np_latest = df_pos_trend[df_pos_trend['Month_Clean'] == max_date_np].copy()
-                                
-                                if not np_latest.empty:
-                                    np_latest['Display_Name'] = np_latest['Clinic_Tag'].apply(lambda x: CLINIC_CONFIG.get(x, {}).get('name', x))
-                                    
-                                    fig_np_net = px.bar(np_latest.sort_values('New Patients', ascending=False), 
-                                                        x='Display_Name', y='New Patients', 
-                                                        text_auto=True, 
-                                                        title=f"New Patients: {max_date_np.strftime('%B %Y')}")
-                                    fig_np_net.update_layout(
-                                        font=dict(color="black"), font_color="black",
-                                        xaxis=dict(title=None, color="black", tickfont=dict(color="black")),
-                                        yaxis=dict(color="black", title="Count", tickfont=dict(color="black"))
-                                    )
-                                    st.plotly_chart(fig_np_net, use_container_width=True)
-
-                                    piv_np_net = np_latest.pivot_table(index="Month_Label", columns="Display_Name", values="New Patients", aggfunc="sum").fillna(0)
-                                    st.dataframe(piv_np_net.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-
-                            # --- NEW: TX PLAN (CPT 77263) SECTION ---
-                            if not df_consults.empty:
-                                st.markdown("---")
-                                st.markdown("### 📝 Tx Plan Complex (CPT 77263)")
-                                
-                                # Sort chronologically
-                                sorted_m = df_consults.sort_values("Month_Clean")["Month_Label"].unique()
-                                
-                                # FIX: Use .fillna(0) AND .astype(float) to ensure numeric integrity
-                                piv_consult = df_consults.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum")
-                                piv_consult = piv_consult.reindex(columns=sorted_m).fillna(0)
-                                piv_consult["Total"] = piv_consult.sum(axis=1)
-                                
-                                st.dataframe(piv_consult.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
-
-
-                        if clinic_filter in ["TriStar", "Ascension"]:
-                            st.markdown("---")
-                            st.subheader(f"🔍 Detailed Breakdown by Clinic ({view_title})")
-                            target_ids = TRISTAR_IDS if clinic_filter == "TriStar" else ASCENSION_IDS
-                            for c_id in target_ids:
-                                c_name = CLINIC_CONFIG.get(c_id, {}).get('name', c_id)
-                                clinic_prov_df = df_provider_raw[(df_provider_raw['Clinic_Tag'] == c_id) & (df_provider_raw.get('source_type', '') == 'detail')]
-                                if clinic_prov_df.empty:
-                                    clinic_prov_df = df_provider_raw[(df_provider_raw['Clinic_Tag'] == c_id)]
-
-                                if clinic_prov_df.empty: continue
-                                st.markdown(f"### 🏥 {c_name}")
-                                min_pie_date = max_date - pd.DateOffset(months=11)
-                                pie_12m = clinic_prov_df[clinic_prov_df['Month_Clean'] >= min_pie_date]
-                                pie_agg_12m = pie_12m.groupby('Name')[['Total RVUs']].sum().reset_index()
-                                latest_q = clinic_prov_df['Quarter'].max()
-                                pie_q = clinic_prov_df[clinic_prov_df['Quarter'] == latest_q]
-                                pie_agg_q = pie_q.groupby('Name')[['Total RVUs']].sum().reset_index()
-                                
-                                if not pie_agg_12m.empty:
-                                    with st.container(border=True):
-                                        st.markdown(f"#### 🍰 {c_name}: Work Breakdown")
-                                        cp1, cp2 = st.columns(2)
-                                        with cp1:
-                                            fig_p1 = px.pie(pie_agg_12m, values='Total RVUs', names='Name', hole=0.4, title="Last 12 Months")
-                                            fig_p1.update_traces(textposition='inside', textinfo='percent+label')
-                                            fig_p1.update_layout(font=dict(color="black"), font_color="black")
-                                            st.plotly_chart(fig_p1, use_container_width=True)
-                                        with cp2:
-                                            if not pie_agg_q.empty:
-                                                fig_p2 = px.pie(pie_agg_q, values='Total RVUs', names='Name', hole=0.4, title=f"Most Recent Quarter ({latest_q})")
-                                                fig_p2.update_traces(textposition='inside', textinfo='percent+label')
-                                                fig_p2.update_layout(font=dict(color="black"), font_color="black")
-                                                st.plotly_chart(fig_p2, use_container_width=True)
-                                
-                                with st.container(border=True):
-                                    st.markdown(f"#### 🧑‍⚕️ {c_name}: Monthly Data (by Provider)")
-                                    piv_p = clinic_prov_df.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                    sorted_months_p = clinic_prov_df.sort_values("Month_Clean")["Month_Label"].unique()
-                                    piv_p = piv_p.reindex(columns=sorted_months_p).fillna(0)
-                                    piv_p["Total"] = piv_p.sum(axis=1)
-                                    st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-
-                                # NEW: POS TREND FOR INDIVIDUAL CLINICS (TriStar/Ascension)
-                                if not df_pos_trend.empty:
-                                    pos_df = df_pos_trend[df_pos_trend['Clinic_Tag'] == c_id]
-                                    if not pos_df.empty:
-                                        with st.container(border=True):
-                                            st.markdown(f"#### 🆕 {c_name}: New Patient Trend")
-                                            pos_agg = pos_df.groupby('Month_Clean')[['New Patients']].sum().reset_index().sort_values('Month_Clean')
-                                            fig_pos = px.bar(pos_agg, x='Month_Clean', y='New Patients', text_auto=True)
-                                            fig_pos.update_layout(
-                                                font=dict(color="black"), font_color="black",
-                                                xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                                yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                            )
-                                            st.plotly_chart(fig_pos, use_container_width=True)
-                                            
-                                            pos_piv = pos_df.pivot_table(index="Clinic_Tag", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
-                                            sorted_m = pos_df.sort_values("Month_Clean")["Month_Label"].unique()
-                                            pos_piv = pos_piv.reindex(columns=sorted_m).fillna(0)
-                                            pos_piv["Total"] = pos_piv.sum(axis=1)
-                                            st.dataframe(pos_piv.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-                        
-                        if target_tag and not df_provider_raw.empty:
-                            pie_data_source = df_provider_raw[(df_provider_raw['Clinic_Tag'] == target_tag) & (df_provider_raw.get('source_type', '') == 'detail')]
-                            if pie_data_source.empty: pie_data_source = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
-
-                            if not pie_data_source.empty:
-                                try:
-                                    min_pie_date = max_date - pd.DateOffset(months=11)
-                                    pie_12m = pie_data_source[pie_data_source['Month_Clean'] >= min_pie_date]
-                                    pie_agg_12m = pie_12m.groupby('Name')[['Total RVUs']].sum().reset_index()
-                                    latest_q = pie_data_source['Quarter'].max()
-                                    pie_q = pie_data_source[pie_data_source['Quarter'] == latest_q]
-                                    pie_agg_q = pie_q.groupby('Name')[['Total RVUs']].sum().reset_index()
-
-                                    if not pie_agg_12m.empty:
-                                        with st.container(border=True):
-                                            st.markdown(f"#### 🍰 Work Breakdown: Who performed the work?")
-                                            col_pie1, col_pie2 = st.columns(2)
-                                            with col_pie1:
-                                                if not pie_agg_12m.empty:
-                                                    fig_p1 = px.pie(pie_agg_12m, values='Total RVUs', names='Name', hole=0.4, title="Last 12 Months")
-                                                    fig_p1.update_traces(textposition='inside', textinfo='percent+label')
-                                                    fig_p1.update_layout(font=dict(color="black"), font_color="black")
-                                                    st.plotly_chart(fig_p1, use_container_width=True)
-                                            with col_pie2:
-                                                if not pie_agg_q.empty:
-                                                    fig_p2 = px.pie(pie_agg_q, values='Total RVUs', names='Name', hole=0.4, title=f"Most Recent Quarter ({latest_q})")
-                                                    fig_p2.update_traces(textposition='inside', textinfo='percent+label')
-                                                    fig_p2.update_layout(font=dict(color="black"), font_color="black")
-                                                    st.plotly_chart(fig_p2, use_container_width=True)
-                                except: st.info("Insufficient data for pie charts.")
-
-                        if not df_view.empty:
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                with st.container(border=True):
-                                    st.markdown("#### 🔢 Monthly Data")
-                                    piv = df_view.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                    sorted_months = df_view.sort_values("Month_Clean")["Month_Label"].unique()
-                                    piv = piv.reindex(columns=sorted_months).fillna(0)
-                                    piv["Total"] = piv.sum(axis=1)
-                                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-                            with c2:
-                                with st.container(border=True):
-                                    st.markdown("#### 📆 Quarterly Data")
-                                    piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                                    piv_q["Total"] = piv_q.sum(axis=1)
-                                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-
-                        if target_tag in ["LROC", "TOPC", "TROC", "Sumner"] and not df_provider_raw.empty:
-                            prov_df = df_provider_raw[(df_provider_raw['Clinic_Tag'] == target_tag) & (df_provider_raw.get('source_type', '') == 'detail')]
-                            if prov_df.empty:
-                                prov_df = df_provider_raw[df_provider_raw['Clinic_Tag'] == target_tag]
-                            
-                            if not prov_df.empty:
-                                with st.container(border=True):
-                                    st.markdown("#### 🧑‍⚕️ Monthly Data (by Provider)")
-                                    piv_p = prov_df.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                    sorted_months_p = prov_df.sort_values("Month_Clean")["Month_Label"].unique()
-                                    piv_p = piv_p.reindex(columns=sorted_months_p).fillna(0)
-                                    piv_p["Total"] = piv_p.sum(axis=1)
-                                    st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-
-                        # NEW: POS TREND FOR SINGLE CLINICS (LROC, TOPC, TROC, Sumner)
-                        if target_tag in ["LROC", "TOPC", "TROC", "Sumner"] and not df_pos_trend.empty:
-                             pos_df = df_pos_trend[df_pos_trend['Clinic_Tag'] == target_tag]
-                             if not pos_df.empty:
-                                 with st.container(border=True):
-                                     st.markdown("#### 🆕 New Patient Trend (Monthly)")
-                                     pos_agg = pos_df.groupby('Month_Clean')[['New Patients']].sum().reset_index().sort_values('Month_Clean')
-                                     fig_pos = px.bar(pos_agg, x='Month_Clean', y='New Patients', text_auto=True)
-                                     fig_pos.update_layout(
-                                        font=dict(color="black"), font_color="black",
-                                        xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                        yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                     )
-                                     st.plotly_chart(fig_pos, use_container_width=True)
-                                     
-                                     pos_piv = pos_df.pivot_table(index="Clinic_Tag", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
-                                     sorted_m = pos_df.sort_values("Month_Clean")["Month_Label"].unique()
-                                     pos_piv = pos_piv.reindex(columns=sorted_m).fillna(0)
-                                     pos_piv["Total"] = pos_piv.sum(axis=1)
-                                     st.dataframe(pos_piv.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-                        
-                        if target_tag in ["LROC", "TROC", "TOPC"] and not df_visits.empty:
-                            clinic_visits = df_visits[df_visits['Clinic_Tag'] == target_tag]
-                            if not clinic_visits.empty:
-                                with st.container(border=True):
-                                    st.markdown("### 🏥 Office Visits & New Patients (New Data Source)")
-                                    latest_v_date = clinic_visits['Month_Clean'].max()
-                                    latest_v_df = clinic_visits[clinic_visits['Month_Clean'] == latest_v_date]
-                                    c_v1, c_v2 = st.columns(2)
-                                    with c_v1:
-                                        fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), x='Total Visits', y='Name', orientation='h', text_auto=True, color='Total Visits', color_continuous_scale='Blues', title=f"YTD Total Office Visits ({latest_v_date.strftime('%b %Y')})")
-                                        fig_ov.update_layout(height=800, font=dict(color="black"), font_color="black")
-                                        st.plotly_chart(fig_ov, use_container_width=True)
-                                    with c_v2:
-                                        fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), x='New Patients', y='Name', orientation='h', text_auto=True, color='New Patients', color_continuous_scale='Greens', title=f"YTD New Patients ({latest_v_date.strftime('%b %Y')})")
-                                        fig_np.update_layout(height=800, font=dict(color="black"), font_color="black")
-                                        st.plotly_chart(fig_np, use_container_width=True)
-                                with st.container(border=True):
-                                    st.markdown(f"#### 📉 YoY Change: New Patients")
-                                    fig_diff_np = px.bar(latest_v_df.sort_values('NP_Diff', ascending=True), x='NP_Diff', y='Name', orientation='h', text_auto=True, color='NP_Diff', color_continuous_scale='RdBu')
-                                    fig_diff_np.update_layout(height=800, font=dict(color="black"), font_color="black")
-                                    st.plotly_chart(fig_diff_np, use_container_width=True)
+                                    # TX PLAN TABLE
+                                    if clinic_filter == "All" and not df_consults.empty:
+                                        st.markdown("---")
+                                        st.markdown("### 📝 Tx Plan Complex (CPT 77263)")
+                                        sorted_m = df_consults.sort_values("Month_Clean")["Month_Label"].unique()
+                                        piv_consult = df_consults.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum")
+                                        piv_consult = piv_consult.reindex(columns=sorted_m).fillna(0)
+                                        piv_consult["Total"] = piv_consult.sum(axis=1)
+                                        st.dataframe(piv_consult.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
 
             with tab_md:
-                col_nav_md, col_main_md = st.columns([1, 5])
-                with col_nav_md:
-                    st.markdown("### 📊 Metric")
-                    md_view = st.radio("Select View:", ["wRVU Productivity", "Office Visits"], key="md_radio")
-                
-                with col_main_md:
-                    if md_view == "wRVU Productivity":
-                        if df_mds.empty: st.info("No wRVU data found.")
-                        else:
-                            st.info(generate_narrative(df_mds, "Physician"))
-                            with st.container(border=True):
-                                st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
-                                fig_trend = px.line(df_mds.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
-                                fig_trend.update_layout(
-                                    font=dict(color="black"), font_color="black",
-                                    xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                    yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                )
-                                st.plotly_chart(fig_trend, use_container_width=True)
-                            with st.container(border=True):
-                                st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({df_mds['Month_Clean'].max().year})")
-                                ytd_sum = df_mds[df_mds['Month_Clean'].dt.year == df_mds['Month_Clean'].max().year].groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
-                                fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
-                                fig_ytd.update_layout(
-                                    font=dict(color="black"), font_color="black",
-                                    xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                    yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                )
-                                st.plotly_chart(fig_ytd, use_container_width=True)
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                st.markdown("#### 🔢 Monthly Data")
-                                piv = df_mds.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                # FIX: Sort MD Table Chronologically
-                                sorted_months_md = df_mds.sort_values("Month_Clean")["Month_Label"].unique()
-                                piv = piv.reindex(columns=sorted_months_md).fillna(0)
-                                
-                                piv["Total"] = piv.sum(axis=1)
-                                st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-                            with c2:
-                                st.markdown("#### 📆 Quarterly Data")
-                                piv_q = df_mds.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                                piv_q["Total"] = piv_q.sum(axis=1)
-                                st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-                    
-                    elif md_view == "Office Visits":
-                        st.info("ℹ️ **This includes all HOPD and freestanding sites (including LROC, TROC, and TOPC)**")
-                        if df_visits.empty:
-                            st.warning("No Office Visit data found.")
-                        else:
-                            df_visits_agg = df_visits.groupby(['Name', 'Month_Clean'], as_index=False).agg({'Total Visits': 'sum', 'New Patients': 'sum', 'Visits_Diff': 'sum', 'NP_Diff': 'sum'})
-                            latest_v_date = df_visits_agg['Month_Clean'].max()
-                            latest_v_df = df_visits_agg[df_visits_agg['Month_Clean'] == latest_v_date]
-                            
-                            st.info(generate_narrative(df_visits_agg, "Physician", metric_col="Total Visits", unit="Visits"))
-                            c_ov1, c_ov2 = st.columns(2)
-                            with c_ov1:
-                                with st.container(border=True):
-                                    st.markdown(f"#### 🏥 Total Office Visits ({latest_v_date.year} YTD)")
-                                    fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), x='Total Visits', y='Name', orientation='h', text_auto=True, color='Total Visits', color_continuous_scale='Blues')
-                                    fig_ov.update_layout(height=800, font=dict(color="black"), font_color="black")
-                                    st.plotly_chart(fig_ov, use_container_width=True)
-                                with st.container(border=True):
-                                    st.markdown(f"#### 📉 YoY Change: Office Visits")
-                                    fig_diff_ov = px.bar(latest_v_df.sort_values('Visits_Diff', ascending=True), x='Visits_Diff', y='Name', orientation='h', text_auto=True, color='Visits_Diff', color_continuous_scale='RdBu')
-                                    fig_diff_ov.update_layout(height=800, font=dict(color="black"), font_color="black")
-                                    st.plotly_chart(fig_diff_ov, use_container_width=True)
-                            with c_ov2:
-                                with st.container(border=True):
-                                    st.markdown(f"#### 🆕 New Patients ({latest_v_date.year} YTD)")
-                                    fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), x='New Patients', y='Name', orientation='h', text_auto=True, color='New Patients', color_continuous_scale='Greens')
-                                    fig_np.update_layout(height=800, font=dict(color="black"), font_color="black")
-                                    st.plotly_chart(fig_np, use_container_width=True)
-                                with st.container(border=True):
-                                    st.markdown(f"#### 📉 YoY Change: New Patients")
-                                    fig_diff_np = px.bar(latest_v_df.sort_values('NP_Diff', ascending=True), x='NP_Diff', y='Name', orientation='h', text_auto=True, color='NP_Diff', color_continuous_scale='RdBu')
-                                    fig_diff_np.update_layout(height=800, font=dict(color="black"), font_color="black")
-                                    st.plotly_chart(fig_diff_np, use_container_width=True)
-
-            with tab_app:
-                if df_apps.empty: st.info("No APP data found.")
+                if df_mds.empty: st.info("No wRVU data found for Physicians.")
                 else:
-                    st.info(generate_narrative(df_apps, "APP"))
+                    st.info(generate_narrative(df_mds, "Physician"))
                     with st.container(border=True):
                         st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
-                        fig_trend = px.line(df_apps.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
+                        fig_trend = px.line(df_mds.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
                         fig_trend.update_layout(
                             font=dict(color="black"), font_color="black",
                             xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
                             yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
                         )
                         st.plotly_chart(fig_trend, use_container_width=True)
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.markdown("#### 🔢 Monthly Data")
-                        piv = df_apps.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                        # FIX: Sort APP Table Chronologically
-                        sorted_months_app = df_apps.sort_values("Month_Clean")["Month_Label"].unique()
-                        piv = piv.reindex(columns=sorted_months_app).fillna(0)
+                    
+                    st.markdown("#### 🔢 Monthly Data")
+                    piv = df_mds.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                    sorted_months_md = df_mds.sort_values("Month_Clean")["Month_Label"].unique()
+                    piv = piv.reindex(columns=sorted_months_md).fillna(0)
+                    piv["Total"] = piv.sum(axis=1)
+                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+
+            with tab_app:
+                if df_apps.empty: st.info("No APP data found.")
+                else:
+                    st.info(generate_narrative(df_apps, "APP"))
+                    
+                    # 1. Standard wRVU Trend
+                    with st.container(border=True):
+                        st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
+                        fig_trend = px.line(df_apps.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
+                        fig_trend.update_layout(font=dict(color="black"), font_color="black")
+                        st.plotly_chart(fig_trend, use_container_width=True)
+                    
+                    st.markdown("---")
+
+                    # 2. APP Follow-Up Visits (NEW)
+                    if not df_app_cpt.empty:
+                        st.markdown("### 🏥 APP Independent Follow-up Visits (99212-99215)")
                         
-                        piv["Total"] = piv.sum(axis=1)
-                        st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-                    with c2:
-                        st.markdown("#### 📆 Quarterly Data")
-                        piv_q = df_apps.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                        piv_q["Total"] = piv_q.sum(axis=1)
-                        st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-            
+                        # Bar Chart: Grouped by Provider
+                        ytd_app = df_app_cpt.groupby(['Name', 'CPT Code'])['Count'].sum().reset_index()
+                        
+                        fig_app_bar = px.bar(ytd_app, x="Name", y="Count", color="CPT Code", barmode="group", text_auto=True, title=f"YTD Follow-up Visits ({max_date.year})")
+                        fig_app_bar.update_layout(font=dict(color="black"), font_color="black")
+                        st.plotly_chart(fig_app_bar, use_container_width=True)
+                        
+                        # Detail Tables per APP
+                        cols = st.columns(2)
+                        unique_apps = df_app_cpt['Name'].unique()
+                        
+                        for i, app_name in enumerate(unique_apps):
+                            with cols[i % 2]:
+                                with st.container(border=True):
+                                    st.markdown(f"#### {app_name}")
+                                    app_subset = df_app_cpt[df_app_cpt['Name'] == app_name]
+                                    
+                                    piv_app = app_subset.pivot_table(index="CPT Code", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
+                                    sorted_m = app_subset.sort_values("Month_Clean")["Month_Label"].unique()
+                                    piv_app = piv_app.reindex(columns=sorted_m).fillna(0)
+                                    piv_app["Total"] = piv_app.sum(axis=1)
+                                    
+                                    st.dataframe(piv_app.style.format("{:,.0f}").background_gradient(cmap="Oranges"))
+
             with tab_fin:
                 if df_financial.empty:
                     st.info("No Financial data found.")
@@ -1285,11 +986,7 @@ if check_password():
                              st.markdown("### 💰 CPA By Provider (YTD)")
                              latest_fin_date = prov_fin['Month_Clean'].max()
                              latest_prov = prov_fin[prov_fin['Month_Clean'] == latest_fin_date]
-                             
-                             # AGGREGATE DUPLICATES (e.g. Mondschein)
                              latest_prov = latest_prov.groupby('Name', as_index=False)[['Charges', 'Payments']].sum()
-                             
-                             # Calculate % Payments/Charges
                              latest_prov['% Payments/Charges'] = latest_prov.apply(lambda x: (x['Payments'] / x['Charges']) if x['Charges'] > 0 else 0, axis=1)
 
                              c1, c2 = st.columns(2)
@@ -1308,12 +1005,9 @@ if check_password():
                         clinic_fin = df_financial[df_financial['Mode'] == 'Clinic']
                         if not clinic_fin.empty:
                             st.markdown("### 🏥 CPA By Clinic")
-                            
-                            # 1. Year-To-Date (YTD) Aggregation
                             ytd_df = clinic_fin.groupby('Name')[['Charges', 'Payments']].sum().reset_index()
                             ytd_df['% Payments/Charges'] = ytd_df.apply(lambda x: (x['Payments'] / x['Charges']) if x['Charges'] > 0 else 0, axis=1)
                             
-                            # TOTAL ROW LOGIC
                             total_charges = ytd_df['Charges'].sum()
                             total_payments = ytd_df['Payments'].sum()
                             total_ratio = (total_payments / total_charges) if total_charges > 0 else 0
@@ -1331,20 +1025,12 @@ if check_password():
                             st.dataframe(ytd_display.style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}).background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=600)
 
                             st.markdown("---")
-                            
-                            # 2. Monthly Data Table
                             st.markdown("#### 📅 Monthly Data Breakdown")
-                            
                             display_cols = ['Name', 'Month_Label', 'Charges', 'Payments']
                             monthly_display = clinic_fin[display_cols].sort_values(['Month_Label', 'Name'], ascending=False)
-                            
-                            # Calculate monthly ratio for display
                             monthly_display['% Payments/Charges'] = monthly_display.apply(lambda x: (x['Payments'] / x['Charges']) if x['Charges'] > 0 else 0, axis=1)
-                            
-                            # Re-sort chronologically for the display
                             monthly_display['Month_Sort'] = pd.to_datetime(monthly_display['Month_Label'], format='%b-%y')
                             monthly_display = monthly_display.sort_values(['Month_Sort', 'Name'], ascending=[False, True]).drop(columns=['Month_Sort'])
-                            
                             st.dataframe(monthly_display.style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}).background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
     else:
         st.info("👋 Ready. View Only Mode: Add files to 'Reports' folder in GitHub to update data.")
