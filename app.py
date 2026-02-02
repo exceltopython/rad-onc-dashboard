@@ -812,8 +812,19 @@ if check_password():
             st.error("No valid data found.")
         else:
             if not df_md_global.empty:
+                # -----------------------------------------------------------
+                # FIXED PROVIDER FILTERING LOGIC
+                # -----------------------------------------------------------
+                # 1. Filter APPs based on the known APP List
                 df_apps = df_md_global[df_md_global['Name'].isin(APP_LIST)]
-                df_mds = df_md_global[~df_md_global['Name'].isin(APP_LIST)]
+                
+                # 2. Filter MDs: Must be in PROVIDER_CONFIG *AND* NOT in APP_LIST
+                #    This removes "CENT", "MURF", etc. because they are not in PROVIDER_CONFIG keys.
+                valid_providers = set(PROVIDER_CONFIG.keys())
+                df_mds = df_md_global[
+                    (df_md_global['Name'].isin(valid_providers)) & 
+                    (~df_md_global['Name'].isin(APP_LIST))
+                ]
             else:
                 df_apps = pd.DataFrame(); df_mds = pd.DataFrame()
 
@@ -981,7 +992,7 @@ if check_password():
                                 piv_consult = piv_consult.reindex(columns=sorted_m).fillna(0)
                                 piv_consult["Total"] = piv_consult.sum(axis=1)
                                 
-                                st.dataframe(piv_consult.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=800)
+                                st.dataframe(piv_consult.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
 
 
                         if clinic_filter in ["TriStar", "Ascension"]:
