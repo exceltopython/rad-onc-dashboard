@@ -92,7 +92,7 @@ if check_password():
     CONSULT_CPT = "77263"
     CONSULT_CONVERSION = 3.14
 
-    # NEW: APP FOLLOW-UP CPT CONFIG
+    # APP FOLLOW-UP CPT CONFIG
     APP_CPT_RATES = {
         "99212": 0.7,
         "99213": 1.3,
@@ -263,7 +263,7 @@ if check_password():
             log.append(f"    ✅ Extracted {len(records)} detailed provider rows for {clinic_id}")
         return pd.DataFrame(records)
 
-    # --- NEW: PARSER FOR APP FOLLOW-UP CODES (99212-99215) ---
+    # --- NEW: PARSER FOR FOLLOW-UP CODES (99212-99215) ---
     def parse_app_cpt_data(df, provider_name, log):
         records = []
         try:
@@ -284,15 +284,16 @@ if check_password():
                     for col in df.columns[4:]: 
                         header_val = df.iloc[header_row_idx, col]
                         
-                        # STRICT DATE CHECK (The same logic used elsewhere)
-                        is_valid_date = False
+                        # DATE CHECK (Flexible)
+                        valid_date = None
                         if isinstance(header_val, (datetime, pd.Timestamp)):
-                            is_valid_date = True
+                             valid_date = header_val
                         elif isinstance(header_val, str):
-                            if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
-                                is_valid_date = True
+                             if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
+                                 try: valid_date = pd.to_datetime(header_val.strip(), format='%b-%y')
+                                 except: pass
                         
-                        if not is_valid_date: continue 
+                        if valid_date is None: continue 
                         
                         val = clean_number(df.iloc[cpt_row_idx, col])
                         if val is not None and val != 0:
@@ -300,7 +301,7 @@ if check_password():
                             count = val / rate
                             records.append({
                                 "Name": provider_name, 
-                                "Month": header_val, 
+                                "Month": valid_date, 
                                 "Count": count, 
                                 "CPT Code": cpt_code,
                                 "Rate": rate
@@ -420,7 +421,7 @@ if check_password():
         records = []
         try:
             header_row = -1; col_map = {}
-            for i in range(min(15, len(df))):
+            for i in range(min(15, len(df)):
                 row_vals = [str(x).upper().strip() for x in df.iloc[i].values]
                 if mode == "Provider":
                     if "PROVIDER" in row_vals:
@@ -667,17 +668,19 @@ if check_password():
                 if clean_name in CLINIC_CONFIG:
                     res = parse_rvu_sheet(df, clean_name, 'clinic', clinic_tag="General")
                     if not res.empty: clinic_data.append(res)
+                    
                     pretty_name = CLINIC_CONFIG[clean_name]["name"]
                     consult_log.append(f"Checking {clean_name} for 77263...")
                     res_consult = parse_consults_data(df, pretty_name, consult_log)
                     if not res_consult.empty:
                         consult_data.append(res_consult)
-                    # Fall through to allow provider extraction if present!
+                    # Fall through!
 
                 if "PRODUCTIVITY TREND" in s_upper: 
                     if file_tag in ["LROC", "TROC"]:
                         res = parse_rvu_sheet(df, file_tag, 'clinic', clinic_tag=file_tag)
                         if not res.empty: clinic_data.append(res)
+                        
                         pretty_name = CLINIC_CONFIG[file_tag]["name"]
                         res_consult = parse_consults_data(df, pretty_name, consult_log)
                         if not res_consult.empty: consult_data.append(res_consult)
@@ -785,7 +788,10 @@ if check_password():
                     except: return pd.NaT
                 return pd.NaT
             df_provider_raw['Month_Clean'] = df_provider_raw['Month'].apply(parse_date_safe)
+            
+            # Robust Date Filter: Only drop if we really can't parse it
             df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
+            
             df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
             df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
 
@@ -1294,10 +1300,22 @@ if check_password():
                             if not df_md_cpt.empty:
                                 st.markdown("### 🩺 MD Independent Follow-up Visits (99212-99215)")
                                 
-                                # Bar Chart: Grouped by Provider
+                                # 1. NEW CHART: Total Established Patients YTD
+                                md_est_total = df_md_cpt.groupby('Name')['Count'].sum().reset_index()
+                                md_est_total_sorted = md_est_total.sort_values('Count', ascending=True)
+
+                                fig_est = px.bar(md_est_total_sorted, x='Count', y='Name', orientation='h', text_auto='.0f', 
+                                                title=f"Established Patients ({max_date.year} YTD)",
+                                                color='Count', color_continuous_scale='Viridis')
+                                fig_est.update_layout(height=800, font=dict(color="black"), font_color="black")
+                                st.plotly_chart(fig_est, use_container_width=True)
+                                
+                                st.markdown("---")
+                                
+                                # 2. Detailed Breakdown Chart
                                 ytd_md = df_md_cpt.groupby(['Name', 'CPT Code'])['Count'].sum().reset_index()
                                 
-                                fig_md_bar = px.bar(ytd_md, x="Name", y="Count", color="CPT Code", barmode="group", text_auto=True, title=f"YTD Follow-up Visits ({max_date.year})")
+                                fig_md_bar = px.bar(ytd_md, x="Name", y="Count", color="CPT Code", barmode="group", text_auto=True, title=f"YTD Follow-up Visits Breakdown ({max_date.year})")
                                 fig_md_bar.update_layout(font=dict(color="black"), font_color="black")
                                 st.plotly_chart(fig_md_bar, use_container_width=True)
                                 
