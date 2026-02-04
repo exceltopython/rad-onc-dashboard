@@ -518,19 +518,22 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 for col in df.columns[4:]: 
                     header_val = df.iloc[header_row_idx, col]
                     
-                    is_valid_date = False
-                    if isinstance(header_val, (datetime, pd.Timestamp)): is_valid_date = True
+                    # DATE CHECK (Flexible)
+                    valid_date = None
+                    if isinstance(header_val, (datetime, pd.Timestamp)):
+                            valid_date = header_val
                     elif isinstance(header_val, str):
-                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
-                            is_valid_date = True
+                            if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
+                                try: valid_date = pd.to_datetime(header_val.strip(), format='%b-%y')
+                                except: pass
                     
-                    if not is_valid_date: continue 
+                    if valid_date is None: continue 
                     
                     val = clean_number(df.iloc[cpt_row_idx, col])
                     if val is not None:
                         count = val / CONSULT_CONVERSION
                         records.append({
-                            "Name": sheet_name, "Month": header_val, 
+                            "Name": sheet_name, "Month": valid_date, 
                             "Count": count, "Clinic_Tag": sheet_name
                         })
             else:
@@ -972,7 +975,10 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     except: return pd.NaT
                 return pd.NaT
             df_provider_raw['Month_Clean'] = df_provider_raw['Month'].apply(parse_date_safe)
+            
+            # Robust Date Filter: Only drop if we really can't parse it
             df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
+            
             df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
             df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
 
@@ -1051,7 +1057,11 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     col_nav, col_main = st.columns([1, 5])
                     with col_nav:
                         st.markdown("### 🔍 Filter")
-                        clinic_filter = st.radio("Select View:", ["All", "TriStar", "Ascension", "LROC", "TOPC", "TROC", "Sumner"], key="clinic_radio")
+                        clinic_filter = st.radio(
+                            "Select View:", 
+                            ["All", "TriStar", "Ascension", "LROC", "TOPC", "TROC", "Sumner"], 
+                            key="clinic_radio"
+                        )
                     with col_main:
                         df_view = pd.DataFrame(); view_title = clinic_filter; target_tag = None
                         if clinic_filter == "All": df_view = df_clinic.copy(); view_title = "All Clinics"
@@ -1128,6 +1138,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                                 piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                                                 piv_q["Total"] = piv_q.sum(axis=1)
                                                 st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+
 
                             if clinic_filter in ["TriStar", "Ascension", "All", "LROC", "TOPC", "TROC", "Sumner"]:
                                 with st.container(border=True):
@@ -1444,7 +1455,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                             if not df_md_cpt.empty:
                                 st.markdown("### 🩺 Established Patients (99212-99215)")
                                 
-                                # Bar Chart: Total Established Patients YTD
+                                # 1. NEW CHART: Total Established Patients YTD
                                 md_est_total = df_md_cpt.groupby('Name')['Count'].sum().reset_index()
                                 md_est_total_sorted = md_est_total.sort_values('Count', ascending=True)
 
@@ -1456,7 +1467,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                 
                                 st.markdown("---")
                                 
-                                # Detailed Breakdown Chart
+                                # 2. Detailed Breakdown Chart
                                 ytd_md = df_md_cpt.groupby(['Name', 'CPT Code'])['Count'].sum().reset_index()
                                 
                                 fig_md_bar = px.bar(ytd_md, x="Name", y="Count", color="CPT Code", barmode="group", text_auto=True, title=f"YTD Follow-up Visits Breakdown ({max_date.year})")
