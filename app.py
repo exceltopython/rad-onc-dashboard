@@ -724,7 +724,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         return None
 
     def process_files(file_objects):
-        clinic_data = []; provider_data = []; visit_data = []; financial_data = []; pos_trend_data = []; consult_data = []; app_cpt_data = []; md_cpt_data = []
+        clinic_data = []; provider_data = []; visit_data = []; financial_data = []; pos_trend_data = []; consult_data = []; app_cpt_data = []; md_cpt_data = []; md_consult_data = []
         debug_log = []
         consult_log = [] 
         prov_log = [] 
@@ -813,10 +813,16 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     if match_prov in APP_LIST:
                         res_cpt = parse_app_cpt_data(df, match_prov, prov_log)
                         if not res_cpt.empty: app_cpt_data.append(res_cpt)
-                    # 2. Parse for MD CPTs (New)
+                    # 2. Parse for MD CPTs & 77263
                     else:
+                        # Follow-up Visits (99212-99215)
                         res_cpt = parse_app_cpt_data(df, match_prov, prov_log)
                         if not res_cpt.empty: md_cpt_data.append(res_cpt)
+                        
+                        # NEW: Tx Plan (77263) for MDs
+                        res_77263 = parse_consults_data(df, match_prov, consult_log)
+                        if not res_77263.empty: md_consult_data.append(res_77263)
+
                 
                 if s_lower.endswith(" prov"):
                     file_date = get_date_from_filename(filename)
@@ -835,12 +841,13 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 if clean_name in CLINIC_CONFIG:
                     res = parse_rvu_sheet(df, clean_name, 'clinic', clinic_tag="General")
                     if not res.empty: clinic_data.append(res)
+                    
                     pretty_name = CLINIC_CONFIG[clean_name]["name"]
                     consult_log.append(f"Checking {clean_name} for 77263...")
                     res_consult = parse_consults_data(df, pretty_name, consult_log)
                     if not res_consult.empty:
                         consult_data.append(res_consult)
-                    # Fall through to allow provider extraction if present!
+                    # Fall through!
 
                 if "PRODUCTIVITY TREND" in s_upper: 
                     if file_tag in ["LROC", "TROC"]:
@@ -909,7 +916,20 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         else:
              df_consults = pd.DataFrame(columns=['Name', 'Month', 'Count', 'Month_Label'])
         
-        # --- APP CPT Data Processing ---
+        if md_consult_data:
+            df_md_consults = pd.concat(md_consult_data, ignore_index=True)
+            def parse_date_safe(x):
+                if isinstance(x, (datetime, pd.Timestamp)): return x
+                if isinstance(x, str):
+                    try: return pd.to_datetime(x, format='%b-%y')
+                    except: return pd.NaT
+                return pd.NaT
+            df_md_consults['Month_Clean'] = df_md_consults['Month'].apply(parse_date_safe)
+            df_md_consults.dropna(subset=['Month_Clean'], inplace=True)
+            df_md_consults['Month_Label'] = df_md_consults['Month_Clean'].dt.strftime('%b-%y')
+        else:
+             df_md_consults = pd.DataFrame(columns=['Name', 'Month', 'Count', 'Month_Label'])
+
         if app_cpt_data:
             df_app_cpt = pd.concat(app_cpt_data, ignore_index=True)
             def parse_date_safe(x):
@@ -924,7 +944,6 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         else:
             df_app_cpt = pd.DataFrame(columns=['Name', 'Month', 'Count', 'CPT Code', 'Month_Label'])
 
-        # --- MD CPT Data Processing (NEW) ---
         if md_cpt_data:
             df_md_cpt = pd.concat(md_cpt_data, ignore_index=True)
             def parse_date_safe(x):
@@ -953,10 +972,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     except: return pd.NaT
                 return pd.NaT
             df_provider_raw['Month_Clean'] = df_provider_raw['Month'].apply(parse_date_safe)
-            
-            # Robust Date Filter: Only drop if we really can't parse it
             df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
-            
             df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
             df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
 
@@ -982,7 +998,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             df_provider_global['RVU per FTE'] = df_provider_global.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
             df_provider_global.sort_values('Month_Clean', inplace=True)
 
-        return df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, df_app_cpt, df_md_cpt, debug_log, consult_log, prov_log
+        return df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, df_app_cpt, df_md_cpt, df_md_consults, debug_log, consult_log, prov_log
 
     # --- UI ---
     st.title("🩺 Radiation Oncology Division Analytics")
@@ -1007,7 +1023,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
 
     if all_files:
         with st.spinner("Analyzing files..."):
-            df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, df_app_cpt, df_md_cpt, debug_log, consult_log, prov_log = process_files(all_files)
+            df_clinic, df_md_global, df_provider_raw, df_visits, df_financial, df_pos_trend, df_consults, df_app_cpt, df_md_cpt, df_md_consults, debug_log, consult_log, prov_log = process_files(all_files)
         
         with st.sidebar:
              with st.expander("🐞 Debug: MD/APP Data"):
@@ -1020,15 +1036,9 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             st.error("No valid data found.")
         else:
             if not df_md_global.empty:
-                # 1. Filter APPs based on the known APP List
                 df_apps = df_md_global[df_md_global['Name'].isin(APP_LIST)]
-                
-                # 2. Filter MDs: Must be in PROVIDER_CONFIG *AND* NOT in APP_LIST
                 valid_providers = set(PROVIDER_CONFIG.keys())
-                df_mds = df_md_global[
-                    (df_md_global['Name'].isin(valid_providers)) & 
-                    (~df_md_global['Name'].isin(APP_LIST))
-                ]
+                df_mds = df_md_global[(df_md_global['Name'].isin(valid_providers)) & (~df_md_global['Name'].isin(APP_LIST))]
             else:
                 df_apps = pd.DataFrame(); df_mds = pd.DataFrame()
 
@@ -1041,11 +1051,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     col_nav, col_main = st.columns([1, 5])
                     with col_nav:
                         st.markdown("### 🔍 Filter")
-                        clinic_filter = st.radio(
-                            "Select View:", 
-                            ["All", "TriStar", "Ascension", "LROC", "TOPC", "TROC", "Sumner"], 
-                            key="clinic_radio"
-                        )
+                        clinic_filter = st.radio("Select View:", ["All", "TriStar", "Ascension", "LROC", "TOPC", "TROC", "Sumner"], key="clinic_radio")
                     with col_main:
                         df_view = pd.DataFrame(); view_title = clinic_filter; target_tag = None
                         if clinic_filter == "All": df_view = df_clinic.copy(); view_title = "All Clinics"
@@ -1122,7 +1128,6 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                                 piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                                                 piv_q["Total"] = piv_q.sum(axis=1)
                                                 st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-
 
                             if clinic_filter in ["TriStar", "Ascension", "All", "LROC", "TOPC", "TROC", "Sumner"]:
                                 with st.container(border=True):
@@ -1423,12 +1428,23 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     st.plotly_chart(fig_diff_np, use_container_width=True)
                             
                             st.markdown("---")
+                            
+                            # --- 1. NEW: MD Tx Plan (77263) Table ---
+                            if not df_md_consults.empty:
+                                st.markdown("### 📝 MD Tx Plan Complex (CPT 77263)")
+                                sorted_m_cons = df_md_consults.sort_values("Month_Clean")["Month_Label"].unique()
+                                piv_md_cons = df_md_consults.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
+                                piv_md_cons = piv_md_cons.reindex(columns=sorted_m_cons).fillna(0)
+                                piv_md_cons["Total"] = piv_md_cons.sum(axis=1)
+                                st.dataframe(piv_md_cons.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
+                            
+                            st.markdown("---")
 
-                            # --- NEW: MD Follow-Up Visits (From wRVU Calculation) ---
+                            # --- 2. NEW: MD Follow-Up Visits (From wRVU Calculation) ---
                             if not df_md_cpt.empty:
                                 st.markdown("### 🩺 Established Patients (99212-99215)")
                                 
-                                # 1. NEW CHART: Total Established Patients YTD
+                                # Bar Chart: Total Established Patients YTD
                                 md_est_total = df_md_cpt.groupby('Name')['Count'].sum().reset_index()
                                 md_est_total_sorted = md_est_total.sort_values('Count', ascending=True)
 
@@ -1440,7 +1456,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                 
                                 st.markdown("---")
                                 
-                                # 2. Detailed Breakdown Chart
+                                # Detailed Breakdown Chart
                                 ytd_md = df_md_cpt.groupby(['Name', 'CPT Code'])['Count'].sum().reset_index()
                                 
                                 fig_md_bar = px.bar(ytd_md, x="Name", y="Count", color="CPT Code", barmode="group", text_auto=True, title=f"YTD Follow-up Visits Breakdown ({max_date.year})")
