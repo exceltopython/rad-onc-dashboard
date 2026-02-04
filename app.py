@@ -1096,7 +1096,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     fig_ind.update_layout(style_high_end_chart(fig_ind).layout)
                                     st.plotly_chart(fig_ind, use_container_width=True)
                                     
-                                    # TX PLAN TABLE
+                                    # TX PLAN TABLE (MOVED TO TOP LEVEL OF "ALL")
                                     if clinic_filter == "All" and not df_consults.empty:
                                         st.markdown("---")
                                         st.markdown("### 📝 Tx Plan Complex (CPT 77263)")
