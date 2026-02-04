@@ -518,22 +518,19 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 for col in df.columns[4:]: 
                     header_val = df.iloc[header_row_idx, col]
                     
-                    # DATE CHECK (Flexible)
-                    valid_date = None
-                    if isinstance(header_val, (datetime, pd.Timestamp)):
-                            valid_date = header_val
+                    is_valid_date = False
+                    if isinstance(header_val, (datetime, pd.Timestamp)): is_valid_date = True
                     elif isinstance(header_val, str):
-                            if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
-                                try: valid_date = pd.to_datetime(header_val.strip(), format='%b-%y')
-                                except: pass
+                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
+                            is_valid_date = True
                     
-                    if valid_date is None: continue 
+                    if not is_valid_date: continue 
                     
                     val = clean_number(df.iloc[cpt_row_idx, col])
                     if val is not None:
                         count = val / CONSULT_CONVERSION
                         records.append({
-                            "Name": sheet_name, "Month": valid_date, 
+                            "Name": sheet_name, "Month": header_val, 
                             "Count": count, "Clinic_Tag": sheet_name
                         })
             else:
@@ -850,7 +847,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     res_consult = parse_consults_data(df, pretty_name, consult_log)
                     if not res_consult.empty:
                         consult_data.append(res_consult)
-                    # Fall through!
+                    # Fall through to allow provider extraction if present!
 
                 if "PRODUCTIVITY TREND" in s_upper: 
                     if file_tag in ["LROC", "TROC"]:
@@ -975,10 +972,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     except: return pd.NaT
                 return pd.NaT
             df_provider_raw['Month_Clean'] = df_provider_raw['Month'].apply(parse_date_safe)
-            
-            # Robust Date Filter: Only drop if we really can't parse it
             df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
-            
             df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
             df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
 
@@ -1448,14 +1442,50 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                 piv_md_cons = piv_md_cons.reindex(columns=sorted_m_cons).fillna(0)
                                 piv_md_cons["Total"] = piv_md_cons.sum(axis=1)
                                 st.dataframe(piv_md_cons.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
+                                
+                                # 2. RATIO CHART (New Addition)
+                                # Get YTD 77263 counts
+                                md_77263_ytd = df_md_consults.groupby('Name')['Count'].sum().reset_index()
+                                
+                                # Get YTD New Patients (from latest_v_df which is YTD data)
+                                # Ensure we only look at MDs (already filtered in latest_v_df)
+                                md_np_ytd = latest_v_df[['Name', 'New Patients']].copy()
+                                
+                                # Merge
+                                ratio_df = pd.merge(md_77263_ytd, md_np_ytd, on='Name', how='inner')
+                                
+                                # Calculate Ratio
+                                ratio_df['Ratio'] = ratio_df.apply(lambda x: x['Count'] / x['New Patients'] if x['New Patients'] > 0 else 0, axis=1)
+                                
+                                # Format Label: "1.03 (363/354)"
+                                ratio_df['Label'] = ratio_df.apply(lambda x: f"{x['Ratio']:.2f} ({int(x['Count'])}/{int(x['New Patients'])})", axis=1)
+                                
+                                # Sort
+                                ratio_df = ratio_df.sort_values('Ratio', ascending=True) # Ascending for horizontal bar to show top at top
+                                
+                                if not ratio_df.empty:
+                                    st.markdown("---")
+                                    st.markdown("### 📊 Ratio: Tx Plan (77263) / New Patients (YTD)")
+                                    fig_ratio = px.bar(
+                                        ratio_df, 
+                                        x='Ratio', 
+                                        y='Name', 
+                                        orientation='h', 
+                                        text='Label',
+                                        title="Ratio > 1.0 indicates more Tx Plans than New Patients"
+                                    )
+                                    fig_ratio.update_layout(style_high_end_chart(fig_ratio).layout)
+                                    # Force text to always show
+                                    fig_ratio.update_traces(textposition='outside')
+                                    st.plotly_chart(fig_ratio, use_container_width=True)
                             
                             st.markdown("---")
 
-                            # --- 2. NEW: MD Follow-Up Visits (From wRVU Calculation) ---
+                            # --- 3. NEW: MD Follow-Up Visits (From wRVU Calculation) ---
                             if not df_md_cpt.empty:
                                 st.markdown("### 🩺 Established Patients (99212-99215)")
                                 
-                                # 1. NEW CHART: Total Established Patients YTD
+                                # Bar Chart: Total Established Patients YTD
                                 md_est_total = df_md_cpt.groupby('Name')['Count'].sum().reset_index()
                                 md_est_total_sorted = md_est_total.sort_values('Count', ascending=True)
 
@@ -1467,7 +1497,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                 
                                 st.markdown("---")
                                 
-                                # 2. Detailed Breakdown Chart
+                                # Detailed Breakdown Chart
                                 ytd_md = df_md_cpt.groupby(['Name', 'CPT Code'])['Count'].sum().reset_index()
                                 
                                 fig_md_bar = px.bar(ytd_md, x="Name", y="Count", color="CPT Code", barmode="group", text_auto=True, title=f"YTD Follow-up Visits Breakdown ({max_date.year})")
