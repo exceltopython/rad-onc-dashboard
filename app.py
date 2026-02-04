@@ -9,24 +9,10 @@ import re
 # --- 1. CONFIGURATION & STYLING ---
 st.set_page_config(page_title="RadOnc Analytics", layout="wide", page_icon="🩺")
 
-# --- HIGH-END DESIGN THEME ---
 def inject_custom_css():
     st.markdown("""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
-
-        /* GLOBAL RESET & FONT */
-        html, body, [class*="css"] {
-            font-family: 'Inter', sans-serif;
-            color: #1e293b; 
-        }
-        
-        /* APP BACKGROUND */
-        .stApp {
-            background-color: #f1f5f9; /* Light Blue-Gray background */
-        }
-
-        /* REMOVE STREAMLIT BLOAT */
+        /* HIDE STREAMLIT MENU, FOOTER, TOOLBAR */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
@@ -34,145 +20,28 @@ def inject_custom_css():
         [data-testid="stHeader"] {visibility: hidden;}
         .stDeployButton {display: none;}
 
-        /* SIDEBAR STYLING */
-        section[data-testid="stSidebar"] {
-            background-color: #0f172a; /* Dark Navy */
-            color: white;
-        }
-        section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
-            color: #e2e8f0 !important;
-        }
-        section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] label {
-            color: #94a3b8 !important;
-        }
-
-        /* CARD UI CONTAINER */
-        /* This styles the st.containers with borders to look like cards */
-        div[data-testid="stVerticalBlock"] > div[style*="background-color"] {
-            background-color: white;
-        }
+        .stTabs [data-baseweb="tab-list"] { gap: 24px; background-color: transparent; padding-bottom: 15px; border-bottom: 1px solid #ddd; }
+        .stTabs [data-baseweb="tab-list"] button { background-color: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 6px; color: #4B5563; padding: 14px 30px; 
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p { font-size: 20px !important; font-weight: 700 !important; margin: 0px; }
+        .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] { background-color: #1E3A8A !important; color: #FFFFFF !important; border-color: #1E3A8A; }
+        .stTabs [data-baseweb="tab-highlight"] { background-color: transparent !important; }
         
-        div.stMarkdown {
-            margin-bottom: 5px;
-        }
-
-        /* CUSTOM METRIC CARDS */
-        div[data-testid="stMetric"] {
-            background-color: #ffffff;
-            border: 1px solid #e2e8f0;
-            padding: 15px;
-            border-radius: 10px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-            text-align: center;
-        }
-        div[data-testid="stMetric"] label {
-            color: #64748b;
-            font-size: 0.85rem;
-        }
-        div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-            color: #0f172a;
-            font-weight: 700;
-            font-size: 1.5rem;
-        }
-
-        /* MODERN TABS (Pill Style) */
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 10px;
-            background-color: transparent;
-            padding-bottom: 10px;
-            border-bottom: none;
-        }
-        .stTabs [data-baseweb="tab-list"] button {
-            background-color: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            color: #64748b;
-            padding: 8px 20px;
-            font-weight: 600;
-            font-size: 14px;
-            transition: all 0.2s ease;
-        }
-        .stTabs [data-baseweb="tab-list"] button:hover {
-            border-color: #3b82f6;
-            color: #3b82f6;
-        }
-        .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
-            background-color: #0f172a !important; 
-            color: #ffffff !important; 
-            border-color: #0f172a;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
-        .stTabs [data-baseweb="tab-highlight"] {
-            background-color: transparent !important;
-        }
-
-        /* DATAFRAME POLISH */
-        div[data-testid="stDataFrame"] {
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            overflow: hidden;
-            background: white;
-            padding: 5px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        }
-        div[data-testid="stDataFrame"] div[role="columnheader"] {
-            color: #0f172a !important;
-            font-weight: 700 !important;
-            font-size: 13px !important;
+        /* FORCE TABLE HEADERS TO BE BLACK AND BOLD */
+        div[data-testid="stDataFrame"] div[role="columnheader"] { color: #000000 !important; font-weight: 900 !important; font-size: 14px !important; }
+        [data-testid="stDataFrame"] th { color: #000000 !important; font-weight: 900 !important; }
+        
+        /* NARRATIVE BOX STYLING */
+        div.stAlert {
             background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
-        
-        /* HEADERS */
-        h1, h2, h3 {
-            color: #0f172a;
-            font-weight: 700;
-            letter-spacing: -0.025em;
-        }
-        h4, h5 {
-            color: #334155;
-            font-weight: 600;
-        }
-        
         </style>
     """, unsafe_allow_html=True)
 
 inject_custom_css()
-
-# --- HELPER: CHART STYLING ---
-def style_high_end_chart(fig):
-    """Applies a high-end, minimalist aesthetic to Plotly charts."""
-    fig.update_layout(
-        font={'family': "Inter, sans-serif", 'color': '#334155'},
-        title_font={'family': "Inter, sans-serif", 'size': 18, 'color': '#0f172a'},
-        paper_bgcolor='rgba(0,0,0,0)', # Transparent background
-        plot_bgcolor='rgba(0,0,0,0)',  # Transparent plot area
-        margin=dict(t=50, l=20, r=20, b=40),
-        xaxis=dict(
-            showgrid=False, 
-            showline=True, 
-            linecolor='#cbd5e1', 
-            tickfont=dict(color='#64748b')
-        ),
-        yaxis=dict(
-            showgrid=True, 
-            gridcolor='#f1f5f9', # Very subtle grid
-            showline=False, 
-            tickfont=dict(color='#64748b')
-        ),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        ),
-        hoverlabel=dict(
-            bgcolor="white",
-            font_size=12,
-            font_family="Inter"
-        )
-    )
-    return fig
 
 # --- PASSWORD CONFIGURATION ---
 APP_PASSWORD = "RadOnc2026rj"
@@ -186,15 +55,10 @@ def check_password():
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        # Simple Login Card
-        st.markdown("<br><br><br>", unsafe_allow_html=True)
-        col1, col2, col3 = st.columns([1,1,1])
-        with col2:
-            st.markdown("### 🔐 Access Analytics")
-            st.text_input("Password", type="password", on_change=password_entered, key="password", label_visibility="collapsed", placeholder="Enter Password")
+        st.text_input("🔒 Enter Dashboard Password:", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
-        st.error("Access Denied.")
+        st.text_input("❌ App down for improvements. Come back soon", type="password", on_change=password_entered, key="password")
         return False
     else:
         return True
@@ -300,6 +164,7 @@ if check_password():
             
             # --- FIX: NORMALIZE FRIEDMEN -> FRIEDMAN ---
             if last_name == "FRIEDMEN": last_name = "FRIEDMAN"
+            # -------------------------------------------
             
             if last_name in PROVIDER_KEYS_UPPER: return PROVIDER_KEYS_UPPER[last_name]
             return None
@@ -319,23 +184,52 @@ if check_password():
                     records.append({"ID": clinic_id, "Name": CLINIC_CONFIG[clinic_id]["name"], "Year": year, "Total RVUs": rvu, "Source": "Historical"})
         return pd.DataFrame(records)
 
-    def generate_narrative(df, entity_type="Provider", metric_col="Total RVUs", unit="wRVUs"):
+    # --- ADVANCED NARRATIVE GENERATOR ---
+    def generate_narrative(df, entity_type="Provider", metric_col="Total RVUs", unit="wRVUs", timeframe="this month"):
         if df.empty: return "No data available."
+        
+        # Determine the latest date for context
         latest_date = df['Month_Clean'].max()
         latest_df = df[df['Month_Clean'] == latest_date]
-        if latest_df.empty: return "Data processed but current month is empty."
-        total_vol = latest_df[metric_col].sum()
         
+        if latest_df.empty: return "Data processed but current month is empty."
+        
+        # Calculate key stats
+        total_vol = latest_df[metric_col].sum()
+        provider_count = len(latest_df)
+        avg_vol = total_vol / provider_count if provider_count > 0 else 0
+        
+        # Determine sorting column
         if metric_col == "Total RVUs":
-            top_perf = latest_df.loc[latest_df['RVU per FTE'].idxmax()]
-            top_val = top_perf['RVU per FTE']; top_metric = "wRVUs/FTE"
+            sorted_df = latest_df.sort_values('RVU per FTE', ascending=False)
+            top_metric_name = "wRVU/FTE"
+            top_col = 'RVU per FTE'
         else:
-            top_perf = latest_df.loc[latest_df[metric_col].idxmax()]
-            top_val = top_perf[metric_col]; top_metric = unit
+            sorted_df = latest_df.sort_values(metric_col, ascending=False)
+            top_metric_name = unit
+            top_col = metric_col
 
-        return f"""**🤖 Automated Analysis ({latest_date.strftime('%B %Y')}):**
-        The {entity_type} group generated a total of **{total_vol:,.0f} {unit}** this month. 
-        * **🏆 Top Performer:** **{clean_provider_name_display(top_perf['Name'])}** led with **{top_val:,.0f} {top_metric}**."""
+        # Construct the detailed narrative
+        narrative = f"""### 🤖 Automated Analysis ({latest_date.strftime('%B %Y')})
+The **{entity_type}** group ({provider_count} active) generated a total of **{total_vol:,.0f} {unit}** {timeframe}.  
+The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
+
+#### 🏆 Top Performers:
+"""
+        # Add Podium
+        if len(sorted_df) > 0:
+            top_1 = sorted_df.iloc[0]
+            narrative += f"* **🥇 1st Place:** **{clean_provider_name_display(top_1['Name'])}** with **{top_1[top_col]:,.0f} {top_metric_name}**\n"
+        
+        if len(sorted_df) > 1:
+            top_2 = sorted_df.iloc[1]
+            narrative += f"* **🥈 2nd Place:** **{clean_provider_name_display(top_2['Name'])}** with **{top_2[top_col]:,.0f}**\n"
+            
+        if len(sorted_df) > 2:
+            top_3 = sorted_df.iloc[2]
+            narrative += f"* **🥉 3rd Place:** **{clean_provider_name_display(top_3['Name'])}** with **{top_3[top_col]:,.0f}**\n"
+
+        return narrative
 
     # --- PARSERS ---
 
@@ -406,7 +300,7 @@ if check_password():
             log.append(f"    ✅ Extracted {len(records)} detailed provider rows for {clinic_id}")
         return pd.DataFrame(records)
 
-    # --- NEW: PARSER FOR APP FOLLOW-UP CODES (99212-99215) ---
+    # --- NEW: PARSER FOR FOLLOW-UP CODES (99212-99215) ---
     def parse_app_cpt_data(df, provider_name, log):
         records = []
         try:
@@ -427,15 +321,16 @@ if check_password():
                     for col in df.columns[4:]: 
                         header_val = df.iloc[header_row_idx, col]
                         
-                        # STRICT DATE CHECK (The same logic used elsewhere)
-                        is_valid_date = False
+                        # DATE CHECK (Flexible)
+                        valid_date = None
                         if isinstance(header_val, (datetime, pd.Timestamp)):
-                            is_valid_date = True
+                             valid_date = header_val
                         elif isinstance(header_val, str):
-                            if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
-                                is_valid_date = True
+                             if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
+                                 try: valid_date = pd.to_datetime(header_val.strip(), format='%b-%y')
+                                 except: pass
                         
-                        if not is_valid_date: continue 
+                        if valid_date is None: continue 
                         
                         val = clean_number(df.iloc[cpt_row_idx, col])
                         if val is not None and val != 0:
@@ -443,7 +338,7 @@ if check_password():
                             count = val / rate
                             records.append({
                                 "Name": provider_name, 
-                                "Month": header_val, 
+                                "Month": valid_date, 
                                 "Count": count, 
                                 "CPT Code": cpt_code,
                                 "Rate": rate
@@ -1409,7 +1304,7 @@ if check_password():
                             latest_v_date = df_visits_agg['Month_Clean'].max()
                             latest_v_df = df_visits_agg[df_visits_agg['Month_Clean'] == latest_v_date]
                             
-                            st.info(generate_narrative(df_visits_agg, "Physician", metric_col="Total Visits", unit="Visits"))
+                            st.info(generate_narrative(df_visits_agg, "Physician", metric_col="Total Visits", unit="Visits", timeframe="Year-to-Date"))
                             c_ov1, c_ov2 = st.columns(2)
                             with c_ov1:
                                 with st.container(border=True):
@@ -1438,7 +1333,7 @@ if check_password():
 
                             # --- NEW: MD Follow-Up Visits (From wRVU Calculation) ---
                             if not df_md_cpt.empty:
-                                st.markdown("### 🩺 MD Independent Follow-up Visits (99212-99215)")
+                                st.markdown("### 🩺 Established Patients (99212-99215)")
                                 
                                 # 1. NEW CHART: Total Established Patients YTD
                                 md_est_total = df_md_cpt.groupby('Name')['Count'].sum().reset_index()
