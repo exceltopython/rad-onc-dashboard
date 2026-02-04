@@ -835,19 +835,17 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 if clean_name in CLINIC_CONFIG:
                     res = parse_rvu_sheet(df, clean_name, 'clinic', clinic_tag="General")
                     if not res.empty: clinic_data.append(res)
-                    
                     pretty_name = CLINIC_CONFIG[clean_name]["name"]
                     consult_log.append(f"Checking {clean_name} for 77263...")
                     res_consult = parse_consults_data(df, pretty_name, consult_log)
                     if not res_consult.empty:
                         consult_data.append(res_consult)
-                    # Fall through!
+                    # Fall through to allow provider extraction if present!
 
                 if "PRODUCTIVITY TREND" in s_upper: 
                     if file_tag in ["LROC", "TROC"]:
                         res = parse_rvu_sheet(df, file_tag, 'clinic', clinic_tag=file_tag)
                         if not res.empty: clinic_data.append(res)
-                        
                         pretty_name = CLINIC_CONFIG[file_tag]["name"]
                         res_consult = parse_consults_data(df, pretty_name, consult_log)
                         if not res_consult.empty: consult_data.append(res_consult)
