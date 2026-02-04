@@ -92,7 +92,7 @@ if check_password():
     CONSULT_CPT = "77263"
     CONSULT_CONVERSION = 3.14
 
-    # APP FOLLOW-UP CPT CONFIG
+    # NEW: APP FOLLOW-UP CPT CONFIG
     APP_CPT_RATES = {
         "99212": 0.7,
         "99213": 1.3,
@@ -156,7 +156,6 @@ if check_password():
             
             # --- FIX: NORMALIZE FRIEDMEN -> FRIEDMAN ---
             if last_name == "FRIEDMEN": last_name = "FRIEDMAN"
-            # -------------------------------------------
             
             if last_name in PROVIDER_KEYS_UPPER: return PROVIDER_KEYS_UPPER[last_name]
             return None
@@ -284,16 +283,15 @@ if check_password():
                     for col in df.columns[4:]: 
                         header_val = df.iloc[header_row_idx, col]
                         
-                        # DATE CHECK (Flexible)
-                        valid_date = None
+                        # STRICT DATE CHECK
+                        is_valid_date = False
                         if isinstance(header_val, (datetime, pd.Timestamp)):
-                             valid_date = header_val
+                            is_valid_date = True
                         elif isinstance(header_val, str):
-                             if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
-                                 try: valid_date = pd.to_datetime(header_val.strip(), format='%b-%y')
-                                 except: pass
+                            if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
+                                is_valid_date = True
                         
-                        if valid_date is None: continue 
+                        if not is_valid_date: continue 
                         
                         val = clean_number(df.iloc[cpt_row_idx, col])
                         if val is not None and val != 0:
@@ -301,7 +299,7 @@ if check_password():
                             count = val / rate
                             records.append({
                                 "Name": provider_name, 
-                                "Month": valid_date, 
+                                "Month": header_val, 
                                 "Count": count, 
                                 "CPT Code": cpt_code,
                                 "Rate": rate
@@ -421,7 +419,7 @@ if check_password():
         records = []
         try:
             header_row = -1; col_map = {}
-            for i in range(min(15, len(df)):
+            for i in range(min(15, len(df))):
                 row_vals = [str(x).upper().strip() for x in df.iloc[i].values]
                 if mode == "Provider":
                     if "PROVIDER" in row_vals:
@@ -481,15 +479,21 @@ if check_password():
     def parse_pos_trend_sheet(df, filename, log):
         records = []
         try:
+            # 1. FIND HEADER ROW based on Date Columns
             header_row_idx = -1
             date_map = {} 
+            
+            # Scan first 30 rows
             for r in range(min(30, len(df))):
                 row = df.iloc[r].values
                 temp_date_map = {}
+                
                 for c in range(len(row)):
                     val = row[c]
+                    # Check for actual date object
                     if isinstance(val, (datetime, pd.Timestamp)):
                          temp_date_map[c] = val
+                    # Check for string "Jan-25"
                     else:
                         s_val = str(val).strip()
                         if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
@@ -497,6 +501,8 @@ if check_password():
                                 dt = pd.to_datetime(s_val, format='%b-%y')
                                 temp_date_map[c] = dt
                             except: pass
+                
+                # If we found at least 2 date columns in this row, assume it's the header
                 if len(temp_date_map) >= 2:
                     header_row_idx = r
                     date_map = temp_date_map
@@ -507,18 +513,24 @@ if check_password():
                 log.append(f"  ❌ Could NOT find date headers in {filename}")
                 return pd.DataFrame()
 
+            # 2. ITERATE DATA ROWS (Check first 3 columns for Name)
             for i in range(header_row_idx + 1, len(df)):
                 row = df.iloc[i].values
+                
+                # Check first 3 columns for a valid site name
                 c_id = None
                 site_name_found = ""
-                for col_idx in range(3): 
+                
+                for col_idx in range(3): # Check columns 0, 1, 2
                     if col_idx >= len(row): break
                     val = str(row[col_idx]).strip().upper()
+                    
                     if val and val != "NAN":
                         if val in POS_ROW_MAPPING:
                             c_id = POS_ROW_MAPPING[val]
                             site_name_found = val
                             break
+                        # Partial Fallback
                         for key, mapped_id in POS_ROW_MAPPING.items():
                             if key in val:
                                 c_id = mapped_id
@@ -527,6 +539,7 @@ if check_password():
                     if c_id: break
                 
                 if c_id:
+                    # log.append(f"    Matched row '{site_name_found}' -> ID: {c_id}")
                     for col_idx, dt in date_map.items():
                         if col_idx < len(row):
                             val = clean_number(row[col_idx])
@@ -535,6 +548,8 @@ if check_password():
                                     "Clinic_Tag": c_id, "Month_Clean": dt, "New Patients": val,
                                     "Month_Label": dt.strftime('%b-%y'), "source_type": "pos_trend"
                                 })
+                else:
+                     pass
 
         except Exception as e: 
             log.append(f"  ❌ Error parsing {filename}: {str(e)}")
@@ -611,6 +626,7 @@ if check_password():
                 file_date = get_date_from_filename(filename)
                 debug_log.append(f"📂 Processing New Patient File: {filename}")
                 found_pos = False
+                
                 for sheet_name, df in xls.items():
                     if "POS" in sheet_name.upper() and "TREND" in sheet_name.upper():
                         found_pos = True
@@ -665,16 +681,18 @@ if check_password():
                 s_upper = sheet_name.upper()
                 if any(ignored in s_upper for ignored in IGNORED_SHEETS): continue
                 
+                # --- CHECK FOR CLINIC SHEETS ---
                 if clean_name in CLINIC_CONFIG:
                     res = parse_rvu_sheet(df, clean_name, 'clinic', clinic_tag="General")
                     if not res.empty: clinic_data.append(res)
                     
+                    # 77263 Parsing
                     pretty_name = CLINIC_CONFIG[clean_name]["name"]
                     consult_log.append(f"Checking {clean_name} for 77263...")
                     res_consult = parse_consults_data(df, pretty_name, consult_log)
                     if not res_consult.empty:
                         consult_data.append(res_consult)
-                    # Fall through!
+                    # Fall through to allow provider extraction if present!
 
                 if "PRODUCTIVITY TREND" in s_upper: 
                     if file_tag in ["LROC", "TROC"]:
