@@ -501,7 +501,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 })
         return pd.DataFrame(records)
 
-    # --- SPECIFIC PARSER FOR CPT 77263 CONSULTS ---
+    # --- SPECIFIC PARSER FOR CPT 77263 CONSULTS (FIXED DATE CHECK) ---
     def parse_consults_data(df, sheet_name, log):
         records = []
         try:
@@ -518,22 +518,19 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 for col in df.columns[4:]: 
                     header_val = df.iloc[header_row_idx, col]
                     
-                    # DATE CHECK (Flexible)
-                    valid_date = None
-                    if isinstance(header_val, (datetime, pd.Timestamp)):
-                            valid_date = header_val
+                    is_valid_date = False
+                    if isinstance(header_val, (datetime, pd.Timestamp)): is_valid_date = True
                     elif isinstance(header_val, str):
-                            if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
-                                try: valid_date = pd.to_datetime(header_val.strip(), format='%b-%y')
-                                except: pass
+                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
+                            is_valid_date = True
                     
-                    if valid_date is None: continue 
+                    if not is_valid_date: continue 
                     
                     val = clean_number(df.iloc[cpt_row_idx, col])
                     if val is not None:
                         count = val / CONSULT_CONVERSION
                         records.append({
-                            "Name": sheet_name, "Month": valid_date, 
+                            "Name": sheet_name, "Month": header_val, 
                             "Count": count, "Clinic_Tag": sheet_name
                         })
             else:
@@ -844,7 +841,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     res_consult = parse_consults_data(df, pretty_name, consult_log)
                     if not res_consult.empty:
                         consult_data.append(res_consult)
-                    # Fall through to allow provider extraction if present!
+                    # Fall through!
 
                 if "PRODUCTIVITY TREND" in s_upper: 
                     if file_tag in ["LROC", "TROC"]:
@@ -1168,11 +1165,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                                         c_hist_grp = pd.concat([c_hist_grp, new_r], ignore_index=True)
                                                 if not c_hist_grp.empty:
                                                     fig_c = px.bar(c_hist_grp, x='Year', y='Total RVUs', text_auto='.2s', title=c_name)
-                                                    fig_c.update_layout(
-                                                        height=350, font=dict(color="black"), font_color="black",
-                                                        xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                                        yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                                    )
+                                                    fig_c.update_layout(style_high_end_chart(fig_c).layout)
                                                     with cols[idx % 2]: st.plotly_chart(fig_c, use_container_width=True)
                         
                         if clinic_filter == "All":
@@ -1402,6 +1395,9 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                             df_visits_agg = df_visits.groupby(['Name', 'Month_Clean'], as_index=False).agg({'Total Visits': 'sum', 'New Patients': 'sum', 'Visits_Diff': 'sum', 'NP_Diff': 'sum'})
                             latest_v_date = df_visits_agg['Month_Clean'].max()
                             latest_v_df = df_visits_agg[df_visits_agg['Month_Clean'] == latest_v_date]
+                            
+                            # Filter out APPs from the specific view dataframe before plotting
+                            latest_v_df = latest_v_df[~latest_v_df['Name'].isin(APP_LIST)]
                             
                             st.info(generate_narrative(df_visits_agg, "Physician", metric_col="Total Visits", unit="Visits", timeframe="Year-to-Date"))
                             c_ov1, c_ov2 = st.columns(2)
