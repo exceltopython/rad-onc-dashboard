@@ -92,7 +92,7 @@ if check_password():
     CONSULT_CPT = "77263"
     CONSULT_CONVERSION = 3.14
 
-    # APP FOLLOW-UP CPT CONFIG
+    # NEW: APP FOLLOW-UP CPT CONFIG
     APP_CPT_RATES = {
         "99212": 0.7,
         "99213": 1.3,
@@ -152,7 +152,12 @@ if check_password():
             else: base = name_str
             parts = base.split()
             if not parts: return None
-            last_name = parts[0].strip().upper() 
+            last_name = parts[0].strip().upper()
+            
+            # --- FIX: NORMALIZE FRIEDMEN -> FRIEDMAN ---
+            if last_name == "FRIEDMEN": last_name = "FRIEDMAN"
+            # -------------------------------------------
+            
             if last_name in PROVIDER_KEYS_UPPER: return PROVIDER_KEYS_UPPER[last_name]
             return None
         except: return None
@@ -258,7 +263,7 @@ if check_password():
             log.append(f"    ✅ Extracted {len(records)} detailed provider rows for {clinic_id}")
         return pd.DataFrame(records)
 
-    # --- NEW: PARSER FOR FOLLOW-UP CODES (99212-99215) ---
+    # --- NEW: PARSER FOR APP FOLLOW-UP CODES (99212-99215) ---
     def parse_app_cpt_data(df, provider_name, log):
         records = []
         try:
@@ -279,7 +284,7 @@ if check_password():
                     for col in df.columns[4:]: 
                         header_val = df.iloc[header_row_idx, col]
                         
-                        # STRICT DATE CHECK
+                        # STRICT DATE CHECK (The same logic used elsewhere)
                         is_valid_date = False
                         if isinstance(header_val, (datetime, pd.Timestamp)):
                             is_valid_date = True
@@ -1239,10 +1244,8 @@ if check_password():
                             with c1:
                                 st.markdown("#### 🔢 Monthly Data")
                                 piv = df_mds.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                # FIX: Sort MD Table Chronologically
                                 sorted_months_md = df_mds.sort_values("Month_Clean")["Month_Label"].unique()
                                 piv = piv.reindex(columns=sorted_months_md).fillna(0)
-                                
                                 piv["Total"] = piv.sum(axis=1)
                                 st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                             with c2:
