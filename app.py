@@ -9,10 +9,24 @@ import re
 # --- 1. CONFIGURATION & STYLING ---
 st.set_page_config(page_title="RadOnc Analytics", layout="wide", page_icon="🩺")
 
+# --- HIGH-END DESIGN THEME ---
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* HIDE STREAMLIT MENU, FOOTER, TOOLBAR */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+
+        /* GLOBAL RESET & FONT */
+        html, body, [class*="css"] {
+            font-family: 'Inter', sans-serif;
+            color: #1e293b; 
+        }
+        
+        /* APP BACKGROUND */
+        .stApp {
+            background-color: #f1f5f9; /* Light Blue-Gray background */
+        }
+
+        /* REMOVE STREAMLIT BLOAT */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
@@ -20,20 +34,145 @@ def inject_custom_css():
         [data-testid="stHeader"] {visibility: hidden;}
         .stDeployButton {display: none;}
 
-        .stTabs [data-baseweb="tab-list"] { gap: 24px; background-color: transparent; padding-bottom: 15px; border-bottom: 1px solid #ddd; }
-        .stTabs [data-baseweb="tab-list"] button { background-color: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 6px; color: #4B5563; padding: 14px 30px; 
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-        .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p { font-size: 20px !important; font-weight: 700 !important; margin: 0px; }
-        .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] { background-color: #1E3A8A !important; color: #FFFFFF !important; border-color: #1E3A8A; }
-        .stTabs [data-baseweb="tab-highlight"] { background-color: transparent !important; }
+        /* SIDEBAR STYLING */
+        section[data-testid="stSidebar"] {
+            background-color: #0f172a; /* Dark Navy */
+            color: white;
+        }
+        section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
+            color: #e2e8f0 !important;
+        }
+        section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] label {
+            color: #94a3b8 !important;
+        }
+
+        /* CARD UI CONTAINER */
+        /* This styles the st.containers with borders to look like cards */
+        div[data-testid="stVerticalBlock"] > div[style*="background-color"] {
+            background-color: white;
+        }
         
-        /* FORCE TABLE HEADERS TO BE BLACK AND BOLD */
-        div[data-testid="stDataFrame"] div[role="columnheader"] { color: #000000 !important; font-weight: 900 !important; font-size: 14px !important; }
-        [data-testid="stDataFrame"] th { color: #000000 !important; font-weight: 900 !important; }
+        div.stMarkdown {
+            margin-bottom: 5px;
+        }
+
+        /* CUSTOM METRIC CARDS */
+        div[data-testid="stMetric"] {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            text-align: center;
+        }
+        div[data-testid="stMetric"] label {
+            color: #64748b;
+            font-size: 0.85rem;
+        }
+        div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+            color: #0f172a;
+            font-weight: 700;
+            font-size: 1.5rem;
+        }
+
+        /* MODERN TABS (Pill Style) */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 10px;
+            background-color: transparent;
+            padding-bottom: 10px;
+            border-bottom: none;
+        }
+        .stTabs [data-baseweb="tab-list"] button {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            color: #64748b;
+            padding: 8px 20px;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+        .stTabs [data-baseweb="tab-list"] button:hover {
+            border-color: #3b82f6;
+            color: #3b82f6;
+        }
+        .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
+            background-color: #0f172a !important; 
+            color: #ffffff !important; 
+            border-color: #0f172a;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .stTabs [data-baseweb="tab-highlight"] {
+            background-color: transparent !important;
+        }
+
+        /* DATAFRAME POLISH */
+        div[data-testid="stDataFrame"] {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            overflow: hidden;
+            background: white;
+            padding: 5px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        div[data-testid="stDataFrame"] div[role="columnheader"] {
+            color: #0f172a !important;
+            font-weight: 700 !important;
+            font-size: 13px !important;
+            background-color: #f8f9fa;
+        }
+        
+        /* HEADERS */
+        h1, h2, h3 {
+            color: #0f172a;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+        }
+        h4, h5 {
+            color: #334155;
+            font-weight: 600;
+        }
+        
         </style>
     """, unsafe_allow_html=True)
 
 inject_custom_css()
+
+# --- HELPER: CHART STYLING ---
+def style_high_end_chart(fig):
+    """Applies a high-end, minimalist aesthetic to Plotly charts."""
+    fig.update_layout(
+        font={'family': "Inter, sans-serif", 'color': '#334155'},
+        title_font={'family': "Inter, sans-serif", 'size': 18, 'color': '#0f172a'},
+        paper_bgcolor='rgba(0,0,0,0)', # Transparent background
+        plot_bgcolor='rgba(0,0,0,0)',  # Transparent plot area
+        margin=dict(t=50, l=20, r=20, b=40),
+        xaxis=dict(
+            showgrid=False, 
+            showline=True, 
+            linecolor='#cbd5e1', 
+            tickfont=dict(color='#64748b')
+        ),
+        yaxis=dict(
+            showgrid=True, 
+            gridcolor='#f1f5f9', # Very subtle grid
+            showline=False, 
+            tickfont=dict(color='#64748b')
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=12,
+            font_family="Inter"
+        )
+    )
+    return fig
 
 # --- PASSWORD CONFIGURATION ---
 APP_PASSWORD = "RadOnc2026rj"
@@ -47,10 +186,15 @@ def check_password():
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        st.text_input("🔒 Enter Dashboard Password:", type="password", on_change=password_entered, key="password")
+        # Simple Login Card
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        col1, col2, col3 = st.columns([1,1,1])
+        with col2:
+            st.markdown("### 🔐 Access Analytics")
+            st.text_input("Password", type="password", on_change=password_entered, key="password", label_visibility="collapsed", placeholder="Enter Password")
         return False
     elif not st.session_state["password_correct"]:
-        st.text_input("❌ App down for improvements. Come back soon", type="password", on_change=password_entered, key="password")
+        st.error("Access Denied.")
         return False
     else:
         return True
@@ -262,7 +406,7 @@ if check_password():
             log.append(f"    ✅ Extracted {len(records)} detailed provider rows for {clinic_id}")
         return pd.DataFrame(records)
 
-    # --- NEW: PARSER FOR FOLLOW-UP CODES (99212-99215) ---
+    # --- NEW: PARSER FOR APP FOLLOW-UP CODES (99212-99215) ---
     def parse_app_cpt_data(df, provider_name, log):
         records = []
         try:
@@ -283,7 +427,7 @@ if check_password():
                     for col in df.columns[4:]: 
                         header_val = df.iloc[header_row_idx, col]
                         
-                        # STRICT DATE CHECK
+                        # STRICT DATE CHECK (The same logic used elsewhere)
                         is_valid_date = False
                         if isinstance(header_val, (datetime, pd.Timestamp)):
                             is_valid_date = True
@@ -479,21 +623,15 @@ if check_password():
     def parse_pos_trend_sheet(df, filename, log):
         records = []
         try:
-            # 1. FIND HEADER ROW based on Date Columns
             header_row_idx = -1
             date_map = {} 
-            
-            # Scan first 30 rows
             for r in range(min(30, len(df))):
                 row = df.iloc[r].values
                 temp_date_map = {}
-                
                 for c in range(len(row)):
                     val = row[c]
-                    # Check for actual date object
                     if isinstance(val, (datetime, pd.Timestamp)):
                          temp_date_map[c] = val
-                    # Check for string "Jan-25"
                     else:
                         s_val = str(val).strip()
                         if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
@@ -501,8 +639,6 @@ if check_password():
                                 dt = pd.to_datetime(s_val, format='%b-%y')
                                 temp_date_map[c] = dt
                             except: pass
-                
-                # If we found at least 2 date columns in this row, assume it's the header
                 if len(temp_date_map) >= 2:
                     header_row_idx = r
                     date_map = temp_date_map
@@ -513,24 +649,18 @@ if check_password():
                 log.append(f"  ❌ Could NOT find date headers in {filename}")
                 return pd.DataFrame()
 
-            # 2. ITERATE DATA ROWS (Check first 3 columns for Name)
             for i in range(header_row_idx + 1, len(df)):
                 row = df.iloc[i].values
-                
-                # Check first 3 columns for a valid site name
                 c_id = None
                 site_name_found = ""
-                
-                for col_idx in range(3): # Check columns 0, 1, 2
+                for col_idx in range(3): 
                     if col_idx >= len(row): break
                     val = str(row[col_idx]).strip().upper()
-                    
                     if val and val != "NAN":
                         if val in POS_ROW_MAPPING:
                             c_id = POS_ROW_MAPPING[val]
                             site_name_found = val
                             break
-                        # Partial Fallback
                         for key, mapped_id in POS_ROW_MAPPING.items():
                             if key in val:
                                 c_id = mapped_id
@@ -539,7 +669,6 @@ if check_password():
                     if c_id: break
                 
                 if c_id:
-                    # log.append(f"    Matched row '{site_name_found}' -> ID: {c_id}")
                     for col_idx, dt in date_map.items():
                         if col_idx < len(row):
                             val = clean_number(row[col_idx])
@@ -548,8 +677,6 @@ if check_password():
                                     "Clinic_Tag": c_id, "Month_Clean": dt, "New Patients": val,
                                     "Month_Label": dt.strftime('%b-%y'), "source_type": "pos_trend"
                                 })
-                else:
-                     pass
 
         except Exception as e: 
             log.append(f"  ❌ Error parsing {filename}: {str(e)}")
@@ -626,7 +753,6 @@ if check_password():
                 file_date = get_date_from_filename(filename)
                 debug_log.append(f"📂 Processing New Patient File: {filename}")
                 found_pos = False
-                
                 for sheet_name, df in xls.items():
                     if "POS" in sheet_name.upper() and "TREND" in sheet_name.upper():
                         found_pos = True
@@ -681,12 +807,9 @@ if check_password():
                 s_upper = sheet_name.upper()
                 if any(ignored in s_upper for ignored in IGNORED_SHEETS): continue
                 
-                # --- CHECK FOR CLINIC SHEETS ---
                 if clean_name in CLINIC_CONFIG:
                     res = parse_rvu_sheet(df, clean_name, 'clinic', clinic_tag="General")
                     if not res.empty: clinic_data.append(res)
-                    
-                    # 77263 Parsing
                     pretty_name = CLINIC_CONFIG[clean_name]["name"]
                     consult_log.append(f"Checking {clean_name} for 77263...")
                     res_consult = parse_consults_data(df, pretty_name, consult_log)
@@ -698,7 +821,6 @@ if check_password():
                     if file_tag in ["LROC", "TROC"]:
                         res = parse_rvu_sheet(df, file_tag, 'clinic', clinic_tag=file_tag)
                         if not res.empty: clinic_data.append(res)
-                        
                         pretty_name = CLINIC_CONFIG[file_tag]["name"]
                         res_consult = parse_consults_data(df, pretty_name, consult_log)
                         if not res_consult.empty: consult_data.append(res_consult)
