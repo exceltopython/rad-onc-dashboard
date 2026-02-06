@@ -197,21 +197,21 @@ if check_password():
             top_metric_name = unit
             top_col = metric_col
 
-        narrative = f"""**🤖 Automated Analysis ({latest_date.strftime('%B %Y')}):**
-        The **{entity_type}** group ({provider_count} active) generated a total of **{total_vol:,.0f} {unit}** {timeframe}.  
-        The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
-        
-        * **🏆 Top Performers:**
-        """
+        narrative = f"""### 🤖 Automated Analysis ({latest_date.strftime('%B %Y')})
+The **{entity_type}** group ({provider_count} active) generated a total of **{total_vol:,.0f} {unit}** {timeframe}.  
+The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
+
+#### 🏆 Top Performers:
+"""
         if len(sorted_df) > 0:
             top_1 = sorted_df.iloc[0]
-            narrative += f"    * **🥇 1st:** **{clean_provider_name_display(top_1['Name'])}** ({top_1[top_col]:,.0f} {top_metric_name})\n"
+            narrative += f"* **🥇 1st Place:** **{clean_provider_name_display(top_1['Name'])}** with **{top_1[top_col]:,.0f} {top_metric_name}**\n"
         if len(sorted_df) > 1:
             top_2 = sorted_df.iloc[1]
-            narrative += f"    * **🥈 2nd:** **{clean_provider_name_display(top_2['Name'])}** ({top_2[top_col]:,.0f})\n"
+            narrative += f"* **🥈 2nd Place:** **{clean_provider_name_display(top_2['Name'])}** with **{top_2[top_col]:,.0f}**\n"
         if len(sorted_df) > 2:
             top_3 = sorted_df.iloc[2]
-            narrative += f"    * **🥉 3rd:** **{clean_provider_name_display(top_3['Name'])}** ({top_3[top_col]:,.0f})\n"
+            narrative += f"* **🥉 3rd Place:** **{clean_provider_name_display(top_3['Name'])}** with **{top_3[top_col]:,.0f}**\n"
 
         return narrative
 
@@ -893,9 +893,15 @@ if check_password():
             st.error("No valid data found.")
         else:
             if not df_md_global.empty:
+                # 1. Filter APPs based on the known APP List
                 df_apps = df_md_global[df_md_global['Name'].isin(APP_LIST)]
+                
+                # 2. Filter MDs: Must be in PROVIDER_CONFIG *AND* NOT in APP_LIST
                 valid_providers = set(PROVIDER_CONFIG.keys())
-                df_mds = df_md_global[(df_md_global['Name'].isin(valid_providers)) & (~df_md_global['Name'].isin(APP_LIST))]
+                df_mds = df_md_global[
+                    (df_md_global['Name'].isin(valid_providers)) & 
+                    (~df_md_global['Name'].isin(APP_LIST))
+                ]
             else:
                 df_apps = pd.DataFrame(); df_mds = pd.DataFrame()
 
@@ -975,7 +981,7 @@ if check_password():
                                     )
                                     st.plotly_chart(fig_ind, use_container_width=True)
                                     
-                                    # TX PLAN TABLE
+                                    # TX PLAN TABLE (MOVED TO TOP LEVEL OF "ALL")
                                     if clinic_filter == "All" and not df_consults.empty:
                                         st.markdown("---")
                                         st.markdown("### 📝 Tx Plan Complex (CPT 77263)")
@@ -984,6 +990,36 @@ if check_password():
                                         piv_consult = piv_consult.reindex(columns=sorted_m).fillna(0)
                                         piv_consult["Total"] = piv_consult.sum(axis=1)
                                         st.dataframe(piv_consult.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
+                                    
+                                    # --- NEW: CONCISE HISTORICAL TABLE ---
+                                    with st.container(border=True):
+                                        st.markdown("##### 📅 Historical Data Summary")
+                                        df_hist = get_historical_df()
+                                        
+                                        # Filter History based on view
+                                        if clinic_filter == "TriStar": df_hist_view = df_hist[df_hist['ID'].isin(TRISTAR_IDS)]
+                                        elif clinic_filter == "Ascension": df_hist_view = df_hist[df_hist['ID'].isin(ASCENSION_IDS)]
+                                        elif clinic_filter == "All": df_hist_view = df_hist.copy()
+                                        else: df_hist_view = pd.DataFrame() # Should not hit this else in this block
+                                        
+                                        if not df_hist_view.empty:
+                                            # Group by Year to get totals
+                                            hist_trend = df_hist_view.groupby('Year')[['Total RVUs']].sum().reset_index()
+                                            
+                                            # Add Current Year YTD if available
+                                            if not df_view.empty:
+                                                current_year = max_date.year
+                                                ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
+                                                if ytd_curr > 0:
+                                                    new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
+                                                    hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
+                                            
+                                            # Transpose for Conciseness
+                                            hist_table_df = hist_trend.copy()
+                                            hist_table_df['Year'] = hist_table_df['Year'].astype(int).astype(str)
+                                            hist_table_T = hist_table_df.set_index('Year').T
+                                            st.dataframe(hist_table_T.style.format("{:,.0f}"), use_container_width=True)
+
 
                                     if not df_view.empty:
                                         c1, c2 = st.columns(2)
@@ -1029,6 +1065,14 @@ if check_password():
                                         )
                                         st.plotly_chart(fig_long, use_container_width=True)
                                         
+                                        # --- NEW: CONCISE HISTORICAL TABLE (INDIVIDUAL CLINICS) ---
+                                        if clinic_filter not in ["TriStar", "Ascension", "All"]:
+                                             hist_table_df = hist_trend.copy()
+                                             hist_table_df['Year'] = hist_table_df['Year'].astype(int).astype(str)
+                                             hist_table_T = hist_table_df.set_index('Year').T
+                                             st.dataframe(hist_table_T.style.format("{:,.0f}"), use_container_width=True)
+                                        # ----------------------------------------------------------
+
                                         if clinic_filter in ["TriStar", "Ascension"]:
                                             st.markdown("---"); st.markdown("##### 🏥 Individual Clinic History")
                                             target_ids = TRISTAR_IDS if clinic_filter == "TriStar" else ASCENSION_IDS
