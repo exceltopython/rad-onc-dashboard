@@ -26,9 +26,27 @@ def inject_custom_css():
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] { background-color: #1E3A8A !important; color: #FFFFFF !important; border-color: #1E3A8A; }
         .stTabs [data-baseweb="tab-highlight"] { background-color: transparent !important; }
         
-        /* FORCE TABLE HEADERS TO BE BLACK AND BOLD */
-        div[data-testid="stDataFrame"] div[role="columnheader"] { color: #000000 !important; font-weight: 900 !important; font-size: 14px !important; }
-        [data-testid="stDataFrame"] th { color: #000000 !important; font-weight: 900 !important; }
+        /* --- FORCE TABLE TEXT TO BLACK --- */
+        /* Column Headers */
+        div[data-testid="stDataFrame"] div[role="columnheader"] { 
+            color: #000000 !important; 
+            font-weight: 900 !important; 
+            font-size: 14px !important; 
+        }
+        /* Row Indices (The Left Labels) */
+        div[data-testid="stDataFrame"] div[role="rowheader"] { 
+            color: #000000 !important; 
+            font-weight: 900 !important; 
+        }
+        /* Data Cells */
+        div[data-testid="stDataFrame"] div[role="gridcell"] {
+            color: #000000 !important;
+        }
+        /* Catch-all for table text */
+        [data-testid="stDataFrame"] th, [data-testid="stDataFrame"] td { 
+            color: #000000 !important; 
+            font-weight: 900 !important; 
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -826,10 +844,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     except: return pd.NaT
                 return pd.NaT
             df_provider_raw['Month_Clean'] = df_provider_raw['Month'].apply(parse_date_safe)
-            
-            # Robust Date Filter: Only drop if we really can't parse it
             df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
-            
             df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
             df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
 
@@ -893,15 +908,9 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             st.error("No valid data found.")
         else:
             if not df_md_global.empty:
-                # 1. Filter APPs based on the known APP List
                 df_apps = df_md_global[df_md_global['Name'].isin(APP_LIST)]
-                
-                # 2. Filter MDs: Must be in PROVIDER_CONFIG *AND* NOT in APP_LIST
                 valid_providers = set(PROVIDER_CONFIG.keys())
-                df_mds = df_md_global[
-                    (df_md_global['Name'].isin(valid_providers)) & 
-                    (~df_md_global['Name'].isin(APP_LIST))
-                ]
+                df_mds = df_md_global[(df_md_global['Name'].isin(valid_providers)) & (~df_md_global['Name'].isin(APP_LIST))]
             else:
                 df_apps = pd.DataFrame(); df_mds = pd.DataFrame()
 
@@ -914,11 +923,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     col_nav, col_main = st.columns([1, 5])
                     with col_nav:
                         st.markdown("### 🔍 Filter")
-                        clinic_filter = st.radio(
-                            "Select View:", 
-                            ["All", "TriStar", "Ascension", "LROC", "TOPC", "TROC", "Sumner"], 
-                            key="clinic_radio"
-                        )
+                        clinic_filter = st.radio("Select View:", ["All", "TriStar", "Ascension", "LROC", "TOPC", "TROC", "Sumner"], key="clinic_radio")
                     with col_main:
                         df_view = pd.DataFrame(); view_title = clinic_filter; target_tag = None
                         if clinic_filter == "All": df_view = df_clinic.copy(); view_title = "All Clinics"
@@ -995,31 +1000,23 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     with st.container(border=True):
                                         st.markdown("##### 📅 Historical Data Summary")
                                         df_hist = get_historical_df()
-                                        
-                                        # Filter History based on view
                                         if clinic_filter == "TriStar": df_hist_view = df_hist[df_hist['ID'].isin(TRISTAR_IDS)]
                                         elif clinic_filter == "Ascension": df_hist_view = df_hist[df_hist['ID'].isin(ASCENSION_IDS)]
                                         elif clinic_filter == "All": df_hist_view = df_hist.copy()
-                                        else: df_hist_view = pd.DataFrame() # Should not hit this else in this block
+                                        else: df_hist_view = pd.DataFrame()
                                         
                                         if not df_hist_view.empty:
-                                            # Group by Year to get totals
                                             hist_trend = df_hist_view.groupby('Year')[['Total RVUs']].sum().reset_index()
-                                            
-                                            # Add Current Year YTD if available
                                             if not df_view.empty:
                                                 current_year = max_date.year
                                                 ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
                                                 if ytd_curr > 0:
                                                     new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
                                                     hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
-                                            
-                                            # Transpose for Conciseness
                                             hist_table_df = hist_trend.copy()
                                             hist_table_df['Year'] = hist_table_df['Year'].astype(int).astype(str)
                                             hist_table_T = hist_table_df.set_index('Year').T
                                             st.dataframe(hist_table_T.style.format("{:,.0f}"), use_container_width=True)
-
 
                                     if not df_view.empty:
                                         c1, c2 = st.columns(2)
@@ -1217,6 +1214,23 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                                     fig_p2.update_layout(font=dict(color="black"), font_color="black")
                                                     st.plotly_chart(fig_p2, use_container_width=True)
                                 except: st.info("Insufficient data for pie charts.")
+
+                        if not df_view.empty:
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                with st.container(border=True):
+                                    st.markdown("#### 🔢 Monthly Data")
+                                    piv = df_view.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                                    sorted_months = df_view.sort_values("Month_Clean")["Month_Label"].unique()
+                                    piv = piv.reindex(columns=sorted_months).fillna(0)
+                                    piv["Total"] = piv.sum(axis=1)
+                                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                            with c2:
+                                with st.container(border=True):
+                                    st.markdown("#### 📆 Quarterly Data")
+                                    piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                                    piv_q["Total"] = piv_q.sum(axis=1)
+                                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
                         if target_tag in ["LROC", "TOPC", "TROC", "Sumner"] and not df_provider_raw.empty:
                             prov_df = df_provider_raw[(df_provider_raw['Clinic_Tag'] == target_tag) & (df_provider_raw.get('source_type', '') == 'detail')]
