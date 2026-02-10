@@ -26,26 +26,27 @@ def inject_custom_css():
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] { background-color: #1E3A8A !important; color: #FFFFFF !important; border-color: #1E3A8A; }
         .stTabs [data-baseweb="tab-highlight"] { background-color: transparent !important; }
         
-        /* --- FORCE TABLE TEXT TO BLACK --- */
-        /* Column Headers */
-        div[data-testid="stDataFrame"] div[role="columnheader"] { 
-            color: #000000 !important; 
-            font-weight: 900 !important; 
-            font-size: 14px !important; 
+        /* --- FORCE TABLE READABILITY --- */
+        /* Force the dataframe container to be white with black text */
+        [data-testid="stDataFrame"] {
+            background-color: #ffffff !important;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
         }
-        /* Row Indices (The Left Labels) */
-        div[data-testid="stDataFrame"] div[role="rowheader"] { 
-            color: #000000 !important; 
-            font-weight: 900 !important; 
-        }
-        /* Data Cells */
-        div[data-testid="stDataFrame"] div[role="gridcell"] {
+        
+        /* Force text inside the table to be black */
+        [data-testid="stDataFrame"] * {
             color: #000000 !important;
         }
-        /* Catch-all for table text */
-        [data-testid="stDataFrame"] th, [data-testid="stDataFrame"] td { 
-            color: #000000 !important; 
-            font-weight: 900 !important; 
+        
+        /* Specific targeting for headers if possible */
+        div[role="columnheader"] {
+            font-weight: 900 !important;
+            color: #000000 !important;
+        }
+        div[role="rowheader"] {
+            font-weight: 900 !important;
+            color: #000000 !important;
         }
         </style>
     """, unsafe_allow_html=True)
