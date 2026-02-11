@@ -5,6 +5,14 @@ import plotly.graph_objects as go
 from datetime import datetime
 import os
 import re
+import base64
+
+# --- TRY IMPORTING FPDF ---
+try:
+    from fpdf import FPDF
+except ImportError:
+    st.error("⚠️ The 'fpdf' library is missing. Please run `pip install fpdf` in your terminal to enable PDF exports.")
+    FPDF = None
 
 # --- 1. CONFIGURATION & STYLING ---
 st.set_page_config(page_title="RadOnc Analytics", layout="wide", page_icon="🩺")
@@ -26,32 +34,115 @@ def inject_custom_css():
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] { background-color: #1E3A8A !important; color: #FFFFFF !important; border-color: #1E3A8A; }
         .stTabs [data-baseweb="tab-highlight"] { background-color: transparent !important; }
         
-        /* --- FORCE TABLE READABILITY --- */
-        /* Force the dataframe container to be white with black text */
-        [data-testid="stDataFrame"] {
-            background-color: #ffffff !important;
-            border: 1px solid #e0e0e0;
-            border-radius: 5px;
-        }
-        
-        /* Force text inside the table to be black */
-        [data-testid="stDataFrame"] * {
-            color: #000000 !important;
-        }
-        
-        /* Specific targeting for headers if possible */
-        div[role="columnheader"] {
-            font-weight: 900 !important;
-            color: #000000 !important;
-        }
-        div[role="rowheader"] {
-            font-weight: 900 !important;
-            color: #000000 !important;
-        }
+        /* FORCE TABLE HEADERS TO BE BLACK AND BOLD */
+        div[data-testid="stDataFrame"] div[role="columnheader"] { color: #000000 !important; font-weight: 900 !important; font-size: 14px !important; }
+        [data-testid="stDataFrame"] th { color: #000000 !important; font-weight: 900 !important; }
         </style>
     """, unsafe_allow_html=True)
 
 inject_custom_css()
+
+# --- HELPER: CHART STYLING ---
+def style_high_end_chart(fig):
+    """Applies a high-end, minimalist aesthetic to Plotly charts."""
+    fig.update_layout(
+        font={'family': "Inter, sans-serif", 'color': '#334155'},
+        title_font={'family': "Inter, sans-serif", 'size': 18, 'color': '#0f172a'},
+        paper_bgcolor='rgba(0,0,0,0)', 
+        plot_bgcolor='rgba(0,0,0,0)', 
+        margin=dict(t=50, l=20, r=20, b=40),
+        xaxis=dict(
+            showgrid=False, 
+            showline=True, 
+            linecolor='#cbd5e1', 
+            tickfont=dict(color='#64748b')
+        ),
+        yaxis=dict(
+            showgrid=True, 
+            gridcolor='#f1f5f9', 
+            showline=False, 
+            tickfont=dict(color='#64748b')
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=12,
+            font_family="Inter"
+        )
+    )
+    return fig
+
+# --- PDF GENERATOR CLASS ---
+if FPDF:
+    class PDFReport(FPDF):
+        def header(self):
+            self.set_font('Arial', 'B', 15)
+            self.cell(0, 10, 'Radiation Oncology - Monthly Clinic Report', 0, 1, 'C')
+            self.ln(5)
+
+        def footer(self):
+            self.set_y(-15)
+            self.set_font('Arial', 'I', 8)
+            self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
+
+    def create_clinic_pdf(clinic_name, month_label, total_rvu, rvu_fte, new_patients, provider_df):
+        pdf = PDFReport()
+        pdf.add_page()
+        
+        # Title Section
+        pdf.set_font('Arial', 'B', 14)
+        pdf.cell(0, 10, f"Clinic: {clinic_name}", 0, 1, 'L')
+        pdf.set_font('Arial', '', 12)
+        pdf.cell(0, 10, f"Period: {month_label}", 0, 1, 'L')
+        pdf.ln(5)
+        
+        # Executive Summary
+        pdf.set_fill_color(240, 240, 240)
+        pdf.set_font('Arial', 'B', 12)
+        pdf.cell(0, 10, "Executive Summary", 1, 1, 'L', fill=True)
+        
+        pdf.set_font('Arial', '', 11)
+        pdf.cell(60, 10, "Total wRVUs:", 0, 0)
+        pdf.set_font('Arial', 'B', 11)
+        pdf.cell(0, 10, f"{total_rvu:,.2f}", 0, 1)
+        
+        pdf.set_font('Arial', '', 11)
+        pdf.cell(60, 10, "wRVU per FTE:", 0, 0)
+        pdf.set_font('Arial', 'B', 11)
+        pdf.cell(0, 10, f"{rvu_fte:,.2f}", 0, 1)
+
+        pdf.set_font('Arial', '', 11)
+        pdf.cell(60, 10, "New Patients (Approx):", 0, 0)
+        pdf.set_font('Arial', 'B', 11)
+        pdf.cell(0, 10, f"{new_patients:,.0f}", 0, 1)
+        pdf.ln(10)
+        
+        # Provider Breakdown
+        pdf.set_font('Arial', 'B', 12)
+        pdf.cell(0, 10, "Provider Breakdown", 1, 1, 'L', fill=True)
+        
+        # Table Header
+        pdf.set_font('Arial', 'B', 10)
+        pdf.cell(90, 10, "Provider Name", 1, 0, 'C')
+        pdf.cell(50, 10, "Total wRVUs", 1, 0, 'C')
+        pdf.cell(0, 10, "", 0, 1) # Filler to end line if needed, or just end
+        
+        # Table Body
+        pdf.set_font('Arial', '', 10)
+        if not provider_df.empty:
+            for _, row in provider_df.iterrows():
+                pdf.cell(90, 10, str(row['Name']), 1, 0)
+                pdf.cell(50, 10, f"{row['Total RVUs']:,.2f}", 1, 1, 'R')
+        else:
+            pdf.cell(0, 10, "No individual provider data found for this period.", 1, 1)
+            
+        return pdf.output(dest='S').encode('latin-1')
 
 # --- PASSWORD CONFIGURATION ---
 APP_PASSWORD = "RadOnc2026rj"
@@ -65,10 +156,14 @@ def check_password():
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        st.text_input("🔒 Enter Dashboard Password:", type="password", on_change=password_entered, key="password")
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        col1, col2, col3 = st.columns([1,1,1])
+        with col2:
+            st.markdown("### 🔐 Access Analytics")
+            st.text_input("Password", type="password", on_change=password_entered, key="password", label_visibility="collapsed")
         return False
     elif not st.session_state["password_correct"]:
-        st.text_input("❌ App down for improvements. Come back soon", type="password", on_change=password_entered, key="password")
+        st.error("Access Denied.")
         return False
     else:
         return True
@@ -391,13 +486,16 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 for col in df.columns[4:]: 
                     header_val = df.iloc[header_row_idx, col]
                     
-                    is_valid_date = False
-                    if isinstance(header_val, (datetime, pd.Timestamp)): is_valid_date = True
+                    # DATE CHECK (Flexible)
+                    valid_date = None
+                    if isinstance(header_val, (datetime, pd.Timestamp)):
+                            valid_date = header_val
                     elif isinstance(header_val, str):
-                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
-                            is_valid_date = True
+                            if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
+                                try: valid_date = pd.to_datetime(header_val.strip(), format='%b-%y')
+                                except: pass
                     
-                    if not is_valid_date: continue 
+                    if valid_date is None: continue 
                     
                     val = clean_number(df.iloc[cpt_row_idx, col])
                     if val is not None:
@@ -1001,19 +1099,26 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     with st.container(border=True):
                                         st.markdown("##### 📅 Historical Data Summary")
                                         df_hist = get_historical_df()
+                                        
+                                        # Filter History based on view
                                         if clinic_filter == "TriStar": df_hist_view = df_hist[df_hist['ID'].isin(TRISTAR_IDS)]
                                         elif clinic_filter == "Ascension": df_hist_view = df_hist[df_hist['ID'].isin(ASCENSION_IDS)]
                                         elif clinic_filter == "All": df_hist_view = df_hist.copy()
-                                        else: df_hist_view = pd.DataFrame()
+                                        else: df_hist_view = pd.DataFrame() # Should not hit this else in this block
                                         
                                         if not df_hist_view.empty:
+                                            # Group by Year to get totals
                                             hist_trend = df_hist_view.groupby('Year')[['Total RVUs']].sum().reset_index()
+                                            
+                                            # Add Current Year YTD if available
                                             if not df_view.empty:
                                                 current_year = max_date.year
                                                 ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
                                                 if ytd_curr > 0:
                                                     new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
                                                     hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
+                                            
+                                            # Transpose for Conciseness
                                             hist_table_df = hist_trend.copy()
                                             hist_table_df['Year'] = hist_table_df['Year'].astype(int).astype(str)
                                             hist_table_T = hist_table_df.set_index('Year').T
@@ -1215,23 +1320,6 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                                     fig_p2.update_layout(font=dict(color="black"), font_color="black")
                                                     st.plotly_chart(fig_p2, use_container_width=True)
                                 except: st.info("Insufficient data for pie charts.")
-
-                        if not df_view.empty:
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                with st.container(border=True):
-                                    st.markdown("#### 🔢 Monthly Data")
-                                    piv = df_view.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                    sorted_months = df_view.sort_values("Month_Clean")["Month_Label"].unique()
-                                    piv = piv.reindex(columns=sorted_months).fillna(0)
-                                    piv["Total"] = piv.sum(axis=1)
-                                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-                            with c2:
-                                with st.container(border=True):
-                                    st.markdown("#### 📆 Quarterly Data")
-                                    piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                                    piv_q["Total"] = piv_q.sum(axis=1)
-                                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
                         if target_tag in ["LROC", "TOPC", "TROC", "Sumner"] and not df_provider_raw.empty:
                             prov_df = df_provider_raw[(df_provider_raw['Clinic_Tag'] == target_tag) & (df_provider_raw.get('source_type', '') == 'detail')]
