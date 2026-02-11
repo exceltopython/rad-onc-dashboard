@@ -5,7 +5,6 @@ import plotly.graph_objects as go
 from datetime import datetime
 import os
 import re
-import base64
 
 # --- TRY IMPORTING FPDF ---
 try:
@@ -130,8 +129,7 @@ if FPDF:
         # Table Header
         pdf.set_font('Arial', 'B', 10)
         pdf.cell(90, 10, "Provider Name", 1, 0, 'C')
-        pdf.cell(50, 10, "Total wRVUs", 1, 0, 'C')
-        pdf.cell(0, 10, "", 0, 1) # Filler to end line if needed, or just end
+        pdf.cell(50, 10, "Total wRVUs", 1, 1, 'C') # End line here
         
         # Table Body
         pdf.set_font('Arial', '', 10)
@@ -156,14 +154,10 @@ def check_password():
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        st.markdown("<br><br><br>", unsafe_allow_html=True)
-        col1, col2, col3 = st.columns([1,1,1])
-        with col2:
-            st.markdown("### 🔐 Access Analytics")
-            st.text_input("Password", type="password", on_change=password_entered, key="password", label_visibility="collapsed")
+        st.text_input("🔒 Enter Dashboard Password:", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
-        st.error("Access Denied.")
+        st.text_input("❌ App down for improvements. Come back soon", type="password", on_change=password_entered, key="password")
         return False
     else:
         return True
@@ -486,16 +480,13 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 for col in df.columns[4:]: 
                     header_val = df.iloc[header_row_idx, col]
                     
-                    # DATE CHECK (Flexible)
-                    valid_date = None
-                    if isinstance(header_val, (datetime, pd.Timestamp)):
-                            valid_date = header_val
+                    is_valid_date = False
+                    if isinstance(header_val, (datetime, pd.Timestamp)): is_valid_date = True
                     elif isinstance(header_val, str):
-                            if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
-                                try: valid_date = pd.to_datetime(header_val.strip(), format='%b-%y')
-                                except: pass
+                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
+                            is_valid_date = True
                     
-                    if valid_date is None: continue 
+                    if not is_valid_date: continue 
                     
                     val = clean_number(df.iloc[cpt_row_idx, col])
                     if val is not None:
@@ -943,7 +934,10 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     except: return pd.NaT
                 return pd.NaT
             df_provider_raw['Month_Clean'] = df_provider_raw['Month'].apply(parse_date_safe)
+            
+            # Robust Date Filter: Only drop if we really can't parse it
             df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
+            
             df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
             df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
 
@@ -1022,7 +1016,11 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     col_nav, col_main = st.columns([1, 5])
                     with col_nav:
                         st.markdown("### 🔍 Filter")
-                        clinic_filter = st.radio("Select View:", ["All", "TriStar", "Ascension", "LROC", "TOPC", "TROC", "Sumner"], key="clinic_radio")
+                        clinic_filter = st.radio(
+                            "Select View:", 
+                            ["All", "TriStar", "Ascension", "LROC", "TOPC", "TROC", "Sumner"], 
+                            key="clinic_radio"
+                        )
                     with col_main:
                         df_view = pd.DataFrame(); view_title = clinic_filter; target_tag = None
                         if clinic_filter == "All": df_view = df_clinic.copy(); view_title = "All Clinics"
@@ -1048,11 +1046,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     fig_trend = px.line(agg_trend, x='Month_Clean', y='Total RVUs', markers=True, title="Aggregate Trend")
                                 else:
                                     fig_trend = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
-                                fig_trend.update_layout(
-                                    font=dict(color="black"), font_color="black",
-                                    xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                    yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                )
+                                fig_trend.update_layout(style_high_end_chart(fig_trend).layout)
                                 fig_trend.update_yaxes(rangemode="tozero")
                                 st.plotly_chart(fig_trend, use_container_width=True)
 
@@ -1067,22 +1061,14 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                         pct_change = ((last_q['Total RVUs'] - prior_q['Total RVUs']) / prior_q['Total RVUs']) * 100
                                         st.metric(label=f"Change: {prior_q['Quarter']} → {last_q['Quarter']}", value=f"{last_q['Total RVUs']:,.0f}", delta=f"{pct_change:+.1f}%")
                                     fig_q_bar = px.bar(q_agg, x='Quarter', y='Total RVUs', text_auto='.2s')
-                                    fig_q_bar.update_layout(
-                                        font=dict(color="black"), font_color="black",
-                                        xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                        yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                    )
+                                    fig_q_bar.update_layout(style_high_end_chart(fig_q_bar).layout)
                                     st.plotly_chart(fig_q_bar, use_container_width=True)
 
                             if clinic_filter in ["TriStar", "Ascension", "All"]:
                                 with st.container(border=True):
                                     st.markdown(f"#### 📈 {view_title}: Individual Clinic Trends")
                                     fig_ind = px.line(l12m_c, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
-                                    fig_ind.update_layout(
-                                        font=dict(color="black"), font_color="black",
-                                        xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                        yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                    )
+                                    fig_ind.update_layout(style_high_end_chart(fig_ind).layout)
                                     st.plotly_chart(fig_ind, use_container_width=True)
                                     
                                     # TX PLAN TABLE (MOVED TO TOP LEVEL OF "ALL")
@@ -1094,35 +1080,6 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                         piv_consult = piv_consult.reindex(columns=sorted_m).fillna(0)
                                         piv_consult["Total"] = piv_consult.sum(axis=1)
                                         st.dataframe(piv_consult.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
-                                    
-                                    # --- NEW: CONCISE HISTORICAL TABLE ---
-                                    with st.container(border=True):
-                                        st.markdown("##### 📅 Historical Data Summary")
-                                        df_hist = get_historical_df()
-                                        
-                                        # Filter History based on view
-                                        if clinic_filter == "TriStar": df_hist_view = df_hist[df_hist['ID'].isin(TRISTAR_IDS)]
-                                        elif clinic_filter == "Ascension": df_hist_view = df_hist[df_hist['ID'].isin(ASCENSION_IDS)]
-                                        elif clinic_filter == "All": df_hist_view = df_hist.copy()
-                                        else: df_hist_view = pd.DataFrame() # Should not hit this else in this block
-                                        
-                                        if not df_hist_view.empty:
-                                            # Group by Year to get totals
-                                            hist_trend = df_hist_view.groupby('Year')[['Total RVUs']].sum().reset_index()
-                                            
-                                            # Add Current Year YTD if available
-                                            if not df_view.empty:
-                                                current_year = max_date.year
-                                                ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
-                                                if ytd_curr > 0:
-                                                    new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
-                                                    hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
-                                            
-                                            # Transpose for Conciseness
-                                            hist_table_df = hist_trend.copy()
-                                            hist_table_df['Year'] = hist_table_df['Year'].astype(int).astype(str)
-                                            hist_table_T = hist_table_df.set_index('Year').T
-                                            st.dataframe(hist_table_T.style.format("{:,.0f}"), use_container_width=True)
 
                                     if not df_view.empty:
                                         c1, c2 = st.columns(2)
@@ -1161,11 +1118,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                                 new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
                                                 hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
                                         fig_long = px.bar(hist_trend, x='Year', y='Total RVUs', text_auto='.2s')
-                                        fig_long.update_layout(
-                                            font=dict(color="black"), font_color="black",
-                                            xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                            yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                        )
+                                        fig_long.update_layout(style_high_end_chart(fig_long).layout)
                                         st.plotly_chart(fig_long, use_container_width=True)
                                         
                                         # --- NEW: CONCISE HISTORICAL TABLE (INDIVIDUAL CLINICS) ---
@@ -1193,11 +1146,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                                         c_hist_grp = pd.concat([c_hist_grp, new_r], ignore_index=True)
                                                 if not c_hist_grp.empty:
                                                     fig_c = px.bar(c_hist_grp, x='Year', y='Total RVUs', text_auto='.2s', title=c_name)
-                                                    fig_c.update_layout(
-                                                        height=350, font=dict(color="black"), font_color="black",
-                                                        xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                                        yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                                    )
+                                                    fig_c.update_layout(style_high_end_chart(fig_c).layout)
                                                     with cols[idx % 2]: st.plotly_chart(fig_c, use_container_width=True)
                         
                         if clinic_filter == "All":
@@ -1215,11 +1164,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                                         x='Display_Name', y='New Patients', 
                                                         text_auto=True, 
                                                         title=f"New Patients: {max_date_np.strftime('%B %Y')}")
-                                    fig_np_net.update_layout(
-                                        font=dict(color="black"), font_color="black",
-                                        xaxis=dict(title=None, color="black", tickfont=dict(color="black")),
-                                        yaxis=dict(color="black", title="Count", tickfont=dict(color="black"))
-                                    )
+                                    fig_np_net.update_layout(style_high_end_chart(fig_np_net).layout)
                                     st.plotly_chart(fig_np_net, use_container_width=True)
 
                                     piv_np_net = np_latest.pivot_table(index="Month_Label", columns="Display_Name", values="New Patients", aggfunc="sum").fillna(0)
@@ -1252,13 +1197,13 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                         with cp1:
                                             fig_p1 = px.pie(pie_agg_12m, values='Total RVUs', names='Name', hole=0.4, title="Last 12 Months")
                                             fig_p1.update_traces(textposition='inside', textinfo='percent+label')
-                                            fig_p1.update_layout(font=dict(color="black"), font_color="black")
+                                            fig_p1.update_layout(style_high_end_chart(fig_p1).layout)
                                             st.plotly_chart(fig_p1, use_container_width=True)
                                         with cp2:
                                             if not pie_agg_q.empty:
                                                 fig_p2 = px.pie(pie_agg_q, values='Total RVUs', names='Name', hole=0.4, title=f"Most Recent Quarter ({latest_q})")
                                                 fig_p2.update_traces(textposition='inside', textinfo='percent+label')
-                                                fig_p2.update_layout(font=dict(color="black"), font_color="black")
+                                                fig_p2.update_layout(style_high_end_chart(fig_p2).layout)
                                                 st.plotly_chart(fig_p2, use_container_width=True)
                                 
                                 with st.container(border=True):
@@ -1277,11 +1222,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                             st.markdown(f"#### 🆕 {c_name}: New Patient Trend")
                                             pos_agg = pos_df.groupby('Month_Clean')[['New Patients']].sum().reset_index().sort_values('Month_Clean')
                                             fig_pos = px.bar(pos_agg, x='Month_Clean', y='New Patients', text_auto=True)
-                                            fig_pos.update_layout(
-                                                font=dict(color="black"), font_color="black",
-                                                xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                                yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                            )
+                                            fig_pos.update_layout(style_high_end_chart(fig_pos).layout)
                                             st.plotly_chart(fig_pos, use_container_width=True)
                                             
                                             pos_piv = pos_df.pivot_table(index="Clinic_Tag", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
@@ -1311,15 +1252,32 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                                 if not pie_agg_12m.empty:
                                                     fig_p1 = px.pie(pie_agg_12m, values='Total RVUs', names='Name', hole=0.4, title="Last 12 Months")
                                                     fig_p1.update_traces(textposition='inside', textinfo='percent+label')
-                                                    fig_p1.update_layout(font=dict(color="black"), font_color="black")
+                                                    fig_p1.update_layout(style_high_end_chart(fig_p1).layout)
                                                     st.plotly_chart(fig_p1, use_container_width=True)
                                             with col_pie2:
                                                 if not pie_agg_q.empty:
                                                     fig_p2 = px.pie(pie_agg_q, values='Total RVUs', names='Name', hole=0.4, title=f"Most Recent Quarter ({latest_q})")
                                                     fig_p2.update_traces(textposition='inside', textinfo='percent+label')
-                                                    fig_p2.update_layout(font=dict(color="black"), font_color="black")
+                                                    fig_p2.update_layout(style_high_end_chart(fig_p2).layout)
                                                     st.plotly_chart(fig_p2, use_container_width=True)
                                 except: st.info("Insufficient data for pie charts.")
+
+                        if not df_view.empty:
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                with st.container(border=True):
+                                    st.markdown("#### 🔢 Monthly Data")
+                                    piv = df_view.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                                    sorted_months = df_view.sort_values("Month_Clean")["Month_Label"].unique()
+                                    piv = piv.reindex(columns=sorted_months).fillna(0)
+                                    piv["Total"] = piv.sum(axis=1)
+                                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                            with c2:
+                                with st.container(border=True):
+                                    st.markdown("#### 📆 Quarterly Data")
+                                    piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                                    piv_q["Total"] = piv_q.sum(axis=1)
+                                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
                         if target_tag in ["LROC", "TOPC", "TROC", "Sumner"] and not df_provider_raw.empty:
                             prov_df = df_provider_raw[(df_provider_raw['Clinic_Tag'] == target_tag) & (df_provider_raw.get('source_type', '') == 'detail')]
@@ -1343,11 +1301,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                      st.markdown("#### 🆕 New Patient Trend (Monthly)")
                                      pos_agg = pos_df.groupby('Month_Clean')[['New Patients']].sum().reset_index().sort_values('Month_Clean')
                                      fig_pos = px.bar(pos_agg, x='Month_Clean', y='New Patients', text_auto=True)
-                                     fig_pos.update_layout(
-                                        font=dict(color="black"), font_color="black",
-                                        xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                        yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                     )
+                                     fig_pos.update_layout(style_high_end_chart(fig_pos).layout)
                                      st.plotly_chart(fig_pos, use_container_width=True)
                                      
                                      pos_piv = pos_df.pivot_table(index="Clinic_Tag", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
@@ -1392,21 +1346,13 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                             with st.container(border=True):
                                 st.markdown("#### 📅 Last 12 Months Trend (RVU per FTE)")
                                 fig_trend = px.line(df_mds.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
-                                fig_trend.update_layout(
-                                    font=dict(color="black"), font_color="black",
-                                    xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                    yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                )
+                                fig_trend.update_layout(style_high_end_chart(fig_trend).layout)
                                 st.plotly_chart(fig_trend, use_container_width=True)
                             with st.container(border=True):
                                 st.markdown(f"#### 🏆 Year-to-Date Total RVUs ({df_mds['Month_Clean'].max().year})")
                                 ytd_sum = df_mds[df_mds['Month_Clean'].dt.year == df_mds['Month_Clean'].max().year].groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
                                 fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
-                                fig_ytd.update_layout(
-                                    font=dict(color="black"), font_color="black",
-                                    xaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black")),
-                                    yaxis=dict(color="black", title_font=dict(color="black"), tickfont=dict(color="black"))
-                                )
+                                fig_ytd.update_layout(style_high_end_chart(fig_ytd).layout)
                                 st.plotly_chart(fig_ytd, use_container_width=True)
                             c1, c2 = st.columns(2)
                             with c1:
