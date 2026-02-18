@@ -5,7 +5,6 @@ import plotly.graph_objects as go
 from datetime import datetime
 import os
 import re
-import base64
 
 # --- TRY IMPORTING FPDF ---
 try:
@@ -154,10 +153,14 @@ def check_password():
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        st.text_input("🔒 Enter Dashboard Password:", type="password", on_change=password_entered, key="password")
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        col1, col2, col3 = st.columns([1,1,1])
+        with col2:
+            st.markdown("### 🔐 Access Analytics")
+            st.text_input("Password", type="password", on_change=password_entered, key="password", label_visibility="collapsed")
         return False
     elif not st.session_state["password_correct"]:
-        st.text_input("❌ App down for improvements. Come back soon", type="password", on_change=password_entered, key="password")
+        st.error("Access Denied.")
         return False
     else:
         return True
@@ -686,18 +689,20 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         return None
 
     def process_files(file_objects):
-        # 1. SCAN FOR LATEST DATE IN OPERATIONAL FILES
-        latest_ytd_date = None
-        ytd_files = []
-        cpa_files = []
+        # 1. GROUP AND FILTER OPERATIONAL FILES BY YEAR
+        # Goal: Keep one YTD file per year (e.g., DEC25 and JAN26)
         
         # Helper: Is this a YTD file?
         def is_ytd_file(fname):
             fname = fname.upper()
             return ("WORK" in fname or "PRODUCTIVITY" in fname or "PATIENT" in fname or "VISIT" in fname or "PHYS" in fname) and "CPA" not in fname
         
-        # Pre-scan
+        # Store latest file per year per "Type" of file (roughly)
+        # To keep it simple, we just want the latest date found for each year
+        
         temp_file_list = []
+        cpa_files = []
+        
         for file_obj in file_objects:
             fname = file_obj.name.upper() if not isinstance(file_obj, LocalFile) else file_obj.name
             f_date = get_date_from_filename(fname)
@@ -705,23 +710,26 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             if "CPA" in fname:
                 cpa_files.append(file_obj)
             elif is_ytd_file(fname):
-                temp_file_list.append({'file': file_obj, 'date': f_date})
-                if latest_ytd_date is None or (f_date > latest_ytd_date):
-                    latest_ytd_date = f_date
+                temp_file_list.append({'file': file_obj, 'date': f_date, 'year': f_date.year})
             else:
-                # Unknown/Other files, keep them? Let's assume keep.
-                cpa_files.append(file_obj) 
-
-        # Filter YTD files: Keep only latest
-        final_file_list = cpa_files # Always keep CPA
+                cpa_files.append(file_obj) # Unknown, keep safe
         
-        if latest_ytd_date:
-            for item in temp_file_list:
-                if item['date'] == latest_ytd_date:
-                    final_file_list.append(item['file'])
-        else:
-            # If no dates found, just add everything back to be safe
-            for item in temp_file_list:
+        # Logic: Find max date for EACH YEAR
+        max_dates_by_year = {}
+        for item in temp_file_list:
+            yr = item['year']
+            dt = item['date']
+            if yr not in max_dates_by_year:
+                max_dates_by_year[yr] = dt
+            else:
+                if dt > max_dates_by_year[yr]:
+                    max_dates_by_year[yr] = dt
+        
+        # Filter: Only keep files that match the max date for their year
+        final_file_list = cpa_files 
+        for item in temp_file_list:
+            yr = item['year']
+            if item['date'] == max_dates_by_year.get(yr):
                 final_file_list.append(item['file'])
         
         # 2. PROCESS FILTERED LIST
@@ -973,7 +981,10 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     except: return pd.NaT
                 return pd.NaT
             df_provider_raw['Month_Clean'] = df_provider_raw['Month'].apply(parse_date_safe)
+            
+            # Robust Date Filter: Only drop if we really can't parse it
             df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
+            
             df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
             df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
 
@@ -1209,7 +1220,6 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                             hist_table_df['Year'] = hist_table_df['Year'].astype(int).astype(str)
                                             hist_table_T = hist_table_df.set_index('Year').T
                                             st.dataframe(hist_table_T.style.format("{:,.0f}"), use_container_width=True)
-
 
                                     if not df_view.empty:
                                         c1, c2 = st.columns(2)
