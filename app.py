@@ -18,6 +18,7 @@ st.set_page_config(page_title="RadOnc Analytics", layout="wide", page_icon="🩺
 def inject_custom_css():
     st.markdown("""
         <style>
+        /* HIDE STREAMLIT MENU, FOOTER, TOOLBAR */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
@@ -31,6 +32,7 @@ def inject_custom_css():
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] { background-color: #1E3A8A !important; color: #FFFFFF !important; border-color: #1E3A8A; }
         .stTabs [data-baseweb="tab-highlight"] { background-color: transparent !important; }
         
+        /* FORCE TABLE HEADERS TO BE BLACK AND BOLD */
         div[data-testid="stDataFrame"] div[role="columnheader"] { color: #000000 !important; font-weight: 900 !important; font-size: 14px !important; }
         [data-testid="stDataFrame"] th { color: #000000 !important; font-weight: 900 !important; }
         </style>
@@ -40,16 +42,37 @@ inject_custom_css()
 
 # --- HELPER: CHART STYLING ---
 def style_high_end_chart(fig):
+    """Applies a high-end, minimalist aesthetic to Plotly charts."""
     fig.update_layout(
         font={'family': "Inter, sans-serif", 'color': '#334155'},
         title_font={'family': "Inter, sans-serif", 'size': 18, 'color': '#0f172a'},
         paper_bgcolor='rgba(0,0,0,0)', 
         plot_bgcolor='rgba(0,0,0,0)', 
         margin=dict(t=50, l=20, r=20, b=40),
-        xaxis=dict(showgrid=False, showline=True, linecolor='#cbd5e1', tickfont=dict(color='#64748b')),
-        yaxis=dict(showgrid=True, gridcolor='#f1f5f9', showline=False, tickfont=dict(color='#64748b')),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        hoverlabel=dict(bgcolor="white", font_size=12, font_family="Inter")
+        xaxis=dict(
+            showgrid=False, 
+            showline=True, 
+            linecolor='#cbd5e1', 
+            tickfont=dict(color='#64748b')
+        ),
+        yaxis=dict(
+            showgrid=True, 
+            gridcolor='#f1f5f9', 
+            showline=False, 
+            tickfont=dict(color='#64748b')
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=12,
+            font_family="Inter"
+        )
     )
     return fig
 
@@ -60,6 +83,7 @@ if FPDF:
             self.set_font('Arial', 'B', 15)
             self.cell(0, 10, 'Radiation Oncology - Monthly Clinic Report', 0, 1, 'C')
             self.ln(5)
+
         def footer(self):
             self.set_y(-15)
             self.set_font('Arial', 'I', 8)
@@ -68,32 +92,45 @@ if FPDF:
     def create_clinic_pdf(clinic_name, month_label, total_rvu, rvu_fte, new_patients, provider_df):
         pdf = PDFReport()
         pdf.add_page()
+        
+        # Title Section
         pdf.set_font('Arial', 'B', 14)
         pdf.cell(0, 10, f"Scope: {clinic_name}", 0, 1, 'L')
         pdf.set_font('Arial', '', 12)
         pdf.cell(0, 10, f"Period: {month_label}", 0, 1, 'L')
         pdf.ln(5)
+        
+        # Executive Summary
         pdf.set_fill_color(240, 240, 240)
         pdf.set_font('Arial', 'B', 12)
         pdf.cell(0, 10, "Executive Summary", 1, 1, 'L', fill=True)
+        
         pdf.set_font('Arial', '', 11)
         pdf.cell(60, 10, "Total wRVUs:", 0, 0)
         pdf.set_font('Arial', 'B', 11)
         pdf.cell(0, 10, f"{total_rvu:,.2f}", 0, 1)
+        
         pdf.set_font('Arial', '', 11)
         pdf.cell(60, 10, "wRVU per FTE:", 0, 0)
         pdf.set_font('Arial', 'B', 11)
         pdf.cell(0, 10, f"{rvu_fte:,.2f}", 0, 1)
+
         pdf.set_font('Arial', '', 11)
         pdf.cell(60, 10, "New Patients (Approx):", 0, 0)
         pdf.set_font('Arial', 'B', 11)
         pdf.cell(0, 10, f"{new_patients:,.0f}", 0, 1)
         pdf.ln(10)
+        
+        # Provider Breakdown
         pdf.set_font('Arial', 'B', 12)
         pdf.cell(0, 10, "Provider Breakdown", 1, 1, 'L', fill=True)
+        
+        # Table Header
         pdf.set_font('Arial', 'B', 10)
         pdf.cell(90, 10, "Provider Name", 1, 0, 'C')
-        pdf.cell(50, 10, "Total wRVUs", 1, 1, 'C')
+        pdf.cell(50, 10, "Total wRVUs", 1, 1, 'C') # End line here
+        
+        # Table Body
         pdf.set_font('Arial', '', 10)
         if not provider_df.empty:
             for _, row in provider_df.iterrows():
@@ -101,6 +138,7 @@ if FPDF:
                 pdf.cell(50, 10, f"{row['Total RVUs']:,.2f}", 1, 1, 'R')
         else:
             pdf.cell(0, 10, "No individual provider data found for this period.", 1, 1)
+            
         return pdf.output(dest='S').encode('latin-1')
 
 # --- PASSWORD CONFIGURATION ---
@@ -200,21 +238,6 @@ if check_password():
             if len(year_str) == 2: year_str = "20" + year_str
             return pd.to_datetime(f"{month_str} {year_str}")
         return datetime.now()
-        
-    def get_target_year_from_filename(filename):
-        match = re.search(r'(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s*(\d{2,4})', filename, re.IGNORECASE)
-        if match:
-            year_str = match.group(2)
-            if len(year_str) == 2: return int("20" + year_str)
-            if len(year_str) == 4: return int(year_str)
-        return None
-    
-    def get_target_year_from_text(text):
-        match = re.search(r'(20)?(2[0-9])', text)
-        if match:
-            y = match.group(2)
-            return int("20" + y)
-        return None
 
     def clean_number(val):
         if pd.isna(val): return None
@@ -237,7 +260,9 @@ if check_password():
             if not parts: return None
             last_name = parts[0].strip().upper()
             
+            # --- FIX: NORMALIZE FRIEDMEN -> FRIEDMAN ---
             if last_name == "FRIEDMEN": last_name = "FRIEDMAN"
+            # -------------------------------------------
             
             if last_name in PROVIDER_KEYS_UPPER: return PROVIDER_KEYS_UPPER[last_name]
             return None
@@ -260,8 +285,10 @@ if check_password():
     # --- ADVANCED NARRATIVE GENERATOR ---
     def generate_narrative(df, entity_type="Provider", metric_col="Total RVUs", unit="wRVUs", timeframe="this month"):
         if df.empty: return "No data available."
+        
         latest_date = df['Month_Clean'].max()
         latest_df = df[df['Month_Clean'] == latest_date]
+        
         if latest_df.empty: return "Data processed but current month is empty."
         
         total_vol = latest_df[metric_col].sum()
@@ -295,9 +322,9 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
 
         return narrative
 
-    # --- PARSERS WITH YEAR FILTER ---
+    # --- PARSERS ---
 
-    def parse_detailed_prov_sheet(df, filename_date, clinic_id, log, target_year):
+    def parse_detailed_prov_sheet(df, filename_date, clinic_id, log):
         records = []
         current_provider = None
         current_values = {"E&M OFFICE CODES": 0.0, "RADIATION CODES": 0.0, "SPECIAL PROCEDURES": 0.0}
@@ -313,7 +340,6 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', val, re.IGNORECASE):
                     try:
                         dt = pd.to_datetime(val, format='%b-%y')
-                        if target_year and dt.year != target_year: continue 
                         date_map[c] = dt
                         header_row_found = True
                     except: pass
@@ -338,55 +364,82 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     if term in row_label:
                         term_counts[term] += 1
                         if term_counts[term] == 2:
-                            for col_idx, dt in date_map.items():
-                                if col_idx < len(row):
-                                    val = clean_number(row[col_idx])
-                                    if val and val != 0:
+                            if date_map:
+                                for col_idx, dt in date_map.items():
+                                    if col_idx < len(row):
+                                        val = clean_number(row[col_idx])
+                                        if val and val != 0:
+                                            records.append({
+                                                "Type": "provider", "ID": clinic_id, "Name": current_provider, "FTE": 1.0,
+                                                "Month": dt, "Total RVUs": val, "RVU per FTE": val,
+                                                "Clinic_Tag": clinic_id, "Quarter": f"Q{dt.quarter} {dt.year}",
+                                                "Month_Label": dt.strftime('%b-%y'), "source_type": "detail",
+                                                "Month_Clean": dt
+                                            })
+                            else:
+                                if len(row) > 19:
+                                    val = clean_number(row[19])
+                                    if val:
                                         records.append({
                                             "Type": "provider", "ID": clinic_id, "Name": current_provider, "FTE": 1.0,
-                                            "Month": dt, "Total RVUs": val, "RVU per FTE": val,
-                                            "Clinic_Tag": clinic_id, "Quarter": f"Q{dt.quarter} {dt.year}",
-                                            "Month_Label": dt.strftime('%b-%y'), "source_type": "detail",
-                                            "Month_Clean": dt
+                                            "Month": filename_date, "Total RVUs": val, "RVU per FTE": val,
+                                            "Clinic_Tag": clinic_id, "Quarter": f"Q{filename_date.quarter} {filename_date.year}",
+                                            "Month_Label": filename_date.strftime('%b-%y'), "source_type": "detail",
+                                            "Month_Clean": filename_date
                                         })
+        if len(records) > 0:
+            log.append(f"    ✅ Extracted {len(records)} detailed provider rows for {clinic_id}")
         return pd.DataFrame(records)
 
-    def parse_app_cpt_data(df, provider_name, log, target_year):
+    # --- NEW: PARSER FOR FOLLOW-UP CODES (99212-99215) ---
+    def parse_app_cpt_data(df, provider_name, log):
         records = []
         try:
             header_row_idx = find_date_row(df)
+            
+            # Iterate through each specific CPT code we care about
             for cpt_code, rate in APP_CPT_RATES.items():
                 cpt_row_idx = -1
                 for r in range(len(df)):
                     row_val = str(df.iloc[r, 0]).strip()
+                    # Simple string check for the code at start of row
                     if row_val.startswith(cpt_code):
                         cpt_row_idx = r
                         break
                 
                 if cpt_row_idx != -1:
+                    # Extract monthly data
                     for col in df.columns[4:]: 
                         header_val = df.iloc[header_row_idx, col]
+                        
+                        # DATE CHECK (Flexible)
                         valid_date = None
-                        if isinstance(header_val, (datetime, pd.Timestamp)): valid_date = header_val
+                        if isinstance(header_val, (datetime, pd.Timestamp)):
+                             valid_date = header_val
                         elif isinstance(header_val, str):
                              if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
                                  try: valid_date = pd.to_datetime(header_val.strip(), format='%b-%y')
                                  except: pass
                         
-                        if valid_date is None: continue
-                        if target_year and valid_date.year != target_year: continue 
+                        if valid_date is None: continue 
                         
                         val = clean_number(df.iloc[cpt_row_idx, col])
                         if val is not None and val != 0:
+                            # Convert wRVU to Count
                             count = val / rate
                             records.append({
-                                "Name": provider_name, "Month": valid_date, "Count": count, 
-                                "CPT Code": cpt_code, "Rate": rate
+                                "Name": provider_name, 
+                                "Month": valid_date, 
+                                "Count": count, 
+                                "CPT Code": cpt_code,
+                                "Rate": rate
                             })
-        except Exception as e: pass
+        except Exception as e:
+            log.append(f"    ❌ Error parsing APP CPT for {provider_name}: {str(e)}")
+        
         return pd.DataFrame(records)
 
-    def parse_rvu_sheet(df, sheet_name, entity_type, clinic_tag="General", forced_fte=None, target_year=None):
+    def parse_rvu_sheet(df, sheet_name, entity_type, clinic_tag="General", forced_fte=None):
         if entity_type == 'clinic':
             config = CLINIC_CONFIG.get(sheet_name, {"name": sheet_name, "fte": 1.0})
             name = config['name']; fte = config['fte']
@@ -402,24 +455,28 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 header_val = df.iloc[header_row_idx, col]
                 if pd.isna(header_val): continue
                 
-                col_dt = None
-                if isinstance(header_val, (datetime, pd.Timestamp)): col_dt = header_val
-                elif isinstance(header_val, str) and re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
-                     try: col_dt = pd.to_datetime(header_val.strip(), format='%b-%y')
-                     except: pass
+                # DATE PARSING
+                valid_date = None
+                if isinstance(header_val, (datetime, pd.Timestamp)): valid_date = header_val
+                elif isinstance(header_val, str):
+                     if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
+                         try: valid_date = pd.to_datetime(header_val.strip(), format='%b-%y')
+                         except: pass
                 
-                if col_dt and target_year and col_dt.year != target_year: continue 
-
                 col_sum = pd.to_numeric(data_rows[col], errors='coerce').sum()
+                
+                # Keep ALL data points found (deduplication happens later)
                 records.append({
                     "Type": entity_type, "ID": sheet_name, "Name": name, "FTE": fte,
-                    "Month": col_dt if col_dt else header_val, 
+                    "Month": valid_date if valid_date else header_val, 
                     "Total RVUs": col_sum, "RVU per FTE": col_sum / fte if fte > 0 else 0,
-                    "Clinic_Tag": clinic_tag, "source_type": "standard"
+                    "Clinic_Tag": clinic_tag, "source_type": "standard",
+                    "Month_Clean": valid_date
                 })
         return pd.DataFrame(records)
 
-    def parse_consults_data(df, sheet_name, log, target_year):
+    # --- SPECIFIC PARSER FOR CPT 77263 CONSULTS (FIXED DATE CHECK) ---
+    def parse_consults_data(df, sheet_name, log):
         records = []
         try:
             header_row_idx = find_date_row(df)
@@ -428,35 +485,38 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 row_val = str(df.iloc[r, 0]).strip()
                 if CONSULT_CPT in row_val:
                     cpt_row_idx = r
+                    log.append(f"    ✅ Found {CONSULT_CPT} in row {r} for {sheet_name}")
                     break
             
             if cpt_row_idx != -1:
                 for col in df.columns[4:]: 
                     header_val = df.iloc[header_row_idx, col]
-                    valid_date = None
-                    if isinstance(header_val, (datetime, pd.Timestamp)): valid_date = header_val
-                    elif isinstance(header_val, str):
-                            if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
-                                try: valid_date = pd.to_datetime(header_val.strip(), format='%b-%y')
-                                except: pass
                     
-                    if valid_date is None: continue 
-                    if target_year and valid_date.year != target_year: continue 
+                    is_valid_date = False
+                    if isinstance(header_val, (datetime, pd.Timestamp)): is_valid_date = True
+                    elif isinstance(header_val, str):
+                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
+                            is_valid_date = True
+                    
+                    if not is_valid_date: continue 
                     
                     val = clean_number(df.iloc[cpt_row_idx, col])
                     if val is not None:
                         count = val / CONSULT_CONVERSION
                         records.append({
-                            "Name": sheet_name, "Month": valid_date, 
+                            "Name": sheet_name, "Month": header_val, 
                             "Count": count, "Clinic_Tag": sheet_name
                         })
-        except Exception as e: pass
+            else:
+                log.append(f"    ❌ {CONSULT_CPT} NOT found in column A for {sheet_name}")
+
+        except Exception as e:
+            log.append(f"    ❌ Error parsing {sheet_name}: {str(e)}")
+            
         return pd.DataFrame(records)
 
-    def parse_visits_sheet(df, filename_date, clinic_tag="General", target_year=None):
+    def parse_visits_sheet(df, filename_date, clinic_tag="General"):
         records = []
-        if target_year and filename_date.year != target_year: return pd.DataFrame(), [] 
-
         try:
             data_start_row = 4
             for i in range(data_start_row, len(df)):
@@ -498,57 +558,6 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         except: return pd.DataFrame()
         return pd.DataFrame(records), []
 
-    def parse_pos_trend_sheet(df, filename, log, target_year):
-        records = []
-        try:
-            header_row_idx = -1
-            date_map = {} 
-            for r in range(min(30, len(df))):
-                row = df.iloc[r].values
-                temp_date_map = {}
-                for c in range(len(row)):
-                    val = row[c]
-                    if isinstance(val, (datetime, pd.Timestamp)):
-                         temp_date_map[c] = val
-                    else:
-                        s_val = str(val).strip()
-                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
-                            try:
-                                dt = pd.to_datetime(s_val, format='%b-%y')
-                                temp_date_map[c] = dt
-                            except: pass
-                if len(temp_date_map) >= 2:
-                    header_row_idx = r
-                    date_map = temp_date_map
-                    break
-            
-            if header_row_idx != -1: 
-                for i in range(header_row_idx + 1, len(df)):
-                    row = df.iloc[i].values
-                    c_id = None
-                    for col_idx in range(3): 
-                        if col_idx >= len(row): break
-                        val = str(row[col_idx]).strip().upper()
-                        if val and val != "NAN":
-                            if val in POS_ROW_MAPPING:
-                                c_id = POS_ROW_MAPPING[val]; break
-                            for key, mapped_id in POS_ROW_MAPPING.items():
-                                if key in val: c_id = mapped_id; break
-                        if c_id: break
-                    
-                    if c_id:
-                        for col_idx, dt in date_map.items():
-                            if target_year and dt.year != target_year: continue 
-                            if col_idx < len(row):
-                                val = clean_number(row[col_idx])
-                                if val is not None:
-                                    records.append({
-                                        "Clinic_Tag": c_id, "Month_Clean": dt, "New Patients": val,
-                                        "Month_Label": dt.strftime('%b-%y'), "source_type": "pos_trend"
-                                    })
-        except Exception as e: pass
-        return pd.DataFrame(records)
-
     def parse_financial_sheet(df, filename_date, tag, mode="Provider"):
         records = []
         try:
@@ -572,35 +581,105 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                             elif "PAYMENTS" in val: col_map['payments'] = idx
                         break
             
-            if header_row != -1:
-                for i in range(header_row + 1, len(df)):
-                    row = df.iloc[i].values
-                    name_val = str(row[col_map.get('name', 0)]).strip()
-                    if mode == "Clinic":
-                        if tag in ["LROC", "TROC", "PROTON"] and "TOTAL" not in name_val.upper(): continue
-                        if tag == "General":
-                             whitelist = ["CENTENNIAL", "DICKSON", "MIDTOWN", "MURFREESBORO", "PROTON", "WEST", "SKYLINE", "STONECREST", "SUMMIT", "SUMNER", "TULLAHOMA"]
-                             if not any(w in name_val.upper() for w in whitelist): continue
-                    charges = clean_number(row[col_map.get('charges', 1)]) or 0
-                    payments = clean_number(row[col_map.get('payments', 2)]) or 0
-                    if mode == "Provider":
-                        clean_name = match_provider(name_val)
-                        if not clean_name and "TOTAL" in name_val.upper() and tag == "PROTON": pass 
-                        elif not clean_name: continue
-                    else:
-                        clean_name = name_val.replace(" Rad", "").strip()
-                        if "TOTAL" in clean_name.upper(): 
-                            if tag == "PROTON": clean_name = "TN Proton Center"
-                            else: clean_name = tag + " Total"
-                        if "STONECREST" in clean_name.upper(): clean_name = "Stonecrest"
+            if header_row == -1 or not col_map: return pd.DataFrame()
 
-                    records.append({
-                        "Name": clean_name, "Month_Clean": filename_date,
-                        "Charges": charges, "Payments": payments,
-                        "Tag": tag, "Mode": mode,
-                        "Quarter": f"Q{filename_date.quarter} {filename_date.year}"
-                    })
+            for i in range(header_row + 1, len(df)):
+                row = df.iloc[i].values
+                name_val = str(row[col_map.get('name', 0)]).strip()
+                
+                if mode == "Clinic":
+                    if tag in ["LROC", "TROC", "PROTON"] and "TOTAL" not in name_val.upper(): continue
+                    if tag == "General":
+                         whitelist = ["CENTENNIAL", "DICKSON", "MIDTOWN", "MURFREESBORO", "PROTON", "WEST", "SKYLINE", "STONECREST", "SUMMIT", "SUMNER", "TULLAHOMA"]
+                         if not any(w in name_val.upper() for w in whitelist): continue
+
+                charges = clean_number(row[col_map.get('charges', 1)]) or 0
+                payments = clean_number(row[col_map.get('payments', 2)]) or 0
+                
+                if mode == "Provider":
+                    clean_name = match_provider(name_val)
+                    if not clean_name and "TOTAL" in name_val.upper() and tag == "PROTON":
+                        pass 
+                    elif not clean_name: continue
+                else:
+                    clean_name = name_val.replace(" Rad", "").strip()
+                    if "TOTAL" in clean_name.upper(): 
+                        if tag == "PROTON": clean_name = "TN Proton Center"
+                        else: clean_name = tag + " Total"
+                    
+                    if "STONECREST" in clean_name.upper():
+                         clean_name = "Stonecrest"
+
+                records.append({
+                    "Name": clean_name, "Month_Clean": filename_date,
+                    "Charges": charges, "Payments": payments,
+                    "Tag": tag, "Mode": mode,
+                    "Quarter": f"Q{filename_date.quarter} {filename_date.year}"
+                })
         except: pass
+        return pd.DataFrame(records)
+
+    def parse_pos_trend_sheet(df, filename, log):
+        records = []
+        try:
+            header_row_idx = -1
+            date_map = {} 
+            for r in range(min(30, len(df))):
+                row = df.iloc[r].values
+                temp_date_map = {}
+                for c in range(len(row)):
+                    val = row[c]
+                    if isinstance(val, (datetime, pd.Timestamp)):
+                         temp_date_map[c] = val
+                    else:
+                        s_val = str(val).strip()
+                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
+                            try:
+                                dt = pd.to_datetime(s_val, format='%b-%y')
+                                temp_date_map[c] = dt
+                            except: pass
+                if len(temp_date_map) >= 2:
+                    header_row_idx = r
+                    date_map = temp_date_map
+                    log.append(f"  ✅ Found header at Row {r} (Dates detected: {len(date_map)})")
+                    break
+            
+            if header_row_idx == -1: 
+                log.append(f"  ❌ Could NOT find date headers in {filename}")
+                return pd.DataFrame()
+
+            for i in range(header_row_idx + 1, len(df)):
+                row = df.iloc[i].values
+                c_id = None
+                site_name_found = ""
+                for col_idx in range(3): 
+                    if col_idx >= len(row): break
+                    val = str(row[col_idx]).strip().upper()
+                    if val and val != "NAN":
+                        if val in POS_ROW_MAPPING:
+                            c_id = POS_ROW_MAPPING[val]
+                            site_name_found = val
+                            break
+                        for key, mapped_id in POS_ROW_MAPPING.items():
+                            if key in val:
+                                c_id = mapped_id
+                                site_name_found = val
+                                break
+                    if c_id: break
+                
+                if c_id:
+                    for col_idx, dt in date_map.items():
+                        if col_idx < len(row):
+                            val = clean_number(row[col_idx])
+                            if val is not None:
+                                records.append({
+                                    "Clinic_Tag": c_id, "Month_Clean": dt, "New Patients": val,
+                                    "Month_Label": dt.strftime('%b-%y'), "source_type": "pos_trend"
+                                })
+
+        except Exception as e: 
+            log.append(f"  ❌ Error parsing {filename}: {str(e)}")
+            
         return pd.DataFrame(records)
 
     def get_clinic_id_from_sheet(sheet_name):
@@ -617,29 +696,42 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         if "tullahoma" in s_clean: return "TROC"
         if "to proton" in s_clean: return "TOPC"
         return None
+
+    # --- DEDUPLICATION LOGIC ---
+    def deduplicate_data(df, group_keys):
+        """
+        Sorts the dataframe by Month, then removes duplicates.
+        Important: We assume that if multiple records exist for the same (Key + Month),
+        the last one read (or first one after sorting) is the 'correct' one.
         
-    def deduplicate_data(df, keys):
-        """Sort by date descending and keep first occurrence of unique keys."""
+        Since we read files in os.walk order (often alphabetical/by date if named well),
+        we'll sort by Source File Date or just trust the values.
+        
+        Better approach: If values differ, take the MAX (usually updated cumulative data is higher/correct).
+        Or simply take the last entry found if we process files in order.
+        """
         if df.empty: return df
-        return df.sort_values('Month_Clean', ascending=False).drop_duplicates(subset=keys, keep='first')
+        # Sort so that if we have duplicate keys, we keep the one that likely came from the 'latest' file
+        # (Assuming the files were processed in an order where later files = more recent data)
+        # However, a robust way is to just drop duplicates on the keys.
+        return df.drop_duplicates(subset=group_keys, keep='last')
 
     def process_files(file_objects):
-        # --- RECURSIVE FILE SEARCH & SORTING ---
-        all_files_to_process = []
-        
-        # 1. Gather all files recursively
-        if isinstance(file_objects[0], LocalFile):
-             for root, dirs, files in os.walk(SERVER_DIR):
-                for f in files:
-                    if f.endswith(".xlsx") or f.endswith(".xls"):
-                        all_files_to_process.append(LocalFile(os.path.join(root, f)))
-        else:
-             all_files_to_process = file_objects
-
         clinic_data = []; provider_data = []; visit_data = []; financial_data = []; pos_trend_data = []; consult_data = []; app_cpt_data = []; md_cpt_data = []; md_consult_data = []
         debug_log = []
         consult_log = [] 
         prov_log = [] 
+
+        # 1. EXPAND RECURSIVE FILE LIST
+        all_files_to_process = []
+        if isinstance(file_objects[0], LocalFile):
+             for root, dirs, files in os.walk(SERVER_DIR):
+                # Sort to ensure we process JAN26 after DEC25 if named smartly
+                for f in sorted(files):
+                    if f.endswith(".xlsx") or f.endswith(".xls"):
+                        all_files_to_process.append(LocalFile(os.path.join(root, f)))
+        else:
+             all_files_to_process = file_objects
 
         for file_obj in all_files_to_process:
             if isinstance(file_obj, LocalFile):
@@ -649,21 +741,14 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 filename = file_obj.name.upper(); xls = pd.read_excel(file_obj, sheet_name=None, header=None)
                 full_path = filename
             
-            # --- DETERMINE FILE TYPE & TARGET YEAR ---
+            # Identify CPA vs Operational
             is_cpa = False
-            # Check Folder Path for CPA
             if "CPA" in full_path.upper().split(os.sep): is_cpa = True
             elif "CPA" in filename: is_cpa = True
             
             file_date = get_date_from_filename(filename)
-            target_year = get_target_year_from_text(full_path.upper())
             
-            file_tag = "General"
-            if "LROC" in filename: file_tag = "LROC"
-            elif "TROC" in filename: file_tag = "TROC"
-            elif "PROTON" in filename or "TOPC" in filename: file_tag = "TOPC"
-
-            # --- CPA FILES (ALWAYS PROCESS FULLY) ---
+            # --- CPA FILES ---
             if is_cpa:
                 for sheet_name, df in xls.items():
                     if "RAD BY PROVIDER" in filename:
@@ -697,14 +782,12 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                         if not res.empty: financial_data.append(res)
                 continue
 
-            # --- OPERATIONAL FILES ---
-            
-            # 1. NEW PATIENT / POS TREND FILES
+            # --- OPERATIONAL FILES (READ ALL, DEDUPLICATE LATER) ---
             if "NEW" in filename and ("PATIENT" in filename or "PT" in filename):
-                debug_log.append(f"📂 Processing New Patient File: {filename} (Target Year: {target_year})")
+                debug_log.append(f"📂 Processing New Patient File: {filename}")
                 for sheet_name, df in xls.items():
                     if "POS" in sheet_name.upper() and "TREND" in sheet_name.upper():
-                        res = parse_pos_trend_sheet(df, filename, debug_log, target_year)
+                        res = parse_pos_trend_sheet(df, filename, debug_log)
                         if not res.empty: pos_trend_data.append(res)
 
                 visit_tag = "General"
@@ -714,11 +797,10 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
 
                 for sheet_name, df in xls.items():
                     if "PHYS YTD OV" in sheet_name.upper():
-                        res, logs = parse_visits_sheet(df, file_date, clinic_tag=visit_tag, target_year=target_year)
+                        res, logs = parse_visits_sheet(df, file_date, clinic_tag=visit_tag)
                         if not res.empty: visit_data.append(res)
                 continue 
 
-            # 2. PRODUCTIVITY / RVU FILES
             for sheet_name, df in xls.items():
                 s_lower = sheet_name.strip().lower()
                 clean_name = sheet_name.strip()
@@ -726,21 +808,22 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 match_prov = match_provider(clean_name)
                 if match_prov:
                     if match_prov in APP_LIST:
-                        res_cpt = parse_app_cpt_data(df, match_prov, prov_log, target_year)
+                        res_cpt = parse_app_cpt_data(df, match_prov, prov_log)
                         if not res_cpt.empty: app_cpt_data.append(res_cpt)
                     else:
-                        res_cpt = parse_app_cpt_data(df, match_prov, prov_log, target_year)
+                        res_cpt = parse_app_cpt_data(df, match_prov, prov_log)
                         if not res_cpt.empty: md_cpt_data.append(res_cpt)
-                        res_77263 = parse_consults_data(df, match_prov, consult_log, target_year)
+                        res_77263 = parse_consults_data(df, match_prov, consult_log)
                         if not res_77263.empty: md_consult_data.append(res_77263)
 
                 if s_lower.endswith(" prov"):
+                    file_date = get_date_from_filename(filename)
                     c_id = get_clinic_id_from_sheet(sheet_name)
                     if c_id:
-                        res = parse_detailed_prov_sheet(df, file_date, c_id, prov_log, target_year)
+                        res = parse_detailed_prov_sheet(df, file_date, c_id, prov_log)
                         if not res.empty: provider_data.append(res)
                     elif "sumner" in s_lower:
-                         res = parse_detailed_prov_sheet(df, file_date, "Sumner", prov_log, target_year)
+                         res = parse_detailed_prov_sheet(df, file_date, "Sumner", prov_log)
                          if not res.empty: provider_data.append(res)
                     continue
 
@@ -748,18 +831,18 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 if any(ignored in s_upper for ignored in IGNORED_SHEETS): continue
                 
                 if clean_name in CLINIC_CONFIG:
-                    res = parse_rvu_sheet(df, clean_name, 'clinic', clinic_tag="General", target_year=target_year)
+                    res = parse_rvu_sheet(df, clean_name, 'clinic', clinic_tag="General")
                     if not res.empty: clinic_data.append(res)
                     pretty_name = CLINIC_CONFIG[clean_name]["name"]
-                    res_consult = parse_consults_data(df, pretty_name, consult_log, target_year)
+                    res_consult = parse_consults_data(df, pretty_name, consult_log)
                     if not res_consult.empty: consult_data.append(res_consult)
 
                 if "PRODUCTIVITY TREND" in s_upper: 
                     if file_tag in ["LROC", "TROC"]:
-                        res = parse_rvu_sheet(df, file_tag, 'clinic', clinic_tag=file_tag, target_year=target_year)
+                        res = parse_rvu_sheet(df, file_tag, 'clinic', clinic_tag=file_tag)
                         if not res.empty: clinic_data.append(res)
                         pretty_name = CLINIC_CONFIG[file_tag]["name"]
-                        res_consult = parse_consults_data(df, pretty_name, consult_log, target_year)
+                        res_consult = parse_consults_data(df, pretty_name, consult_log)
                         if not res_consult.empty: consult_data.append(res_consult)
                     continue
 
@@ -767,7 +850,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 if clean_name.upper() == "FRIEDMEN": clean_name = "Friedman"
                 if "PROTON POS" in s_upper: continue
 
-                res = parse_rvu_sheet(df, clean_name, 'provider', clinic_tag=file_tag, target_year=target_year)
+                res = parse_rvu_sheet(df, clean_name, 'provider', clinic_tag=file_tag)
                 if not res.empty: provider_data.append(res)
 
             if file_tag == "TOPC":
@@ -779,7 +862,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     if "PRODUCTIVITY TREND" in s_upper: continue
                     clean_name = sheet_name.strip()
                     if clean_name.upper() == "FRIEDMEN": clean_name = "Friedman"
-                    res = parse_rvu_sheet(df, clean_name, 'provider', clinic_tag="TOPC", target_year=target_year)
+                    res = parse_rvu_sheet(df, clean_name, 'provider', clinic_tag="TOPC")
                     if not res.empty: proton_providers_temp.append(res)
                 if proton_providers_temp:
                     combined_proton = pd.concat(proton_providers_temp)
@@ -795,14 +878,78 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                          })
                     clinic_data.append(pd.DataFrame(topc_records))
 
-        # --- DEDUPLICATION LOGIC ---
-        df_clinic = deduplicate_data(pd.concat(clinic_data, ignore_index=True), ['Name', 'Month_Clean']) if clinic_data else pd.DataFrame()
-        df_provider_raw = deduplicate_data(pd.concat(provider_data, ignore_index=True), ['Name', 'Month_Clean', 'Type']) if provider_data else pd.DataFrame()
-        df_visits = deduplicate_data(pd.concat(visit_data, ignore_index=True), ['Name', 'Month_Clean']) if visit_data else pd.DataFrame()
-        df_financial = deduplicate_data(pd.concat(financial_data, ignore_index=True), ['Name', 'Month_Clean', 'Mode']) if financial_data else pd.DataFrame()
-        df_pos_trend = deduplicate_data(pd.concat(pos_trend_data, ignore_index=True), ['Clinic_Tag', 'Month_Clean']) if pos_trend_data else pd.DataFrame(columns=['Clinic_Tag', 'Month_Clean', 'New Patients', 'Month_Label', 'source_type'])
+        # --- AGGRESSIVE DEDUPLICATION ---
+        # 1. Combine all data first
+        # 2. Drop duplicates based on Primary Keys (Name, Date, Clinic)
         
-        # Consults & CPTs
+        # CLINIC DATA
+        if clinic_data:
+            df_clinic = pd.concat(clinic_data, ignore_index=True)
+            df_clinic['Month_Clean'] = pd.to_datetime(df_clinic['Month'], format='%b-%y', errors='coerce')
+            mask = df_clinic['Month_Clean'].isna()
+            if mask.any(): df_clinic.loc[mask, 'Month_Clean'] = pd.to_datetime(df_clinic.loc[mask, 'Month'], errors='coerce')
+            df_clinic.dropna(subset=['Month_Clean'], inplace=True)
+            
+            # Key step: Deduplicate (Name + Date)
+            df_clinic = deduplicate_data(df_clinic, ['Name', 'Month_Clean', 'ID'])
+            
+            # Re-Aggregating just in case we had partials, but mostly dedup handles it
+            df_clinic = df_clinic.groupby(['Name', 'ID', 'Month_Clean'], as_index=False).agg({
+                'Total RVUs': 'sum', 'FTE': 'max', 'Month': 'first', 'Clinic_Tag': 'first'
+            })
+            df_clinic['RVU per FTE'] = df_clinic.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
+            df_clinic['Quarter'] = df_clinic['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
+            df_clinic.sort_values('Month_Clean', inplace=True)
+            df_clinic['Month_Label'] = df_clinic['Month_Clean'].dt.strftime('%b-%y')
+        else:
+            df_clinic = pd.DataFrame()
+
+        # PROVIDER DATA
+        if provider_data:
+            df_provider_raw = pd.concat(provider_data, ignore_index=True)
+            def parse_date_safe(x):
+                if isinstance(x, (datetime, pd.Timestamp)): return x
+                if isinstance(x, str):
+                    try: return pd.to_datetime(x, format='%b-%y')
+                    except: return pd.NaT
+                return pd.NaT
+            df_provider_raw['Month_Clean'] = df_provider_raw['Month'].apply(parse_date_safe)
+            df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
+            
+            # DEDUPLICATE PROVIDERS
+            # Key: Name, Date, Type (MD/APP), Clinic
+            df_provider_raw = deduplicate_data(df_provider_raw, ['Name', 'Month_Clean', 'Type', 'Clinic_Tag'])
+            
+            df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
+            df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
+        else:
+            df_provider_raw = pd.DataFrame()
+
+        # VISITS
+        if visit_data:
+            df_visits = pd.concat(visit_data, ignore_index=True)
+            df_visits = deduplicate_data(df_visits, ['Name', 'Month_Clean'])
+        else:
+             df_visits = pd.DataFrame()
+        
+        # FINANCIAL (Already split, but good to dedup if multiple uploads)
+        if financial_data:
+             df_financial = pd.concat(financial_data, ignore_index=True)
+             df_financial['Month_Clean'] = pd.to_datetime(df_financial['Month_Clean'], errors='coerce')
+             df_financial.dropna(subset=['Month_Clean'], inplace=True)
+             df_financial = deduplicate_data(df_financial, ['Name', 'Month_Clean', 'Mode'])
+             df_financial['Month_Label'] = df_financial['Month_Clean'].dt.strftime('%b-%y')
+        else:
+             df_financial = pd.DataFrame()
+             
+        # POS TREND
+        if pos_trend_data:
+            df_pos_trend = pd.concat(pos_trend_data, ignore_index=True)
+            df_pos_trend = deduplicate_data(df_pos_trend, ['Clinic_Tag', 'Month_Clean'])
+        else:
+            df_pos_trend = pd.DataFrame(columns=['Clinic_Tag', 'Month_Clean', 'New Patients', 'Month_Label', 'source_type'])
+
+        # CONSULTS / CPTs
         if consult_data:
             df_consults = pd.concat(consult_data, ignore_index=True)
             def parse_date_safe(x):
@@ -863,37 +1010,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         else:
             df_md_cpt = pd.DataFrame(columns=['Name', 'Month', 'Count', 'CPT Code', 'Month_Label'])
 
-
-        if not df_financial.empty:
-            df_financial['Month_Clean'] = pd.to_datetime(df_financial['Month_Clean'], errors='coerce')
-            df_financial.dropna(subset=['Month_Clean'], inplace=True)
-            df_financial['Month_Label'] = df_financial['Month_Clean'].dt.strftime('%b-%y')
-
-        if not df_provider_raw.empty:
-            def parse_date_safe(x):
-                if isinstance(x, (datetime, pd.Timestamp)): return x
-                if isinstance(x, str):
-                    try: return pd.to_datetime(x, format='%b-%y')
-                    except: return pd.NaT
-                return pd.NaT
-            df_provider_raw['Month_Clean'] = df_provider_raw['Month'].apply(parse_date_safe)
-            df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
-            df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
-            df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
-
-        if not df_clinic.empty:
-            df_clinic['Month_Clean'] = pd.to_datetime(df_clinic['Month'], format='%b-%y', errors='coerce')
-            mask = df_clinic['Month_Clean'].isna()
-            if mask.any(): df_clinic.loc[mask, 'Month_Clean'] = pd.to_datetime(df_clinic.loc[mask, 'Month'], errors='coerce')
-            df_clinic.dropna(subset=['Month_Clean'], inplace=True)
-            df_clinic = df_clinic.groupby(['Name', 'ID', 'Month_Clean'], as_index=False).agg({
-                'Total RVUs': 'sum', 'FTE': 'max', 'Month': 'first', 'Clinic_Tag': 'first'
-            })
-            df_clinic['RVU per FTE'] = df_clinic.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
-            df_clinic['Quarter'] = df_clinic['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
-            df_clinic.sort_values('Month_Clean', inplace=True)
-            df_clinic['Month_Label'] = df_clinic['Month_Clean'].dt.strftime('%b-%y')
-
+        # Create Global MD Frame
         df_provider_global = pd.DataFrame()
         if not df_provider_raw.empty:
             df_md_clean = df_provider_raw[df_provider_raw.get('source_type', 'standard') != 'detail'].copy()
@@ -914,7 +1031,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
     server_files = []
     if os.path.exists(SERVER_DIR):
         for root, dirs, files in os.walk(SERVER_DIR):
-            for f in files:
+            for f in sorted(files): # Sorted ensures we process in order if named well
                 if f.endswith(".xlsx") or f.endswith(".xls"):
                     server_files.append(LocalFile(os.path.join(root, f)))
 
@@ -964,20 +1081,17 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                             key="clinic_radio"
                         )
                         
-                        # --- PDF EXPORT SECTION (MOVED TO SIDEBAR OR NAV COLUMN) ---
+                        # --- PDF EXPORT SECTION ---
                         if FPDF and not df_clinic.empty:
                             st.markdown("---")
                             with st.expander("📄 Export Monthly PDF Report"):
-                                # Month Selection
                                 avail_dates = sorted(df_clinic['Month_Clean'].unique(), reverse=True)
                                 month_opts = [d.strftime('%b-%y') for d in avail_dates]
                                 sel_month = st.selectbox("Select Period:", month_opts)
                                 
-                                # Filter Logic for PDF
                                 target_date = pd.to_datetime(sel_month, format='%b-%y')
                                 
                                 if st.button("Generate PDF Report"):
-                                    # Calculate data for the selected filter view
                                     if clinic_filter == "All": pdf_view = df_clinic
                                     elif clinic_filter == "TriStar": pdf_view = df_clinic[df_clinic['ID'].isin(TRISTAR_IDS)]
                                     elif clinic_filter == "Ascension": pdf_view = df_clinic[df_clinic['ID'].isin(ASCENSION_IDS)]
@@ -986,7 +1100,6 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     elif clinic_filter == "TROC": pdf_view = df_clinic[df_clinic['ID'] == 'TROC']
                                     elif clinic_filter == "Sumner": pdf_view = df_clinic[df_clinic['ID'] == 'Sumner']
                                     
-                                    # Filter by date
                                     pdf_view_date = pdf_view[pdf_view['Month_Clean'] == target_date]
                                     
                                     if not pdf_view_date.empty:
@@ -994,19 +1107,14 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                         avg_fte = pdf_view_date['FTE'].sum()
                                         rvu_fte = total_rvu / avg_fte if avg_fte > 0 else 0
                                         
-                                        # Get New Patients estimate (if available)
                                         np_count = 0
                                         if not df_pos_trend.empty:
                                             np_data = df_pos_trend[(df_pos_trend['Month_Clean'] == target_date)]
-                                            if clinic_filter != "All":
-                                                pass 
                                             np_count = np_data['New Patients'].sum()
 
-                                        # Get Provider Breakdown
                                         prov_breakdown = df_provider_raw[
                                             (df_provider_raw['Month_Clean'] == target_date)
                                         ]
-                                        # Filter provider breakdown by clinic if needed
                                         if clinic_filter == "TriStar": prov_breakdown = prov_breakdown[prov_breakdown['Clinic_Tag'].isin(TRISTAR_IDS)]
                                         elif clinic_filter == "Ascension": prov_breakdown = prov_breakdown[prov_breakdown['Clinic_Tag'].isin(ASCENSION_IDS)]
                                         
@@ -1104,7 +1212,6 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                             hist_table_T = hist_table_df.set_index('Year').T
                                             st.dataframe(hist_table_T.style.format("{:,.0f}"), use_container_width=True)
 
-
                                     if not df_view.empty:
                                         c1, c2 = st.columns(2)
                                         with c1:
@@ -1121,7 +1228,6 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                                 piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                                                 piv_q["Total"] = piv_q.sum(axis=1)
                                                 st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-
 
                             if clinic_filter in ["TriStar", "Ascension", "All", "LROC", "TOPC", "TROC", "Sumner"]:
                                 with st.container(border=True):
@@ -1460,7 +1566,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                         title="Ratio > 1.0 indicates more Tx Plans than New Patients"
                                     )
                                     fig_ratio.update_layout(style_high_end_chart(fig_ratio).layout)
-                                    fig_ratio.update_layout(height=800) # 800px height
+                                    fig_ratio.update_layout(height=800) # Changed from 1000 to 800
                                     fig_ratio.update_traces(textposition='outside')
                                     st.plotly_chart(fig_ratio, use_container_width=True)
                             
