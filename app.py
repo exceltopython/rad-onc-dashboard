@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 import os
 import re
+import base64
 
 # --- TRY IMPORTING FPDF ---
 try:
@@ -40,12 +41,48 @@ def inject_custom_css():
 
 inject_custom_css()
 
+# --- HELPER: CHART STYLING ---
+def style_high_end_chart(fig):
+    """Applies a high-end, minimalist aesthetic to Plotly charts."""
+    fig.update_layout(
+        font={'family': "Inter, sans-serif", 'color': '#334155'},
+        title_font={'family': "Inter, sans-serif", 'size': 18, 'color': '#0f172a'},
+        paper_bgcolor='rgba(0,0,0,0)', 
+        plot_bgcolor='rgba(0,0,0,0)', 
+        margin=dict(t=50, l=20, r=20, b=40),
+        xaxis=dict(
+            showgrid=False, 
+            showline=True, 
+            linecolor='#cbd5e1', 
+            tickfont=dict(color='#64748b')
+        ),
+        yaxis=dict(
+            showgrid=True, 
+            gridcolor='#f1f5f9', 
+            showline=False, 
+            tickfont=dict(color='#64748b')
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=12,
+            font_family="Inter"
+        )
+    )
+    return fig
+
 # --- PDF GENERATOR CLASS ---
 if FPDF:
     class PDFReport(FPDF):
         def header(self):
             self.set_font('Arial', 'B', 15)
-            self.cell(0, 10, 'Radiation Oncology - Monthly Performance Report', 0, 1, 'C')
+            self.cell(0, 10, 'Radiation Oncology - Monthly Clinic Report', 0, 1, 'C')
             self.ln(5)
 
         def footer(self):
@@ -649,12 +686,51 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         return None
 
     def process_files(file_objects):
+        # 1. SCAN FOR LATEST DATE IN OPERATIONAL FILES
+        latest_ytd_date = None
+        ytd_files = []
+        cpa_files = []
+        
+        # Helper: Is this a YTD file?
+        def is_ytd_file(fname):
+            fname = fname.upper()
+            return ("WORK" in fname or "PRODUCTIVITY" in fname or "PATIENT" in fname or "VISIT" in fname or "PHYS" in fname) and "CPA" not in fname
+        
+        # Pre-scan
+        temp_file_list = []
+        for file_obj in file_objects:
+            fname = file_obj.name.upper() if not isinstance(file_obj, LocalFile) else file_obj.name
+            f_date = get_date_from_filename(fname)
+            
+            if "CPA" in fname:
+                cpa_files.append(file_obj)
+            elif is_ytd_file(fname):
+                temp_file_list.append({'file': file_obj, 'date': f_date})
+                if latest_ytd_date is None or (f_date > latest_ytd_date):
+                    latest_ytd_date = f_date
+            else:
+                # Unknown/Other files, keep them? Let's assume keep.
+                cpa_files.append(file_obj) 
+
+        # Filter YTD files: Keep only latest
+        final_file_list = cpa_files # Always keep CPA
+        
+        if latest_ytd_date:
+            for item in temp_file_list:
+                if item['date'] == latest_ytd_date:
+                    final_file_list.append(item['file'])
+        else:
+            # If no dates found, just add everything back to be safe
+            for item in temp_file_list:
+                final_file_list.append(item['file'])
+        
+        # 2. PROCESS FILTERED LIST
         clinic_data = []; provider_data = []; visit_data = []; financial_data = []; pos_trend_data = []; consult_data = []; app_cpt_data = []; md_cpt_data = []; md_consult_data = []
         debug_log = []
         consult_log = [] 
         prov_log = [] 
 
-        for file_obj in file_objects:
+        for file_obj in final_file_list:
             if isinstance(file_obj, LocalFile):
                 filename = file_obj.name; xls = pd.read_excel(file_obj.path, sheet_name=None, header=None)
             else:
@@ -1017,8 +1093,6 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                         if not df_pos_trend.empty:
                                             np_data = df_pos_trend[(df_pos_trend['Month_Clean'] == target_date)]
                                             if clinic_filter != "All":
-                                                # Basic approximation since pos trend uses IDs differently
-                                                # Ideally we match IDs, but aggregate is fine for now
                                                 pass 
                                             np_count = np_data['New Patients'].sum()
 
@@ -1029,8 +1103,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                         # Filter provider breakdown by clinic if needed
                                         if clinic_filter == "TriStar": prov_breakdown = prov_breakdown[prov_breakdown['Clinic_Tag'].isin(TRISTAR_IDS)]
                                         elif clinic_filter == "Ascension": prov_breakdown = prov_breakdown[prov_breakdown['Clinic_Tag'].isin(ASCENSION_IDS)]
-                                        # (Add others as needed or leave as full list for 'All')
-
+                                        
                                         pdf_bytes = create_clinic_pdf(f"{clinic_filter} View", sel_month, total_rvu, rvu_fte, np_count, prov_breakdown)
                                         st.download_button("Download PDF", data=pdf_bytes, file_name=f"Report_{clinic_filter}_{sel_month}.pdf", mime='application/pdf')
                                     else:
@@ -1098,7 +1171,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     )
                                     st.plotly_chart(fig_ind, use_container_width=True)
                                     
-                                    # TX PLAN TABLE
+                                    # TX PLAN TABLE (MOVED TO TOP LEVEL OF "ALL")
                                     if clinic_filter == "All" and not df_consults.empty:
                                         st.markdown("---")
                                         st.markdown("### 📝 Tx Plan Complex (CPT 77263)")
@@ -1112,23 +1185,31 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     with st.container(border=True):
                                         st.markdown("##### 📅 Historical Data Summary")
                                         df_hist = get_historical_df()
+                                        
+                                        # Filter History based on view
                                         if clinic_filter == "TriStar": df_hist_view = df_hist[df_hist['ID'].isin(TRISTAR_IDS)]
                                         elif clinic_filter == "Ascension": df_hist_view = df_hist[df_hist['ID'].isin(ASCENSION_IDS)]
                                         elif clinic_filter == "All": df_hist_view = df_hist.copy()
-                                        else: df_hist_view = pd.DataFrame()
+                                        else: df_hist_view = pd.DataFrame() # Should not hit this else in this block
                                         
                                         if not df_hist_view.empty:
+                                            # Group by Year to get totals
                                             hist_trend = df_hist_view.groupby('Year')[['Total RVUs']].sum().reset_index()
+                                            
+                                            # Add Current Year YTD if available
                                             if not df_view.empty:
                                                 current_year = max_date.year
                                                 ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
                                                 if ytd_curr > 0:
                                                     new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
                                                     hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
+                                            
+                                            # Transpose for Conciseness
                                             hist_table_df = hist_trend.copy()
                                             hist_table_df['Year'] = hist_table_df['Year'].astype(int).astype(str)
                                             hist_table_T = hist_table_df.set_index('Year').T
                                             st.dataframe(hist_table_T.style.format("{:,.0f}"), use_container_width=True)
+
 
                                     if not df_view.empty:
                                         c1, c2 = st.columns(2)
@@ -1512,7 +1593,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                         text='Label',
                                         title="Ratio > 1.0 indicates more Tx Plans than New Patients"
                                     )
-                                    fig_ratio.update_layout(height=800, font=dict(color="black"), font_color="black") # 800px height
+                                    fig_ratio.update_layout(height=800, font=dict(color="black"), font_color="black") # Changed from 1000 to 800
                                     fig_ratio.update_traces(textposition='outside')
                                     st.plotly_chart(fig_ratio, use_container_width=True)
                             
