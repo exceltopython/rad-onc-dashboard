@@ -61,13 +61,7 @@ def style_high_end_chart(fig):
             showline=False, 
             tickfont=dict(color='#64748b')
         ),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        ),
+        # Legend default (right side) to prevent overlap
         hoverlabel=dict(
             bgcolor="white",
             font_size=12,
@@ -234,12 +228,12 @@ if check_password():
             return pd.to_datetime(f"{month_str} {year_str}")
         return datetime.now()
         
-    def get_target_year_from_filename(filename):
-        match = re.search(r'(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s*(\d{2,4})', filename, re.IGNORECASE)
+    def get_target_year_from_text(text):
+        # Extract 25, 26, 2025, 2026 etc from string
+        match = re.search(r'(20)?(2[0-9])', text)
         if match:
-            year_str = match.group(2)
-            if len(year_str) == 2: return int("20" + year_str)
-            if len(year_str) == 4: return int(year_str)
+            y = match.group(2)
+            return int("20" + y)
         return None
 
     def clean_number(val):
@@ -283,13 +277,12 @@ if check_password():
                     records.append({"ID": clinic_id, "Name": CLINIC_CONFIG[clinic_id]["name"], "Year": year, "Total RVUs": rvu, "Source": "Historical"})
         return pd.DataFrame(records)
 
-    # --- NARRATIVE ---
+    # --- ADVANCED NARRATIVE GENERATOR ---
     def generate_narrative(df, entity_type="Provider", metric_col="Total RVUs", unit="wRVUs", timeframe="this month"):
         if df.empty: return "No data available."
         latest_date = df['Month_Clean'].max()
         latest_df = df[df['Month_Clean'] == latest_date]
         if latest_df.empty: return "Data processed but current month is empty."
-        
         total_vol = latest_df[metric_col].sum()
         provider_count = len(latest_df)
         avg_vol = total_vol / provider_count if provider_count > 0 else 0
@@ -321,7 +314,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
 
         return narrative
 
-    # --- PARSERS WITH YEAR FILTER ---
+    # --- PARSERS WITH STRICT YEAR FILTER ---
 
     def parse_detailed_prov_sheet(df, filename_date, clinic_id, log, target_year):
         records = []
@@ -339,7 +332,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', val, re.IGNORECASE):
                     try:
                         dt = pd.to_datetime(val, format='%b-%y')
-                        if target_year and dt.year != target_year: continue 
+                        if target_year and dt.year != target_year: continue # STRICT YEAR FILTER
                         date_map[c] = dt
                         header_row_found = True
                     except: pass
@@ -400,7 +393,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                  except: pass
                         
                         if valid_date is None: continue
-                        if target_year and valid_date.year != target_year: continue 
+                        if target_year and valid_date.year != target_year: continue # STRICT YEAR FILTER
                         
                         val = clean_number(df.iloc[cpt_row_idx, col])
                         if val is not None and val != 0:
@@ -434,7 +427,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                      try: col_dt = pd.to_datetime(header_val.strip(), format='%b-%y')
                      except: pass
                 
-                if col_dt and target_year and col_dt.year != target_year: continue 
+                if col_dt and target_year and col_dt.year != target_year: continue # STRICT YEAR FILTER
 
                 col_sum = pd.to_numeric(data_rows[col], errors='coerce').sum()
                 records.append({
@@ -467,7 +460,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                 except: pass
                     
                     if valid_date is None: continue 
-                    if target_year and valid_date.year != target_year: continue 
+                    if target_year and valid_date.year != target_year: continue # STRICT YEAR FILTER
                     
                     val = clean_number(df.iloc[cpt_row_idx, col])
                     if val is not None:
@@ -481,6 +474,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
 
     def parse_visits_sheet(df, filename_date, clinic_tag="General", target_year=None):
         records = []
+        # If the file is 2026, we assume the YTD data inside is for 2026.
         if target_year and filename_date.year != target_year: return pd.DataFrame(), [] 
 
         try:
@@ -564,7 +558,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     
                     if c_id:
                         for col_idx, dt in date_map.items():
-                            if target_year and dt.year != target_year: continue 
+                            if target_year and dt.year != target_year: continue # STRICT YEAR FILTER
                             if col_idx < len(row):
                                 val = clean_number(row[col_idx])
                                 if val is not None:
@@ -645,86 +639,58 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         return None
 
     def process_files(file_objects):
-        # 1. SEPARATE CPA FILES FROM OPERATIONAL FILES
-        cpa_files = []
-        op_files_temp = []
-        
-        for file_obj in file_objects:
-            is_cpa = False
-            # Check Folder Path for CPA (if local/server file)
-            if isinstance(file_obj, LocalFile):
-                 norm_path = os.path.normpath(file_obj.path)
-                 path_parts = norm_path.split(os.sep)
-                 if "CPA" in path_parts: is_cpa = True
-            # Fallback to Filename check (for uploaded files or misfiled items)
-            if not is_cpa and "CPA" in file_obj.name.upper():
-                 is_cpa = True
-            
-            if is_cpa: cpa_files.append(file_obj)
-            else: op_files_temp.append(file_obj)
-
-        # 2. FILTER OPERATIONAL FILES (KEEP LATEST PER YEAR)
-        # Helper to identify if it's a cumulative YTD file
-        def is_ytd_file(fname):
-            fname = fname.upper()
-            return ("WORK" in fname or "PRODUCTIVITY" in fname or "PATIENT" in fname or "VISIT" in fname or "PHYS" in fname)
-        
-        # Group by Year, find max date
-        files_by_year = {} # {2025: {'max_date': dt, 'file': f}, 2026: ...}
-        final_ops_files = []
-        
-        for f in op_files_temp:
-            fname = f.name.upper()
-            if is_ytd_file(fname):
-                f_date = get_date_from_filename(fname)
-                f_year = get_target_year_from_filename(fname)
-                if f_year:
-                    # Logic: We want the latest file date for that specific target year
-                    # But wait, filename date is usually the content date.
-                    # If we have JAN26 file, its date is Jan 2026. Target year 2026.
-                    # If we have DEC25 file, its date is Dec 2025. Target year 2025.
-                    
-                    # Store candidate
-                    if f_year not in files_by_year:
-                        files_by_year[f_year] = {'max_date': f_date, 'files': [f]}
-                    else:
-                        # If this file is NEWER than what we have for this year, replace/update
-                        current_max = files_by_year[f_year]['max_date']
-                        if f_date > current_max:
-                            files_by_year[f_year] = {'max_date': f_date, 'files': [f]}
-                        elif f_date == current_max:
-                            files_by_year[f_year]['files'].append(f)
-                else:
-                    final_ops_files.append(f) # Unknown year, keep it
-            else:
-                final_ops_files.append(f) # Not a YTD file, keep it
-        
-        # Add the winners to the final list
-        for yr, data in files_by_year.items():
-            final_ops_files.extend(data['files'])
-
-        # 3. PROCESS LISTS
         clinic_data = []; provider_data = []; visit_data = []; financial_data = []; pos_trend_data = []; consult_data = []; app_cpt_data = []; md_cpt_data = []; md_consult_data = []
         debug_log = []
         consult_log = [] 
         prov_log = [] 
+        
+        # 1. SCAN ALL FILES RECURSIVELY
+        all_files_to_process = []
+        if os.path.exists(SERVER_DIR):
+             for root, dirs, files in os.walk(SERVER_DIR):
+                for f in files:
+                    if f.endswith(".xlsx") or f.endswith(".xls"):
+                        all_files_to_process.append(LocalFile(os.path.join(root, f)))
+        
+        # Add manually uploaded files
+        if file_objects and not isinstance(file_objects[0], LocalFile):
+             all_files_to_process.extend(file_objects)
 
-        # --- PROCESS CPA FILES ---
-        for file_obj in cpa_files:
+        for file_obj in all_files_to_process:
             if isinstance(file_obj, LocalFile):
                 filename = file_obj.name; xls = pd.read_excel(file_obj.path, sheet_name=None, header=None)
+                full_path = file_obj.path
             else:
                 filename = file_obj.name.upper(); xls = pd.read_excel(file_obj, sheet_name=None, header=None)
+                full_path = filename
+            
+            # --- DETERMINE FILE TYPE & TARGET YEAR ---
+            is_cpa = False
+            # Check Folder Path for CPA
+            if "CPA" in full_path.upper().split(os.sep): is_cpa = True
+            elif "CPA" in filename: is_cpa = True
             
             file_date = get_date_from_filename(filename)
-            for sheet_name, df in xls.items():
-                if "RAD BY PROVIDER" in filename:
-                    res = parse_financial_sheet(df, file_date, "RAD", mode="Provider")
-                    if not res.empty: financial_data.append(res)
-                elif "PROTON" in filename and "PROVIDER" in filename:
-                    res_prov = parse_financial_sheet(df, file_date, "PROTON", mode="Provider")
-                    if not res_prov.empty: financial_data.append(res_prov)
-                    try:
+            
+            # --- STRICT YEAR LOGIC ---
+            # Attempt to find "25" or "26" or "2025" in folder or filename
+            target_year = get_target_year_from_text(full_path.upper())
+            
+            file_tag = "General"
+            if "LROC" in filename: file_tag = "LROC"
+            elif "TROC" in filename: file_tag = "TROC"
+            elif "PROTON" in filename or "TOPC" in filename: file_tag = "TOPC"
+
+            # --- CPA FILES (ALWAYS PROCESS FULLY, NO YEAR FILTER) ---
+            if is_cpa:
+                for sheet_name, df in xls.items():
+                    if "RAD BY PROVIDER" in filename:
+                        res = parse_financial_sheet(df, file_date, "RAD", mode="Provider")
+                        if not res.empty: financial_data.append(res)
+                    elif "PROTON" in filename and "PROVIDER" in filename:
+                        res_prov = parse_financial_sheet(df, file_date, "PROTON", mode="Provider")
+                        if not res_prov.empty: financial_data.append(res_prov)
+                        try:
                             total_row = df[df.iloc[:, 1].astype(str).str.contains("Total", case=False, na=False)]
                             if not total_row.empty:
                                 chg = clean_number(total_row.iloc[0, 2])
@@ -734,37 +700,26 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     "Charges": chg, "Payments": pay, "Tag": "PROTON", "Mode": "Clinic",
                                     "Quarter": f"Q{file_date.quarter} {file_date.year}"
                                 }]))
-                    except: pass
-                elif "LROC" in filename and "PROVIDER" in filename:
+                        except: pass
+                    elif "LROC" in filename and "PROVIDER" in filename:
                         res = parse_financial_sheet(df, file_date, "LROC", mode="Provider")
                         if not res.empty: financial_data.append(res)
-                elif "RAD CPA BY CLINIC" in filename:
-                    res = parse_financial_sheet(df, file_date, "General", mode="Clinic")
-                    if not res.empty: financial_data.append(res)
-                elif "LROC" in filename and "CLINIC" in filename:
+                    elif "RAD CPA BY CLINIC" in filename:
+                        res = parse_financial_sheet(df, file_date, "General", mode="Clinic")
+                        if not res.empty: financial_data.append(res)
+                    elif "LROC" in filename and "CLINIC" in filename:
                         res = parse_financial_sheet(df, file_date, "LROC", mode="Clinic")
                         if not res.empty: financial_data.append(res)
-                elif "TROC" in filename and "CLINIC" in filename:
+                    elif "TROC" in filename and "CLINIC" in filename:
                         res = parse_financial_sheet(df, file_date, "TROC", mode="Clinic")
                         if not res.empty: financial_data.append(res)
+                continue
 
-        # --- PROCESS OPERATIONAL FILES ---
-        for file_obj in final_ops_files:
-            if isinstance(file_obj, LocalFile):
-                filename = file_obj.name; xls = pd.read_excel(file_obj.path, sheet_name=None, header=None)
-            else:
-                filename = file_obj.name.upper(); xls = pd.read_excel(file_obj, sheet_name=None, header=None)
+            # --- OPERATIONAL FILES (STRICT YEAR FILTER) ---
             
-            target_year = get_target_year_from_filename(filename)
-            file_date = get_date_from_filename(filename)
-            
-            file_tag = "General"
-            if "LROC" in filename: file_tag = "LROC"
-            elif "TROC" in filename: file_tag = "TROC"
-            elif "PROTON" in filename or "TOPC" in filename: file_tag = "TOPC"
-
+            # 1. NEW PATIENT / POS TREND FILES
             if "NEW" in filename and ("PATIENT" in filename or "PT" in filename):
-                debug_log.append(f"📂 Processing New Patient File: {filename} (Year: {target_year})")
+                debug_log.append(f"📂 Processing New Patient File: {filename} (Target Year: {target_year})")
                 for sheet_name, df in xls.items():
                     if "POS" in sheet_name.upper() and "TREND" in sheet_name.upper():
                         res = parse_pos_trend_sheet(df, filename, debug_log, target_year)
@@ -781,6 +736,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                         if not res.empty: visit_data.append(res)
                 continue 
 
+            # 2. PRODUCTIVITY / RVU FILES
             for sheet_name, df in xls.items():
                 s_lower = sheet_name.strip().lower()
                 clean_name = sheet_name.strip()
@@ -937,7 +893,10 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     except: return pd.NaT
                 return pd.NaT
             df_provider_raw['Month_Clean'] = df_provider_raw['Month'].apply(parse_date_safe)
+            
+            # Robust Date Filter: Only drop if we really can't parse it
             df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
+            
             df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
             df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{pd.Timestamp(x).quarter} {pd.Timestamp(x).year}")
 
@@ -977,7 +936,8 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             for f in files:
                 if f.endswith(".xlsx") or f.endswith(".xls"):
                     server_files.append(LocalFile(os.path.join(root, f)))
-
+                    
+    # --- UI TABS ---
     with st.sidebar:
         st.header("Data Import")
         if server_files:
@@ -1134,6 +1094,36 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                         piv_consult = piv_consult.reindex(columns=sorted_m).fillna(0)
                                         piv_consult["Total"] = piv_consult.sum(axis=1)
                                         st.dataframe(piv_consult.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
+                                    
+                                    # --- NEW: CONCISE HISTORICAL TABLE ---
+                                    with st.container(border=True):
+                                        st.markdown("##### 📅 Historical Data Summary")
+                                        df_hist = get_historical_df()
+                                        
+                                        # Filter History based on view
+                                        if clinic_filter == "TriStar": df_hist_view = df_hist[df_hist['ID'].isin(TRISTAR_IDS)]
+                                        elif clinic_filter == "Ascension": df_hist_view = df_hist[df_hist['ID'].isin(ASCENSION_IDS)]
+                                        elif clinic_filter == "All": df_hist_view = df_hist.copy()
+                                        else: df_hist_view = pd.DataFrame() # Should not hit this else in this block
+                                        
+                                        if not df_hist_view.empty:
+                                            # Group by Year to get totals
+                                            hist_trend = df_hist_view.groupby('Year')[['Total RVUs']].sum().reset_index()
+                                            
+                                            # Add Current Year YTD if available
+                                            if not df_view.empty:
+                                                current_year = max_date.year
+                                                ytd_curr = df_view[df_view['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
+                                                if ytd_curr > 0:
+                                                    new_row = pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_curr]})
+                                                    hist_trend = pd.concat([hist_trend, new_row], ignore_index=True)
+                                            
+                                            # Transpose for Conciseness
+                                            hist_table_df = hist_trend.copy()
+                                            hist_table_df['Year'] = hist_table_df['Year'].astype(int).astype(str)
+                                            hist_table_T = hist_table_df.set_index('Year').T
+                                            st.dataframe(hist_table_T.style.format("{:,.0f}"), use_container_width=True)
+
 
                                     if not df_view.empty:
                                         c1, c2 = st.columns(2)
@@ -1151,6 +1141,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                                 piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                                                 piv_q["Total"] = piv_q.sum(axis=1)
                                                 st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+
 
                             if clinic_filter in ["TriStar", "Ascension", "All", "LROC", "TOPC", "TROC", "Sumner"]:
                                 with st.container(border=True):
@@ -1489,7 +1480,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                         title="Ratio > 1.0 indicates more Tx Plans than New Patients"
                                     )
                                     fig_ratio.update_layout(style_high_end_chart(fig_ratio).layout)
-                                    fig_ratio.update_layout(height=800) # Changed from 1000 to 800
+                                    fig_ratio.update_layout(height=800) # 800px height
                                     fig_ratio.update_traces(textposition='outside')
                                     st.plotly_chart(fig_ratio, use_container_width=True)
                             
