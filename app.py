@@ -218,6 +218,30 @@ if check_password():
             return pd.to_datetime(f"{month_str} {year_str}")
         return datetime.now()
 
+    # --- CRITICAL FIX: DATE STANDARDIZATION ---
+    def standardize_date(x):
+        """Forces all incoming dates to 1st-of-month Timestamp format for perfect deduplication."""
+        if pd.isna(x): return pd.NaT
+        if isinstance(x, (datetime, pd.Timestamp)):
+            return pd.Timestamp(year=x.year, month=x.month, day=1)
+        if isinstance(x, str):
+            try: return pd.to_datetime(x.strip(), format='%b-%y').replace(day=1)
+            except: 
+                try: return pd.to_datetime(x.strip()).replace(day=1)
+                except: return pd.NaT
+        return pd.NaT
+        
+    # --- CRITICAL FIX: TARGET YEAR DETECTION ---
+    def get_target_year_from_text(text):
+        """Extracts the year (e.g. 2025 or 2026) from the folder or filename."""
+        match = re.search(r'(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s*(20)?(2[0-9])', text, re.IGNORECASE)
+        if match:
+            return int("20" + match.group(3))
+        match2 = re.search(r'(20)?(2[0-9])', text)
+        if match2:
+            return int("20" + match2.group(2))
+        return None
+
     def clean_number(val):
         if pd.isna(val): return None
         try:
@@ -301,9 +325,9 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
 
         return narrative
 
-    # --- PARSERS ---
+    # --- PARSERS WITH YEAR FILTERING ---
 
-    def parse_detailed_prov_sheet(df, filename_date, clinic_id, log):
+    def parse_detailed_prov_sheet(df, filename_date, clinic_id, log, target_year=None):
         records = []
         current_provider = None
         current_values = {"E&M OFFICE CODES": 0.0, "RADIATION CODES": 0.0, "SPECIAL PROCEDURES": 0.0}
@@ -317,11 +341,11 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             for c in range(len(row)):
                 val = str(row[c]).strip()
                 if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', val, re.IGNORECASE):
-                    try:
-                        dt = pd.to_datetime(val, format='%b-%y')
-                        date_map[c] = dt
+                    dt_clean = standardize_date(val)
+                    if pd.notna(dt_clean):
+                        if target_year and dt_clean.year != target_year: continue # Filter
+                        date_map[c] = dt_clean
                         header_row_found = True
-                    except: pass
             if header_row_found: break
             
         for i in range(len(df)):
@@ -350,16 +374,18 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                         if val and val != 0:
                                             records.append({
                                                 "Type": "provider", "ID": clinic_id, "Name": current_provider, "FTE": 1.0,
-                                                "Month": dt, "Total RVUs": val, "RVU per FTE": val,
+                                                "Month_Clean": dt, "Total RVUs": val, "RVU per FTE": val,
                                                 "Clinic_Tag": clinic_id, "source_type": "detail"
                                             })
                             else:
                                 if len(row) > 19:
                                     val = clean_number(row[19])
                                     if val:
+                                        file_dt_clean = standardize_date(filename_date)
+                                        if target_year and pd.notna(file_dt_clean) and file_dt_clean.year != target_year: continue
                                         records.append({
                                             "Type": "provider", "ID": clinic_id, "Name": current_provider, "FTE": 1.0,
-                                            "Month": filename_date, "Total RVUs": val, "RVU per FTE": val,
+                                            "Month_Clean": file_dt_clean, "Total RVUs": val, "RVU per FTE": val,
                                             "Clinic_Tag": clinic_id, "source_type": "detail"
                                         })
         if len(records) > 0:
@@ -367,44 +393,31 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         return pd.DataFrame(records)
 
     # --- NEW: PARSER FOR FOLLOW-UP CODES (99212-99215) ---
-    def parse_app_cpt_data(df, provider_name, log):
+    def parse_app_cpt_data(df, provider_name, log, target_year=None):
         records = []
         try:
             header_row_idx = find_date_row(df)
             
-            # Iterate through each specific CPT code we care about
             for cpt_code, rate in APP_CPT_RATES.items():
                 cpt_row_idx = -1
                 for r in range(len(df)):
                     row_val = str(df.iloc[r, 0]).strip()
-                    # Simple string check for the code at start of row
                     if row_val.startswith(cpt_code):
                         cpt_row_idx = r
                         break
                 
                 if cpt_row_idx != -1:
-                    # Extract monthly data
                     for col in df.columns[4:]: 
-                        header_val = df.iloc[header_row_idx, col]
-                        
-                        # DATE CHECK (Flexible)
-                        valid_date = None
-                        if isinstance(header_val, (datetime, pd.Timestamp)):
-                             valid_date = header_val
-                        elif isinstance(header_val, str):
-                             if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
-                                 try: valid_date = pd.to_datetime(header_val.strip(), format='%b-%y')
-                                 except: pass
-                        
-                        if valid_date is None: continue 
+                        dt_clean = standardize_date(df.iloc[header_row_idx, col])
+                        if pd.isna(dt_clean): continue
+                        if target_year and dt_clean.year != target_year: continue # Filter
                         
                         val = clean_number(df.iloc[cpt_row_idx, col])
                         if val is not None and val != 0:
-                            # Convert wRVU to Count
                             count = val / rate
                             records.append({
                                 "Name": provider_name, 
-                                "Month": valid_date, 
+                                "Month_Clean": dt_clean, 
                                 "Count": count, 
                                 "CPT Code": cpt_code,
                                 "Rate": rate
@@ -414,7 +427,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         
         return pd.DataFrame(records)
 
-    def parse_rvu_sheet(df, sheet_name, entity_type, clinic_tag="General", forced_fte=None):
+    def parse_rvu_sheet(df, sheet_name, entity_type, clinic_tag="General", forced_fte=None, target_year=None):
         if entity_type == 'clinic':
             config = CLINIC_CONFIG.get(sheet_name, {"name": sheet_name, "fte": 1.0})
             name = config['name']; fte = config['fte']
@@ -427,18 +440,20 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         
         if len(df.columns) > 4:
             for col in df.columns[4:]:
-                header_val = df.iloc[header_row_idx, col]
-                if pd.isna(header_val): continue
+                dt_clean = standardize_date(df.iloc[header_row_idx, col])
+                if pd.isna(dt_clean): continue
+                if target_year and dt_clean.year != target_year: continue # Filter
+                
                 col_sum = pd.to_numeric(data_rows[col], errors='coerce').sum()
                 records.append({
                     "Type": entity_type, "ID": sheet_name, "Name": name, "FTE": fte,
-                    "Month": header_val, "Total RVUs": col_sum, "RVU per FTE": col_sum / fte if fte > 0 else 0,
+                    "Month_Clean": dt_clean, "Total RVUs": col_sum, "RVU per FTE": col_sum / fte if fte > 0 else 0,
                     "Clinic_Tag": clinic_tag, "source_type": "standard"
                 })
         return pd.DataFrame(records)
 
     # --- SPECIFIC PARSER FOR CPT 77263 CONSULTS (FIXED DATE CHECK) ---
-    def parse_consults_data(df, sheet_name, log):
+    def parse_consults_data(df, sheet_name, log, target_year=None):
         records = []
         try:
             header_row_idx = find_date_row(df)
@@ -452,21 +467,15 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             
             if cpt_row_idx != -1:
                 for col in df.columns[4:]: 
-                    header_val = df.iloc[header_row_idx, col]
-                    
-                    is_valid_date = False
-                    if isinstance(header_val, (datetime, pd.Timestamp)): is_valid_date = True
-                    elif isinstance(header_val, str):
-                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', header_val.strip(), re.IGNORECASE):
-                            is_valid_date = True
-                    
-                    if not is_valid_date: continue 
+                    dt_clean = standardize_date(df.iloc[header_row_idx, col])
+                    if pd.isna(dt_clean): continue
+                    if target_year and dt_clean.year != target_year: continue # Filter
                     
                     val = clean_number(df.iloc[cpt_row_idx, col])
                     if val is not None:
                         count = val / CONSULT_CONVERSION
                         records.append({
-                            "Name": sheet_name, "Month": header_val, 
+                            "Name": sheet_name, "Month_Clean": dt_clean, 
                             "Count": count, "Clinic_Tag": sheet_name
                         })
             else:
@@ -477,8 +486,11 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             
         return pd.DataFrame(records)
 
-    def parse_visits_sheet(df, filename_date, clinic_tag="General"):
+    def parse_visits_sheet(df, filename_date, clinic_tag="General", target_year=None):
         records = []
+        file_dt = standardize_date(filename_date)
+        if target_year and pd.notna(file_dt) and file_dt.year != target_year: return pd.DataFrame(), []
+
         try:
             data_start_row = 4
             for i in range(data_start_row, len(df)):
@@ -512,7 +524,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     visits = numbers[0]
 
                 records.append({
-                    "Name": matched_name, "Month_Clean": filename_date, "Total Visits": visits,
+                    "Name": matched_name, "Month_Clean": file_dt, "Total Visits": visits,
                     "Visits_Diff": visits_diff, "New Patients": new_patients, "NP_Diff": np_diff,
                     "Clinic_Tag": clinic_tag
                 })
@@ -544,6 +556,8 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             
             if header_row == -1 or not col_map: return pd.DataFrame()
 
+            file_dt = standardize_date(filename_date)
+
             for i in range(header_row + 1, len(df)):
                 row = df.iloc[i].values
                 name_val = str(row[col_map.get('name', 0)]).strip()
@@ -572,14 +586,14 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                          clean_name = "Stonecrest"
 
                 records.append({
-                    "Name": clean_name, "Month_Clean": filename_date,
+                    "Name": clean_name, "Month_Clean": file_dt,
                     "Charges": charges, "Payments": payments,
                     "Tag": tag, "Mode": mode
                 })
         except: pass
         return pd.DataFrame(records)
 
-    def parse_pos_trend_sheet(df, filename, log):
+    def parse_pos_trend_sheet(df, filename, log, target_year=None):
         records = []
         try:
             header_row_idx = -1
@@ -588,16 +602,8 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 row = df.iloc[r].values
                 temp_date_map = {}
                 for c in range(len(row)):
-                    val = row[c]
-                    if isinstance(val, (datetime, pd.Timestamp)):
-                         temp_date_map[c] = val
-                    else:
-                        s_val = str(val).strip()
-                        if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', s_val, re.IGNORECASE):
-                            try:
-                                dt = pd.to_datetime(s_val, format='%b-%y')
-                                temp_date_map[c] = dt
-                            except: pass
+                    dt_clean = standardize_date(row[c])
+                    if pd.notna(dt_clean): temp_date_map[c] = dt_clean
                 if len(temp_date_map) >= 2:
                     header_row_idx = r
                     date_map = temp_date_map
@@ -628,12 +634,13 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     if c_id: break
                 
                 if c_id:
-                    for col_idx, dt in date_map.items():
+                    for col_idx, dt_clean in date_map.items():
+                        if target_year and dt_clean.year != target_year: continue # FILTER
                         if col_idx < len(row):
                             val = clean_number(row[col_idx])
                             if val is not None:
                                 records.append({
-                                    "Clinic_Tag": c_id, "Month_Clean": dt, "New Patients": val,
+                                    "Clinic_Tag": c_id, "Month_Clean": dt_clean, "New Patients": val,
                                     "source_type": "pos_trend"
                                 })
 
@@ -657,40 +664,64 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         if "to proton" in s_clean: return "TOPC"
         return None
 
-    def process_files(file_objects):
-        clinic_data = []; provider_data = []; visit_data = []; financial_data = []; pos_trend_data = []; consult_data = []; app_cpt_data = []; md_cpt_data = []; md_consult_data = []
-        debug_log = []
-        consult_log = [] 
-        prov_log = [] 
+    # --- HELPER: SAFE DEDUPLICATION AND FORMATTING ---
+    def safe_dedup_and_format(df_list, subset_cols):
+        if not df_list: return pd.DataFrame()
+        df = pd.concat(df_list, ignore_index=True)
+        if 'Month_Clean' in df.columns:
+            df = df.dropna(subset=['Month_Clean'])
+            # Keeping the 'last' occurrence prioritizes files read later (e.g. JAN26)
+            df = df.sort_values('Month_Clean', ascending=False)
+        
+        valid_subset = [c for c in subset_cols if c in df.columns]
+        if valid_subset:
+            df = df.drop_duplicates(subset=valid_subset, keep='last')
+        
+        # Format labels safely
+        if not df.empty and 'Month_Clean' in df.columns:
+            df['Month_Label'] = df['Month_Clean'].dt.strftime('%b-%y')
+            if 'Quarter' not in df.columns:
+                df['Quarter'] = df['Month_Clean'].apply(lambda x: f"Q{x.quarter} {x.year}")
+        return df
 
-        # --- FIX 1: FOLDER SEARCH ---
+    def process_files(file_objects):
+        # 1. OS.WALK TO GET FILES FROM SUBFOLDERS
         all_files_to_process = []
         if isinstance(file_objects[0], LocalFile):
-            all_paths = []
-            for root, dirs, files in os.walk(SERVER_DIR):
+             all_paths = []
+             for root, dirs, files in os.walk(SERVER_DIR):
                 for f in files:
                     if f.endswith(".xlsx") or f.endswith(".xls"):
                         all_paths.append(os.path.join(root, f))
-            # Sort paths to process DEC25 before JAN26
-            all_paths.sort() 
-            for path in all_paths:
-                all_files_to_process.append(LocalFile(path))
+             all_paths.sort() # Ensure we process DEC25 before JAN26
+             for p in all_paths:
+                 all_files_to_process.append(LocalFile(p))
         else:
-            all_files_to_process = file_objects
+             all_files_to_process = file_objects
+
+        clinic_data = []; provider_data = []; visit_data = []; financial_data = []; pos_trend_data = []; consult_data = []; app_cpt_data = []; md_cpt_data = []; md_consult_data = []
+        debug_log = []; consult_log = []; prov_log = [] 
 
         for file_obj in all_files_to_process:
             if isinstance(file_obj, LocalFile):
                 filename = file_obj.name; xls = pd.read_excel(file_obj.path, sheet_name=None, header=None)
+                full_path = file_obj.path
             else:
                 filename = file_obj.name.upper(); xls = pd.read_excel(file_obj, sheet_name=None, header=None)
+                full_path = filename
             
+            # --- GET TARGET YEAR FOR THIS FILE ---
+            target_year = get_target_year_from_text(full_path)
+            is_cpa = "CPA" in full_path.upper().split(os.sep) or "CPA" in filename
+            if is_cpa: target_year = None # Do not filter CPA files
+            
+            file_date = get_date_from_filename(filename)
             file_tag = "General"
             if "LROC" in filename: file_tag = "LROC"
             elif "TROC" in filename: file_tag = "TROC"
             elif "PROTON" in filename or "TOPC" in filename: file_tag = "TOPC"
 
-            if "CPA" in filename:
-                file_date = get_date_from_filename(filename)
+            if is_cpa:
                 for sheet_name, df in xls.items():
                     if "RAD BY PROVIDER" in filename:
                         res = parse_financial_sheet(df, file_date, "RAD", mode="Provider")
@@ -701,12 +732,8 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                         try:
                              total_row = df[df.iloc[:, 1].astype(str).str.contains("Total", case=False, na=False)]
                              if not total_row.empty:
-                                 chg = clean_number(total_row.iloc[0, 2])
-                                 pay = clean_number(total_row.iloc[0, 3])
-                                 financial_data.append(pd.DataFrame([{
-                                     "Name": "TN Proton Center", "Month_Clean": file_date,
-                                     "Charges": chg, "Payments": pay, "Tag": "PROTON", "Mode": "Clinic"
-                                 }]))
+                                 chg = clean_number(total_row.iloc[0, 2]); pay = clean_number(total_row.iloc[0, 3])
+                                 financial_data.append(pd.DataFrame([{"Name": "TN Proton Center", "Month_Clean": standardize_date(file_date), "Charges": chg, "Payments": pay, "Tag": "PROTON", "Mode": "Clinic"}]))
                         except: pass
                     elif "LROC" in filename and "PROVIDER" in filename:
                          res = parse_financial_sheet(df, file_date, "LROC", mode="Provider")
@@ -723,13 +750,12 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 continue
 
             if "NEW" in filename and ("PATIENT" in filename or "PT" in filename):
-                file_date = get_date_from_filename(filename)
                 debug_log.append(f"📂 Processing New Patient File: {filename}")
                 found_pos = False
                 for sheet_name, df in xls.items():
                     if "POS" in sheet_name.upper() and "TREND" in sheet_name.upper():
                         found_pos = True
-                        res = parse_pos_trend_sheet(df, filename, debug_log)
+                        res = parse_pos_trend_sheet(df, filename, debug_log, target_year)
                         if not res.empty: 
                             pos_trend_data.append(res)
                             debug_log.append(f"  ✅ Extracted {len(res)} records from {sheet_name}")
@@ -746,7 +772,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
 
                 for sheet_name, df in xls.items():
                     if "PHYS YTD OV" in sheet_name.upper():
-                        res, logs = parse_visits_sheet(df, file_date, clinic_tag=visit_tag)
+                        res, logs = parse_visits_sheet(df, file_date, clinic_tag=visit_tag, target_year=target_year)
                         if not res.empty: visit_data.append(res)
                 continue 
 
@@ -755,58 +781,57 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 clean_name = sheet_name.strip()
                 s_upper = sheet_name.upper()
                 
-                # --- FIX: Stop "Trend" from showing as Provider ---
+                # --- FIX: Stop reading "TREND" as a provider ---
                 if "TREND" in s_upper and "PRODUCTIVITY TREND" not in s_upper:
                     continue
-                
+
                 # --- CHECK FOR PROVIDER SHEETS FOR DETAILED CPT ---
                 match_prov = match_provider(clean_name)
                 if match_prov:
                     # 1. Parse for APP CPTs
                     if match_prov in APP_LIST:
-                        res_cpt = parse_app_cpt_data(df, match_prov, prov_log)
+                        res_cpt = parse_app_cpt_data(df, match_prov, prov_log, target_year)
                         if not res_cpt.empty: app_cpt_data.append(res_cpt)
                     # 2. Parse for MD CPTs & 77263
                     else:
                         # Follow-up Visits (99212-99215)
-                        res_cpt = parse_app_cpt_data(df, match_prov, prov_log)
+                        res_cpt = parse_app_cpt_data(df, match_prov, prov_log, target_year)
                         if not res_cpt.empty: md_cpt_data.append(res_cpt)
                         
                         # NEW: Tx Plan (77263) for MDs
-                        res_77263 = parse_consults_data(df, match_prov, consult_log)
+                        res_77263 = parse_consults_data(df, match_prov, consult_log, target_year)
                         if not res_77263.empty: md_consult_data.append(res_77263)
 
                 
                 if s_lower.endswith(" prov"):
-                    file_date = get_date_from_filename(filename)
                     c_id = get_clinic_id_from_sheet(sheet_name)
                     if c_id:
-                        res = parse_detailed_prov_sheet(df, file_date, c_id, prov_log)
+                        res = parse_detailed_prov_sheet(df, file_date, c_id, prov_log, target_year)
                         if not res.empty: provider_data.append(res)
                     elif "sumner" in s_lower:
-                         res = parse_detailed_prov_sheet(df, file_date, "Sumner", prov_log)
+                         res = parse_detailed_prov_sheet(df, file_date, "Sumner", prov_log, target_year)
                          if not res.empty: provider_data.append(res)
                     continue
 
                 if any(ignored in s_upper for ignored in IGNORED_SHEETS): continue
                 
                 if clean_name in CLINIC_CONFIG:
-                    res = parse_rvu_sheet(df, clean_name, 'clinic', clinic_tag="General")
+                    res = parse_rvu_sheet(df, clean_name, 'clinic', clinic_tag="General", forced_fte=None, target_year=target_year)
                     if not res.empty: clinic_data.append(res)
                     
                     pretty_name = CLINIC_CONFIG[clean_name]["name"]
                     consult_log.append(f"Checking {clean_name} for 77263...")
-                    res_consult = parse_consults_data(df, pretty_name, consult_log)
+                    res_consult = parse_consults_data(df, pretty_name, consult_log, target_year)
                     if not res_consult.empty:
                         consult_data.append(res_consult)
                     # Fall through to allow provider extraction if present!
 
                 if "PRODUCTIVITY TREND" in s_upper: 
                     if file_tag in ["LROC", "TROC"]:
-                        res = parse_rvu_sheet(df, file_tag, 'clinic', clinic_tag=file_tag)
+                        res = parse_rvu_sheet(df, file_tag, 'clinic', clinic_tag=file_tag, forced_fte=None, target_year=target_year)
                         if not res.empty: clinic_data.append(res)
                         pretty_name = CLINIC_CONFIG[file_tag]["name"]
-                        res_consult = parse_consults_data(df, pretty_name, consult_log)
+                        res_consult = parse_consults_data(df, pretty_name, consult_log, target_year)
                         if not res_consult.empty: consult_data.append(res_consult)
                     continue
 
@@ -814,10 +839,13 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 if clean_name.upper() == "FRIEDMEN": clean_name = "Friedman"
                 if "PROTON POS" in s_upper: continue
 
-                res = parse_rvu_sheet(df, clean_name, 'provider', clinic_tag=file_tag)
-                if not res.empty: 
-                    provider_data.append(res)
-                    prov_log.append(f"  ✅ Extracted provider data for {clean_name} ({len(res)} rows)")
+                # Fallback Provider parsing (only if valid provider name)
+                valid_prov = match_provider(clean_name)
+                if valid_prov:
+                    res = parse_rvu_sheet(df, valid_prov, 'provider', clinic_tag=file_tag, forced_fte=None, target_year=target_year)
+                    if not res.empty: 
+                        provider_data.append(res)
+                        prov_log.append(f"  ✅ Extracted provider data for {clean_name} ({len(res)} rows)")
 
             if file_tag == "TOPC":
                 proton_providers_temp = []
@@ -826,139 +854,51 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     if "PROV" in s_upper: continue
                     if any(ignored in s_upper for ignored in IGNORED_SHEETS) or "PROTON POS" in s_upper: continue
                     if "PRODUCTIVITY TREND" in s_upper: continue
-                    clean_name = sheet_name.strip()
-                    if clean_name.upper() == "FRIEDMEN": clean_name = "Friedman"
-                    res = parse_rvu_sheet(df, clean_name, 'provider', clinic_tag="TOPC")
-                    if not res.empty: proton_providers_temp.append(res)
+                    
+                    valid_topc_prov = match_provider(sheet_name)
+                    if valid_topc_prov:
+                        res = parse_rvu_sheet(df, valid_topc_prov, 'provider', clinic_tag="TOPC", forced_fte=None, target_year=target_year)
+                        if not res.empty: proton_providers_temp.append(res)
+                        
                 if proton_providers_temp:
                     combined_proton = pd.concat(proton_providers_temp)
-                    
-                    # Convert to datetime to avoid AttributeError during GroupBy
-                    combined_proton['Month'] = pd.to_datetime(combined_proton['Month'], errors='coerce')
-                    
-                    topc_grp = combined_proton.groupby('Month', as_index=False)[['Total RVUs', 'FTE']].sum()
+                    combined_proton['Month_Clean'] = pd.to_datetime(combined_proton['Month_Clean'], errors='coerce')
+                    topc_grp = combined_proton.groupby('Month_Clean', as_index=False)[['Total RVUs', 'FTE']].sum()
                     topc_records = []
                     for idx, row in topc_grp.iterrows():
                          topc_records.append({
                             "Type": "clinic", "ID": "TOPC", "Name": "TN Proton Center",
-                            "FTE": row['FTE'], "Month": row['Month'],
+                            "FTE": row['FTE'], "Month_Clean": row['Month_Clean'],
                             "Total RVUs": row['Total RVUs'],
                             "RVU per FTE": row['Total RVUs'] / row['FTE'] if row['FTE'] > 0 else 0,
                             "Clinic_Tag": "TOPC", "source_type": "standard"
                          })
                     clinic_data.append(pd.DataFrame(topc_records))
 
+        # --- DEDUPLICATION LOGIC ---
+        df_clinic = safe_dedup_and_format(clinic_data, ['Name', 'Month_Clean', 'ID'])
+        df_provider_raw = safe_dedup_and_format(provider_data, ['Name', 'Month_Clean', 'Type', 'Clinic_Tag'])
+        df_visits = safe_dedup_and_format(visit_data, ['Name', 'Month_Clean', 'Clinic_Tag'])
+        df_financial = safe_dedup_and_format(financial_data, ['Name', 'Month_Clean', 'Mode'])
+        df_pos_trend = safe_dedup_and_format(pos_trend_data, ['Clinic_Tag', 'Month_Clean'])
+        df_consults = safe_dedup_and_format(consult_data, ['Name', 'Month_Clean', 'Clinic_Tag'])
+        df_md_consults = safe_dedup_and_format(md_consult_data, ['Name', 'Month_Clean'])
+        df_app_cpt = safe_dedup_and_format(app_cpt_data, ['Name', 'Month_Clean', 'CPT Code'])
+        df_md_cpt = safe_dedup_and_format(md_cpt_data, ['Name', 'Month_Clean', 'CPT Code'])
 
-        # --- FIX 2: PREVENT DOUBLE COUNTING BY DEDUPLICATING ---
-        # We process the files strictly in order (DEC25 before JAN26)
-        # So keeping the "last" record found guarantees we use the newest numbers.
-        
-        # Helper to force all dates to the 1st of the month, guaranteeing duplicates align exactly
-        def format_date_to_first(x):
-            if pd.isna(x): return pd.NaT
-            if isinstance(x, (datetime, pd.Timestamp)): return pd.Timestamp(year=x.year, month=x.month, day=1)
-            if isinstance(x, str):
-                try: return pd.to_datetime(x.strip(), format='%b-%y').replace(day=1)
-                except: 
-                    try: return pd.to_datetime(x.strip()).replace(day=1)
-                    except: return pd.NaT
-            return pd.NaT
-
-        if clinic_data:
-            df_clinic = pd.concat(clinic_data, ignore_index=True)
-            df_clinic['Month_Clean'] = pd.to_datetime(df_clinic['Month'], errors='coerce')
-            df_clinic.loc[df_clinic['Month_Clean'].isna(), 'Month_Clean'] = pd.to_datetime(df_clinic.loc[df_clinic['Month_Clean'].isna(), 'Month'], errors='coerce')
-            df_clinic['Month_Clean'] = df_clinic['Month_Clean'].apply(format_date_to_first)
-            df_clinic.dropna(subset=['Month_Clean'], inplace=True)
-            
-            # Magic line that deletes double-counted history
-            df_clinic = df_clinic.drop_duplicates(subset=['Name', 'ID', 'Month_Clean', 'Clinic_Tag'], keep='last')
-            
-            df_clinic = df_clinic.groupby(['Name', 'ID', 'Month_Clean'], as_index=False).agg({
-                'Total RVUs': 'sum', 'FTE': 'max', 'Clinic_Tag': 'first'
-            })
-            df_clinic['RVU per FTE'] = df_clinic.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
-            df_clinic['Quarter'] = df_clinic['Month_Clean'].apply(lambda x: f"Q{x.quarter} {x.year}")
-            df_clinic['Month_Label'] = df_clinic['Month_Clean'].dt.strftime('%b-%y')
-        else: df_clinic = pd.DataFrame()
-
-        if provider_data:
-            df_provider_raw = pd.concat(provider_data, ignore_index=True)
-            if 'Month_Clean' not in df_provider_raw.columns: df_provider_raw['Month_Clean'] = df_provider_raw['Month']
-            df_provider_raw['Month_Clean'] = df_provider_raw['Month_Clean'].apply(format_date_to_first)
-            df_provider_raw.dropna(subset=['Month_Clean'], inplace=True)
-            df_provider_raw = df_provider_raw.drop_duplicates(subset=['Name', 'Month_Clean', 'Type', 'Clinic_Tag'], keep='last')
-            df_provider_raw['Month_Label'] = df_provider_raw['Month_Clean'].dt.strftime('%b-%y')
-            df_provider_raw['Quarter'] = df_provider_raw['Month_Clean'].apply(lambda x: f"Q{x.quarter} {x.year}")
-        else: df_provider_raw = pd.DataFrame()
-
-        if visit_data:
-            df_visits = pd.concat(visit_data, ignore_index=True)
-            df_visits['Month_Clean'] = df_visits['Month_Clean'].apply(format_date_to_first)
-            df_visits.dropna(subset=['Month_Clean'], inplace=True)
-            df_visits = df_visits.drop_duplicates(subset=['Name', 'Month_Clean', 'Clinic_Tag'], keep='last')
-        else: df_visits = pd.DataFrame()
-
-        if financial_data:
-            df_financial = pd.concat(financial_data, ignore_index=True)
-            df_financial['Month_Clean'] = df_financial['Month_Clean'].apply(format_date_to_first)
-            df_financial.dropna(subset=['Month_Clean'], inplace=True)
-            df_financial = df_financial.drop_duplicates(subset=['Name', 'Month_Clean', 'Mode'], keep='last')
-            df_financial['Month_Label'] = df_financial['Month_Clean'].dt.strftime('%b-%y')
-        else: df_financial = pd.DataFrame()
-            
-        if pos_trend_data:
-            df_pos_trend = pd.concat(pos_trend_data, ignore_index=True)
-            df_pos_trend['Month_Clean'] = df_pos_trend['Month_Clean'].apply(format_date_to_first)
-            df_pos_trend.dropna(subset=['Month_Clean'], inplace=True)
-            df_pos_trend = df_pos_trend.drop_duplicates(subset=['Clinic_Tag', 'Month_Clean'], keep='last')
-            df_pos_trend['Month_Label'] = df_pos_trend['Month_Clean'].dt.strftime('%b-%y')
-            # FIX: Ensure Display_Name is created before pivoting to avoid KeyError
+        # FIX KEYERROR: Ensure Display Name Exists Before Pivot
+        if not df_pos_trend.empty:
             df_pos_trend['Display_Name'] = df_pos_trend['Clinic_Tag'].apply(lambda x: CLINIC_CONFIG.get(x, {}).get('name', x))
-        else: df_pos_trend = pd.DataFrame()
 
-        if consult_data:
-            df_consults = pd.concat(consult_data, ignore_index=True)
-            if 'Month_Clean' not in df_consults.columns: df_consults['Month_Clean'] = df_consults['Month']
-            df_consults['Month_Clean'] = df_consults['Month_Clean'].apply(format_date_to_first)
-            df_consults.dropna(subset=['Month_Clean'], inplace=True)
-            df_consults = df_consults.drop_duplicates(subset=['Name', 'Month_Clean', 'Clinic_Tag'], keep='last')
-            df_consults['Month_Label'] = df_consults['Month_Clean'].dt.strftime('%b-%y')
-        else: df_consults = pd.DataFrame()
-        
-        if md_consult_data:
-            df_md_consults = pd.concat(md_consult_data, ignore_index=True)
-            if 'Month_Clean' not in df_md_consults.columns: df_md_consults['Month_Clean'] = df_md_consults['Month']
-            df_md_consults['Month_Clean'] = df_md_consults['Month_Clean'].apply(format_date_to_first)
-            df_md_consults.dropna(subset=['Month_Clean'], inplace=True)
-            df_md_consults = df_md_consults.drop_duplicates(subset=['Name', 'Month_Clean'], keep='last')
-            df_md_consults['Month_Label'] = df_md_consults['Month_Clean'].dt.strftime('%b-%y')
-        else: df_md_consults = pd.DataFrame()
-
-        if app_cpt_data:
-            df_app_cpt = pd.concat(app_cpt_data, ignore_index=True)
-            if 'Month_Clean' not in df_app_cpt.columns: df_app_cpt['Month_Clean'] = df_app_cpt['Month']
-            df_app_cpt['Month_Clean'] = df_app_cpt['Month_Clean'].apply(format_date_to_first)
-            df_app_cpt.dropna(subset=['Month_Clean'], inplace=True)
-            df_app_cpt = df_app_cpt.drop_duplicates(subset=['Name', 'Month_Clean', 'CPT Code'], keep='last')
-            df_app_cpt['Month_Label'] = df_app_cpt['Month_Clean'].dt.strftime('%b-%y')
-        else: df_app_cpt = pd.DataFrame()
-
-        if md_cpt_data:
-            df_md_cpt = pd.concat(md_cpt_data, ignore_index=True)
-            if 'Month_Clean' not in df_md_cpt.columns: df_md_cpt['Month_Clean'] = df_md_cpt['Month']
-            df_md_cpt['Month_Clean'] = df_md_cpt['Month_Clean'].apply(format_date_to_first)
-            df_md_cpt.dropna(subset=['Month_Clean'], inplace=True)
-            df_md_cpt = df_md_cpt.drop_duplicates(subset=['Name', 'Month_Clean', 'CPT Code'], keep='last')
-            df_md_cpt['Month_Label'] = df_md_cpt['Month_Clean'].dt.strftime('%b-%y')
-        else: df_md_cpt = pd.DataFrame()
+        if not df_clinic.empty:
+            df_clinic = df_clinic.groupby(['Name', 'ID', 'Month_Clean', 'Month_Label', 'Quarter'], as_index=False).agg({'Total RVUs': 'sum', 'FTE': 'max', 'Clinic_Tag': 'first'})
+            df_clinic['RVU per FTE'] = df_clinic.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
+            df_clinic.sort_values('Month_Clean', inplace=True)
 
         df_provider_global = pd.DataFrame()
         if not df_provider_raw.empty:
             df_md_clean = df_provider_raw[df_provider_raw.get('source_type', 'standard') != 'detail'].copy()
-            df_provider_global = df_md_clean.groupby(['Name', 'ID', 'Month_Clean', 'Quarter', 'Month_Label'], as_index=False).agg({
-                'Total RVUs': 'sum', 'FTE': 'max'
-            })
+            df_provider_global = df_md_clean.groupby(['Name', 'ID', 'Month_Clean', 'Month_Label', 'Quarter'], as_index=False).agg({'Total RVUs': 'sum', 'FTE': 'max'})
             df_provider_global['RVU per FTE'] = df_provider_global.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
             df_provider_global.sort_values('Month_Clean', inplace=True)
 
@@ -976,14 +916,16 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             for f in files:
                 if f.endswith(".xlsx") or f.endswith(".xls"):
                     all_paths.append(os.path.join(root, f))
-        all_paths.sort() # Ensure we read DEC25 before JAN26
+        all_paths.sort() # Ensure we process files sequentially (DEC25 before JAN26)
         for p in all_paths:
             server_files.append(LocalFile(p))
 
     with st.sidebar:
         st.header("Data Import")
-        if server_files: st.success(f"✅ Loaded {len(server_files)} master files from server.")
-        else: st.info("ℹ️ No master files found on server.")
+        if server_files:
+            st.success(f"✅ Loaded {len(server_files)} master files from server.")
+        else:
+            st.info("ℹ️ No master files found on server.")
         uploaded_files = st.file_uploader("Add Temporary Files", type=['xlsx', 'xls'], accept_multiple_files=True)
         
     all_files = server_files + (uploaded_files if uploaded_files else [])
@@ -1002,7 +944,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             else:
                 df_apps = pd.DataFrame(); df_mds = pd.DataFrame()
 
-            # --- FIX 3: TABS SPLIT BY YEAR ---
+            # --- EXPLICIT TAB SPLIT ---
             tab_c_26, tab_c_25, tab_md_26, tab_md_25, tab_app, tab_fin = st.tabs([
                 "🏥 Clinic Analytics - 2026", 
                 "🏥 Clinic Analytics - 2025", 
@@ -1049,17 +991,17 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                         avg_fte_26 = pdf_view_date_26['FTE'].sum()
                                         rvu_fte_26 = total_rvu_26 / avg_fte_26 if avg_fte_26 > 0 else 0
                                         
-                                        np_count = 0
+                                        np_count_26 = 0
                                         if not df_pos_trend.empty:
-                                            np_data = df_pos_trend[(df_pos_trend['Month_Clean'] == target_date_26)]
-                                            np_count = np_data['New Patients'].sum()
+                                            np_data_26 = df_pos_trend[(df_pos_trend['Month_Clean'] == target_date_26)]
+                                            np_count_26 = np_data_26['New Patients'].sum()
 
-                                        prov_breakdown = df_provider_raw[(df_provider_raw['Month_Clean'] == target_date_26)]
-                                        if clinic_filter_26 == "TriStar": prov_breakdown = prov_breakdown[prov_breakdown['Clinic_Tag'].isin(TRISTAR_IDS)]
-                                        elif clinic_filter_26 == "Ascension": prov_breakdown = prov_breakdown[prov_breakdown['Clinic_Tag'].isin(ASCENSION_IDS)]
+                                        prov_breakdown_26 = df_provider_raw[(df_provider_raw['Month_Clean'] == target_date_26)]
+                                        if clinic_filter_26 == "TriStar": prov_breakdown_26 = prov_breakdown_26[prov_breakdown_26['Clinic_Tag'].isin(TRISTAR_IDS)]
+                                        elif clinic_filter_26 == "Ascension": prov_breakdown_26 = prov_breakdown_26[prov_breakdown_26['Clinic_Tag'].isin(ASCENSION_IDS)]
                                         
-                                        pdf_bytes = create_clinic_pdf(f"{clinic_filter_26} View", sel_month_26, total_rvu_26, rvu_fte_26, np_count, prov_breakdown)
-                                        st.download_button("Download PDF", data=pdf_bytes, file_name=f"Report_{clinic_filter_26}_{sel_month_26}.pdf", mime='application/pdf', key="dl_pdf_26")
+                                        pdf_bytes_26 = create_clinic_pdf(f"{clinic_filter_26} View", sel_month_26, total_rvu_26, rvu_fte_26, np_count_26, prov_breakdown_26)
+                                        st.download_button("Download PDF", data=pdf_bytes_26, file_name=f"Report_{clinic_filter_26}_{sel_month_26}.pdf", mime='application/pdf', key="dl_pdf_26")
 
                     with col_main_26:
                         df_view_26 = pd.DataFrame(); view_title_26 = clinic_filter_26; target_tag_26 = None
@@ -1079,32 +1021,36 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                             with st.container(border=True):
                                 st.markdown(f"#### 📅 {view_title_26}: 2026 Trend")
                                 l12m_c_26 = df_view_26.sort_values('Month_Clean')
-                                if clinic_filter_26 in ["TriStar", "Ascension", "All"]:
-                                    agg_trend_26 = l12m_c_26.groupby('Month_Clean')[['Total RVUs']].sum().reset_index()
-                                    fig_trend_26 = px.line(agg_trend_26, x='Month_Clean', y='Total RVUs', markers=True, title="Aggregate Trend")
-                                else:
-                                    fig_trend_26 = px.line(l12m_c_26, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
-                                st.plotly_chart(style_high_end_chart(fig_trend_26), use_container_width=True)
+                                if not l12m_c_26.empty:
+                                    if clinic_filter_26 in ["TriStar", "Ascension", "All"]:
+                                        agg_trend_26 = l12m_c_26.groupby('Month_Clean')[['Total RVUs']].sum().reset_index()
+                                        fig_trend_26 = px.line(agg_trend_26, x='Month_Clean', y='Total RVUs', markers=True, title="Aggregate Trend")
+                                    else:
+                                        fig_trend_26 = px.line(l12m_c_26, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
+                                    st.plotly_chart(style_high_end_chart(fig_trend_26), use_container_width=True)
 
                             if clinic_filter_26 in ["LROC", "TOPC", "TROC", "Sumner"]:
                                 with st.container(border=True):
                                     st.markdown(f"#### 📊 Quarterly wRVU Volume ({view_title_26})")
                                     df_q_chart_26 = df_view_26.copy()
-                                    df_q_chart_26['Q_Sort'] = df_q_chart_26['Month_Clean'].dt.to_period('Q').dt.start_time
-                                    q_agg_26 = df_q_chart_26.groupby(['Quarter', 'Q_Sort'])[['Total RVUs']].sum().reset_index().sort_values('Q_Sort')
-                                    if len(q_agg_26) >= 2:
-                                        last_q_26 = q_agg_26.iloc[-1]; prior_q_26 = q_agg_26.iloc[-2]
-                                        pct_change_26 = ((last_q_26['Total RVUs'] - prior_q_26['Total RVUs']) / prior_q_26['Total RVUs']) * 100
-                                        st.metric(label=f"Change: {prior_q_26['Quarter']} → {last_q_26['Quarter']}", value=f"{last_q_26['Total RVUs']:,.0f}", delta=f"{pct_change_26:+.1f}%")
-                                    fig_q_bar_26 = px.bar(q_agg_26, x='Quarter', y='Total RVUs', text_auto='.2s')
-                                    st.plotly_chart(style_high_end_chart(fig_q_bar_26), use_container_width=True)
+                                    if not df_q_chart_26.empty:
+                                        df_q_chart_26['Q_Sort'] = df_q_chart_26['Month_Clean'].dt.to_period('Q').dt.start_time
+                                        q_agg_26 = df_q_chart_26.groupby(['Quarter', 'Q_Sort'])[['Total RVUs']].sum().reset_index().sort_values('Q_Sort')
+                                        if len(q_agg_26) >= 2:
+                                            last_q_26 = q_agg_26.iloc[-1]; prior_q_26 = q_agg_26.iloc[-2]
+                                            pct_change_26 = ((last_q_26['Total RVUs'] - prior_q_26['Total RVUs']) / prior_q_26['Total RVUs']) * 100
+                                            st.metric(label=f"Change: {prior_q_26['Quarter']} → {last_q_26['Quarter']}", value=f"{last_q_26['Total RVUs']:,.0f}", delta=f"{pct_change_26:+.1f}%")
+                                        fig_q_bar_26 = px.bar(q_agg_26, x='Quarter', y='Total RVUs', text_auto='.2s')
+                                        st.plotly_chart(style_high_end_chart(fig_q_bar_26), use_container_width=True)
 
                             if clinic_filter_26 in ["TriStar", "Ascension", "All"]:
                                 with st.container(border=True):
                                     st.markdown(f"#### 📈 {view_title_26}: Individual Clinic Trends")
-                                    fig_ind_26 = px.line(l12m_c_26, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
-                                    st.plotly_chart(style_high_end_chart(fig_ind_26), use_container_width=True)
+                                    if not l12m_c_26.empty:
+                                        fig_ind_26 = px.line(l12m_c_26, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
+                                        st.plotly_chart(style_high_end_chart(fig_ind_26), use_container_width=True)
                                     
+                                    # TX PLAN TABLE
                                     if clinic_filter_26 == "All" and not df_consults.empty:
                                         df_consults_26 = df_consults[df_consults['Month_Clean'].dt.year == 2026]
                                         if not df_consults_26.empty:
@@ -1116,6 +1062,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                             piv_consult_26["Total"] = piv_consult_26.sum(axis=1)
                                             st.dataframe(piv_consult_26.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
                                     
+                                    # --- CONCISE HISTORICAL TABLE ---
                                     with st.container(border=True):
                                         st.markdown("##### 📅 Historical Data Summary")
                                         df_hist_26 = get_historical_df()
@@ -1354,9 +1301,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                             np_data_25 = df_pos_trend[(df_pos_trend['Month_Clean'] == target_date_25)]
                                             np_count_25 = np_data_25['New Patients'].sum()
 
-                                        prov_breakdown_25 = df_provider_raw[
-                                            (df_provider_raw['Month_Clean'] == target_date_25)
-                                        ]
+                                        prov_breakdown_25 = df_provider_raw[(df_provider_raw['Month_Clean'] == target_date_25)]
                                         if clinic_filter_25 == "TriStar": prov_breakdown_25 = prov_breakdown_25[prov_breakdown_25['Clinic_Tag'].isin(TRISTAR_IDS)]
                                         elif clinic_filter_25 == "Ascension": prov_breakdown_25 = prov_breakdown_25[prov_breakdown_25['Clinic_Tag'].isin(ASCENSION_IDS)]
                                         
@@ -1382,27 +1327,34 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                             with st.container(border=True):
                                 st.markdown(f"#### 📅 {view_title_25}: 12-Month Trend (2025)")
                                 l12m_c_25 = df_view_25.sort_values('Month_Clean')
-                                if clinic_filter_25 in ["TriStar", "Ascension", "All"]:
-                                    agg_trend_25 = l12m_c_25.groupby('Month_Clean')[['Total RVUs']].sum().reset_index()
-                                    fig_trend_25 = px.line(agg_trend_25, x='Month_Clean', y='Total RVUs', markers=True, title="Aggregate Trend")
-                                else:
-                                    fig_trend_25 = px.line(l12m_c_25, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
-                                st.plotly_chart(style_high_end_chart(fig_trend_25), use_container_width=True)
+                                if not l12m_c_25.empty:
+                                    if clinic_filter_25 in ["TriStar", "Ascension", "All"]:
+                                        agg_trend_25 = l12m_c_25.groupby('Month_Clean')[['Total RVUs']].sum().reset_index()
+                                        fig_trend_25 = px.line(agg_trend_25, x='Month_Clean', y='Total RVUs', markers=True, title="Aggregate Trend")
+                                    else:
+                                        fig_trend_25 = px.line(l12m_c_25, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
+                                    st.plotly_chart(style_high_end_chart(fig_trend_25), use_container_width=True)
 
                             if clinic_filter_25 in ["LROC", "TOPC", "TROC", "Sumner"]:
                                 with st.container(border=True):
                                     st.markdown(f"#### 📊 Quarterly wRVU Volume ({view_title_25})")
                                     df_q_chart_25 = df_view_25.copy()
-                                    df_q_chart_25['Q_Sort'] = df_q_chart_25['Month_Clean'].dt.to_period('Q').dt.start_time
-                                    q_agg_25 = df_q_chart_25.groupby(['Quarter', 'Q_Sort'])[['Total RVUs']].sum().reset_index().sort_values('Q_Sort')
-                                    fig_q_bar_25 = px.bar(q_agg_25, x='Quarter', y='Total RVUs', text_auto='.2s')
-                                    st.plotly_chart(style_high_end_chart(fig_q_bar_25), use_container_width=True)
+                                    if not df_q_chart_25.empty:
+                                        df_q_chart_25['Q_Sort'] = df_q_chart_25['Month_Clean'].dt.to_period('Q').dt.start_time
+                                        q_agg_25 = df_q_chart_25.groupby(['Quarter', 'Q_Sort'])[['Total RVUs']].sum().reset_index().sort_values('Q_Sort')
+                                        if len(q_agg_25) >= 2:
+                                            last_q_25 = q_agg_25.iloc[-1]; prior_q_25 = q_agg_25.iloc[-2]
+                                            pct_change_25 = ((last_q_25['Total RVUs'] - prior_q_25['Total RVUs']) / prior_q_25['Total RVUs']) * 100
+                                            st.metric(label=f"Change: {prior_q_25['Quarter']} → {last_q_25['Quarter']}", value=f"{last_q_25['Total RVUs']:,.0f}", delta=f"{pct_change_25:+.1f}%")
+                                        fig_q_bar_25 = px.bar(q_agg_25, x='Quarter', y='Total RVUs', text_auto='.2s')
+                                        st.plotly_chart(style_high_end_chart(fig_q_bar_25), use_container_width=True)
 
                             if clinic_filter_25 in ["TriStar", "Ascension", "All"]:
                                 with st.container(border=True):
                                     st.markdown(f"#### 📈 {view_title_25}: Individual Clinic Trends")
-                                    fig_ind_25 = px.line(l12m_c_25, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
-                                    st.plotly_chart(style_high_end_chart(fig_ind_25), use_container_width=True)
+                                    if not l12m_c_25.empty:
+                                        fig_ind_25 = px.line(l12m_c_25, x='Month_Clean', y='Total RVUs', color='Name', markers=True)
+                                        st.plotly_chart(style_high_end_chart(fig_ind_25), use_container_width=True)
                                     
                                     # TX PLAN TABLE
                                     if clinic_filter_25 == "All" and not df_consults.empty:
@@ -1519,6 +1471,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     piv_np_net_25 = df_pos_trend_25.pivot_table(index="Display_Name", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
                                     st.dataframe(piv_np_net_25.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
+
                         if clinic_filter_25 in ["TriStar", "Ascension"]:
                             st.markdown("---")
                             st.subheader(f"🔍 Detailed Breakdown by Clinic ({view_title_25})")
@@ -1559,22 +1512,6 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     piv_p["Total"] = piv_p.sum(axis=1)
                                     st.dataframe(piv_p.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
-                                df_pos_trend_25 = df_pos_trend[df_pos_trend['Month_Clean'].dt.year == 2025].copy() if not df_pos_trend.empty else pd.DataFrame()
-                                if not df_pos_trend_25.empty:
-                                    pos_df = df_pos_trend_25[df_pos_trend_25['Clinic_Tag'] == c_id]
-                                    if not pos_df.empty:
-                                        with st.container(border=True):
-                                            st.markdown(f"#### 🆕 {c_name}: New Patient Trend")
-                                            pos_agg = pos_df.groupby('Month_Clean')[['New Patients']].sum().reset_index().sort_values('Month_Clean')
-                                            fig_pos = px.bar(pos_agg, x='Month_Clean', y='New Patients', text_auto=True)
-                                            st.plotly_chart(style_high_end_chart(fig_pos), use_container_width=True)
-                                            
-                                            pos_piv = pos_df.pivot_table(index="Clinic_Tag", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
-                                            sorted_m = pos_df.sort_values("Month_Clean")["Month_Label"].unique()
-                                            pos_piv = pos_piv.reindex(columns=sorted_m).fillna(0)
-                                            pos_piv["Total"] = pos_piv.sum(axis=1)
-                                            st.dataframe(pos_piv.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-                        
                         if target_tag_25 and not df_provider_raw.empty:
                             df_provider_raw_25 = df_provider_raw[df_provider_raw['Month_Clean'].dt.year == 2025].copy()
                             pie_data_source = df_provider_raw_25[(df_provider_raw_25['Clinic_Tag'] == target_tag_25) & (df_provider_raw_25.get('source_type', '') == 'detail')]
@@ -1622,82 +1559,82 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     md_view_26 = st.radio("Select View:", ["wRVU Productivity", "Office Visits"], key="md_radio_26")
                 
                 with col_main_md_26:
-                    df_mds_26 = df_mds[pd.to_datetime(df_mds['Month_Clean'], errors='coerce').dt.year == 2026].copy() if not df_mds.empty else pd.DataFrame()
+                    df_mds_26 = df_mds[df_mds['Month_Clean'].dt.year == 2026].copy() if not df_mds.empty else pd.DataFrame()
                     if md_view_26 == "wRVU Productivity":
                         if df_mds_26.empty: st.info("No wRVU data found for 2026.")
                         else:
                             st.info(generate_narrative(df_mds_26, "Physician"))
                             with st.container(border=True):
                                 st.markdown("#### 📅 2026 Trend (RVU per FTE)")
-                                fig_trend_26 = px.line(df_mds_26.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
-                                st.plotly_chart(style_high_end_chart(fig_trend_26), use_container_width=True)
+                                fig_trend = px.line(df_mds_26.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
+                                st.plotly_chart(style_high_end_chart(fig_trend), use_container_width=True)
                             with st.container(border=True):
                                 st.markdown("#### 🏆 Year-to-Date Total RVUs (2026)")
-                                ytd_sum_26 = df_mds_26.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
-                                fig_ytd_26 = px.bar(ytd_sum_26, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
-                                st.plotly_chart(style_high_end_chart(fig_ytd_26), use_container_width=True)
+                                ytd_sum = df_mds_26.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
+                                fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
+                                st.plotly_chart(style_high_end_chart(fig_ytd), use_container_width=True)
                             c1, c2 = st.columns(2)
                             with c1:
                                 st.markdown("#### 🔢 Monthly Data")
-                                piv_26 = df_mds_26.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                sorted_months_md_26 = df_mds_26.sort_values("Month_Clean")["Month_Label"].unique()
-                                piv_26 = piv_26.reindex(columns=sorted_months_md_26).fillna(0)
-                                piv_26["Total"] = piv_26.sum(axis=1)
-                                st.dataframe(piv_26.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                                piv = df_mds_26.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                                sorted_months_md = df_mds_26.sort_values("Month_Clean")["Month_Label"].unique()
+                                piv = piv.reindex(columns=sorted_months_md).fillna(0)
+                                piv["Total"] = piv.sum(axis=1)
+                                st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                             with c2:
                                 st.markdown("#### 📆 Quarterly Data")
-                                piv_q_26 = df_mds_26.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                                piv_q_26["Total"] = piv_q_26.sum(axis=1)
-                                st.dataframe(piv_q_26.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                                piv_q = df_mds_26.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                                piv_q["Total"] = piv_q.sum(axis=1)
+                                st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                     
                     elif md_view_26 == "Office Visits":
-                        df_visits_26 = df_visits[pd.to_datetime(df_visits['Month_Clean'], errors='coerce').dt.year == 2026].copy() if not df_visits.empty else pd.DataFrame()
+                        df_visits_26 = df_visits[df_visits['Month_Clean'].dt.year == 2026].copy() if not df_visits.empty else pd.DataFrame()
                         st.info("ℹ️ **This includes all HOPD and freestanding sites (including LROC, TROC, and TOPC)**")
                         if df_visits_26.empty:
                             st.warning("No Office Visit data found for 2026.")
                         else:
-                            df_visits_agg_26 = df_visits_26.groupby(['Name', 'Month_Clean'], as_index=False).agg({'Total Visits': 'sum', 'New Patients': 'sum', 'Visits_Diff': 'sum', 'NP_Diff': 'sum'})
-                            latest_v_date_26 = df_visits_agg_26['Month_Clean'].max()
-                            latest_v_df_26 = df_visits_agg_26[df_visits_agg_26['Month_Clean'] == latest_v_date_26]
-                            latest_v_df_26 = latest_v_df_26[~latest_v_df_26['Name'].isin(APP_LIST)]
+                            df_visits_agg = df_visits_26.groupby(['Name', 'Month_Clean'], as_index=False).agg({'Total Visits': 'sum', 'New Patients': 'sum', 'Visits_Diff': 'sum', 'NP_Diff': 'sum'})
+                            latest_v_date = df_visits_agg['Month_Clean'].max()
+                            latest_v_df = df_visits_agg[df_visits_agg['Month_Clean'] == latest_v_date]
+                            latest_v_df = latest_v_df[~latest_v_df['Name'].isin(APP_LIST)]
                             
-                            st.info(generate_narrative(df_visits_agg_26, "Physician", metric_col="Total Visits", unit="Visits", timeframe="Year-to-Date"))
+                            st.info(generate_narrative(df_visits_agg, "Physician", metric_col="Total Visits", unit="Visits", timeframe="Year-to-Date"))
                             c_ov1, c_ov2 = st.columns(2)
                             with c_ov1:
                                 with st.container(border=True):
-                                    st.markdown(f"#### 🏥 Total Office Visits ({latest_v_date_26.year} YTD)")
-                                    fig_ov_26 = px.bar(latest_v_df_26.sort_values('Total Visits', ascending=True), x='Total Visits', y='Name', orientation='h', text_auto=True, color='Total Visits', color_continuous_scale='Blues')
-                                    st.plotly_chart(style_high_end_chart(fig_ov_26), use_container_width=True)
+                                    st.markdown(f"#### 🏥 Total Office Visits ({latest_v_date.year} YTD)")
+                                    fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), x='Total Visits', y='Name', orientation='h', text_auto=True, color='Total Visits', color_continuous_scale='Blues')
+                                    st.plotly_chart(style_high_end_chart(fig_ov), use_container_width=True)
                             with c_ov2:
                                 with st.container(border=True):
-                                    st.markdown(f"#### 🆕 New Patients ({latest_v_date_26.year} YTD)")
-                                    fig_np_26 = px.bar(latest_v_df_26.sort_values('New Patients', ascending=True), x='New Patients', y='Name', orientation='h', text_auto=True, color='New Patients', color_continuous_scale='Greens')
-                                    st.plotly_chart(style_high_end_chart(fig_np_26), use_container_width=True)
+                                    st.markdown(f"#### 🆕 New Patients ({latest_v_date.year} YTD)")
+                                    fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), x='New Patients', y='Name', orientation='h', text_auto=True, color='New Patients', color_continuous_scale='Greens')
+                                    st.plotly_chart(style_high_end_chart(fig_np), use_container_width=True)
                             
                             st.markdown("---")
                             
-                            df_md_consults_26 = df_md_consults[pd.to_datetime(df_md_consults['Month_Clean'], errors='coerce').dt.year == 2026].copy() if not df_md_consults.empty else pd.DataFrame()
+                            df_md_consults_26 = df_md_consults[df_md_consults['Month_Clean'].dt.year == 2026].copy() if not df_md_consults.empty else pd.DataFrame()
                             if not df_md_consults_26.empty:
                                 st.markdown("### 📝 MD Tx Plan Complex (CPT 77263)")
-                                sorted_m_cons_26 = df_md_consults_26.sort_values("Month_Clean")["Month_Label"].unique()
-                                piv_md_cons_26 = df_md_consults_26.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
-                                piv_md_cons_26 = piv_md_cons_26.reindex(columns=sorted_m_cons_26).fillna(0)
-                                piv_md_cons_26["Total"] = piv_md_cons_26.sum(axis=1)
-                                st.dataframe(piv_md_cons_26.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
+                                sorted_m_cons = df_md_consults_26.sort_values("Month_Clean")["Month_Label"].unique()
+                                piv_md_cons = df_md_consults_26.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
+                                piv_md_cons = piv_md_cons.reindex(columns=sorted_m_cons).fillna(0)
+                                piv_md_cons["Total"] = piv_md_cons.sum(axis=1)
+                                st.dataframe(piv_md_cons.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
                                 
-                                md_77263_ytd_26 = df_md_consults_26.groupby('Name')['Count'].sum().reset_index()
-                                md_np_ytd_26 = latest_v_df_26[['Name', 'New Patients']].copy()
-                                ratio_df_26 = pd.merge(md_77263_ytd_26, md_np_ytd_26, on='Name', how='inner')
-                                ratio_df_26['Ratio'] = ratio_df_26.apply(lambda x: x['Count'] / x['New Patients'] if x['New Patients'] > 0 else 0, axis=1)
-                                ratio_df_26['Label'] = ratio_df_26.apply(lambda x: f"{x['Ratio']:.2f} ({int(x['Count'])}/{int(x['New Patients'])})", axis=1)
-                                ratio_df_26 = ratio_df_26.sort_values('Ratio', ascending=True) 
+                                md_77263_ytd = df_md_consults_26.groupby('Name')['Count'].sum().reset_index()
+                                md_np_ytd = latest_v_df[['Name', 'New Patients']].copy()
+                                ratio_df = pd.merge(md_77263_ytd, md_np_ytd, on='Name', how='inner')
+                                ratio_df['Ratio'] = ratio_df.apply(lambda x: x['Count'] / x['New Patients'] if x['New Patients'] > 0 else 0, axis=1)
+                                ratio_df['Label'] = ratio_df.apply(lambda x: f"{x['Ratio']:.2f} ({int(x['Count'])}/{int(x['New Patients'])})", axis=1)
+                                ratio_df = ratio_df.sort_values('Ratio', ascending=True) 
                                 
-                                if not ratio_df_26.empty:
+                                if not ratio_df.empty:
                                     st.markdown("---")
                                     st.markdown("### 📊 Ratio: Tx Plan (77263) / New Patients (YTD)")
-                                    fig_ratio_26 = px.bar(ratio_df_26, x='Ratio', y='Name', orientation='h', text='Label', title="Ratio > 1.0 indicates more Tx Plans than New Patients")
-                                    fig_ratio_26.update_traces(textposition='outside')
-                                    st.plotly_chart(style_high_end_chart(fig_ratio_26), use_container_width=True)
+                                    fig_ratio = px.bar(ratio_df, x='Ratio', y='Name', orientation='h', text='Label', title="Ratio > 1.0 indicates more Tx Plans than New Patients")
+                                    fig_ratio.update_traces(textposition='outside')
+                                    st.plotly_chart(style_high_end_chart(fig_ratio), use_container_width=True)
 
             # ==========================================
             # MD ANALYTICS - 2025 TAB
@@ -1709,82 +1646,82 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     md_view_25 = st.radio("Select View:", ["wRVU Productivity", "Office Visits"], key="md_radio_25")
                 
                 with col_main_md_25:
-                    df_mds_25 = df_mds[pd.to_datetime(df_mds['Month_Clean'], errors='coerce').dt.year == 2025].copy() if not df_mds.empty else pd.DataFrame()
+                    df_mds_25 = df_mds[df_mds['Month_Clean'].dt.year == 2025].copy() if not df_mds.empty else pd.DataFrame()
                     if md_view_25 == "wRVU Productivity":
                         if df_mds_25.empty: st.info("No wRVU data found for 2025.")
                         else:
                             st.info(generate_narrative(df_mds_25, "Physician"))
                             with st.container(border=True):
                                 st.markdown("#### 📅 2025 Trend (RVU per FTE)")
-                                fig_trend_25 = px.line(df_mds_25.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
-                                st.plotly_chart(style_high_end_chart(fig_trend_25), use_container_width=True)
+                                fig_trend = px.line(df_mds_25.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
+                                st.plotly_chart(style_high_end_chart(fig_trend), use_container_width=True)
                             with st.container(border=True):
                                 st.markdown("#### 🏆 Year-to-Date Total RVUs (2025)")
-                                ytd_sum_25 = df_mds_25.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
-                                fig_ytd_25 = px.bar(ytd_sum_25, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
-                                st.plotly_chart(style_high_end_chart(fig_ytd_25), use_container_width=True)
+                                ytd_sum = df_mds_25.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
+                                fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
+                                st.plotly_chart(style_high_end_chart(fig_ytd), use_container_width=True)
                             c1, c2 = st.columns(2)
                             with c1:
                                 st.markdown("#### 🔢 Monthly Data")
-                                piv_25 = df_mds_25.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                sorted_months_md_25 = df_mds_25.sort_values("Month_Clean")["Month_Label"].unique()
-                                piv_25 = piv_25.reindex(columns=sorted_months_md_25).fillna(0)
-                                piv_25["Total"] = piv_25.sum(axis=1)
-                                st.dataframe(piv_25.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                                piv = df_mds_25.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                                sorted_months_md = df_mds_25.sort_values("Month_Clean")["Month_Label"].unique()
+                                piv = piv.reindex(columns=sorted_months_md).fillna(0)
+                                piv["Total"] = piv.sum(axis=1)
+                                st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                             with c2:
                                 st.markdown("#### 📆 Quarterly Data")
-                                piv_q_25 = df_mds_25.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                                piv_q_25["Total"] = piv_q_25.sum(axis=1)
-                                st.dataframe(piv_q_25.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                                piv_q = df_mds_25.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                                piv_q["Total"] = piv_q.sum(axis=1)
+                                st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                     
                     elif md_view_25 == "Office Visits":
-                        df_visits_25 = df_visits[pd.to_datetime(df_visits['Month_Clean'], errors='coerce').dt.year == 2025].copy() if not df_visits.empty else pd.DataFrame()
+                        df_visits_25 = df_visits[df_visits['Month_Clean'].dt.year == 2025].copy() if not df_visits.empty else pd.DataFrame()
                         st.info("ℹ️ **This includes all HOPD and freestanding sites (including LROC, TROC, and TOPC)**")
                         if df_visits_25.empty:
                             st.warning("No Office Visit data found for 2025.")
                         else:
-                            df_visits_agg_25 = df_visits_25.groupby(['Name', 'Month_Clean'], as_index=False).agg({'Total Visits': 'sum', 'New Patients': 'sum', 'Visits_Diff': 'sum', 'NP_Diff': 'sum'})
-                            latest_v_date_25 = df_visits_agg_25['Month_Clean'].max()
-                            latest_v_df_25 = df_visits_agg_25[df_visits_agg_25['Month_Clean'] == latest_v_date_25]
-                            latest_v_df_25 = latest_v_df_25[~latest_v_df_25['Name'].isin(APP_LIST)]
+                            df_visits_agg = df_visits_25.groupby(['Name', 'Month_Clean'], as_index=False).agg({'Total Visits': 'sum', 'New Patients': 'sum', 'Visits_Diff': 'sum', 'NP_Diff': 'sum'})
+                            latest_v_date = df_visits_agg['Month_Clean'].max()
+                            latest_v_df = df_visits_agg[df_visits_agg['Month_Clean'] == latest_v_date]
+                            latest_v_df = latest_v_df[~latest_v_df['Name'].isin(APP_LIST)]
                             
-                            st.info(generate_narrative(df_visits_agg_25, "Physician", metric_col="Total Visits", unit="Visits", timeframe="Year-to-Date"))
+                            st.info(generate_narrative(df_visits_agg, "Physician", metric_col="Total Visits", unit="Visits", timeframe="Year-to-Date"))
                             c_ov1, c_ov2 = st.columns(2)
                             with c_ov1:
                                 with st.container(border=True):
-                                    st.markdown(f"#### 🏥 Total Office Visits ({latest_v_date_25.year} YTD)")
-                                    fig_ov_25 = px.bar(latest_v_df_25.sort_values('Total Visits', ascending=True), x='Total Visits', y='Name', orientation='h', text_auto=True, color='Total Visits', color_continuous_scale='Blues')
-                                    st.plotly_chart(style_high_end_chart(fig_ov_25), use_container_width=True)
+                                    st.markdown(f"#### 🏥 Total Office Visits ({latest_v_date.year} YTD)")
+                                    fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), x='Total Visits', y='Name', orientation='h', text_auto=True, color='Total Visits', color_continuous_scale='Blues')
+                                    st.plotly_chart(style_high_end_chart(fig_ov), use_container_width=True)
                             with c_ov2:
                                 with st.container(border=True):
-                                    st.markdown(f"#### 🆕 New Patients ({latest_v_date_25.year} YTD)")
-                                    fig_np_25 = px.bar(latest_v_df_25.sort_values('New Patients', ascending=True), x='New Patients', y='Name', orientation='h', text_auto=True, color='New Patients', color_continuous_scale='Greens')
-                                    st.plotly_chart(style_high_end_chart(fig_np_25), use_container_width=True)
+                                    st.markdown(f"#### 🆕 New Patients ({latest_v_date.year} YTD)")
+                                    fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), x='New Patients', y='Name', orientation='h', text_auto=True, color='New Patients', color_continuous_scale='Greens')
+                                    st.plotly_chart(style_high_end_chart(fig_np), use_container_width=True)
                             
                             st.markdown("---")
                             
-                            df_md_consults_25 = df_md_consults[pd.to_datetime(df_md_consults['Month_Clean'], errors='coerce').dt.year == 2025].copy() if not df_md_consults.empty else pd.DataFrame()
+                            df_md_consults_25 = df_md_consults[df_md_consults['Month_Clean'].dt.year == 2025].copy() if not df_md_consults.empty else pd.DataFrame()
                             if not df_md_consults_25.empty:
                                 st.markdown("### 📝 MD Tx Plan Complex (CPT 77263)")
-                                sorted_m_cons_25 = df_md_consults_25.sort_values("Month_Clean")["Month_Label"].unique()
-                                piv_md_cons_25 = df_md_consults_25.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
-                                piv_md_cons_25 = piv_md_cons_25.reindex(columns=sorted_m_cons_25).fillna(0)
-                                piv_md_cons_25["Total"] = piv_md_cons_25.sum(axis=1)
-                                st.dataframe(piv_md_cons_25.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
+                                sorted_m_cons = df_md_consults_25.sort_values("Month_Clean")["Month_Label"].unique()
+                                piv_md_cons = df_md_consults_25.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
+                                piv_md_cons = piv_md_cons.reindex(columns=sorted_m_cons).fillna(0)
+                                piv_md_cons["Total"] = piv_md_cons.sum(axis=1)
+                                st.dataframe(piv_md_cons.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
                                 
-                                md_77263_ytd_25 = df_md_consults_25.groupby('Name')['Count'].sum().reset_index()
-                                md_np_ytd_25 = latest_v_df_25[['Name', 'New Patients']].copy()
-                                ratio_df_25 = pd.merge(md_77263_ytd_25, md_np_ytd_25, on='Name', how='inner')
-                                ratio_df_25['Ratio'] = ratio_df_25.apply(lambda x: x['Count'] / x['New Patients'] if x['New Patients'] > 0 else 0, axis=1)
-                                ratio_df_25['Label'] = ratio_df_25.apply(lambda x: f"{x['Ratio']:.2f} ({int(x['Count'])}/{int(x['New Patients'])})", axis=1)
-                                ratio_df_25 = ratio_df_25.sort_values('Ratio', ascending=True) 
+                                md_77263_ytd = df_md_consults_25.groupby('Name')['Count'].sum().reset_index()
+                                md_np_ytd = latest_v_df[['Name', 'New Patients']].copy()
+                                ratio_df = pd.merge(md_77263_ytd, md_np_ytd, on='Name', how='inner')
+                                ratio_df['Ratio'] = ratio_df.apply(lambda x: x['Count'] / x['New Patients'] if x['New Patients'] > 0 else 0, axis=1)
+                                ratio_df['Label'] = ratio_df.apply(lambda x: f"{x['Ratio']:.2f} ({int(x['Count'])}/{int(x['New Patients'])})", axis=1)
+                                ratio_df = ratio_df.sort_values('Ratio', ascending=True) 
                                 
-                                if not ratio_df_25.empty:
+                                if not ratio_df.empty:
                                     st.markdown("---")
                                     st.markdown("### 📊 Ratio: Tx Plan (77263) / New Patients (YTD)")
-                                    fig_ratio_25 = px.bar(ratio_df_25, x='Ratio', y='Name', orientation='h', text='Label', title="Ratio > 1.0 indicates more Tx Plans than New Patients")
-                                    fig_ratio_25.update_traces(textposition='outside')
-                                    st.plotly_chart(style_high_end_chart(fig_ratio_25), use_container_width=True)
+                                    fig_ratio = px.bar(ratio_df, x='Ratio', y='Name', orientation='h', text='Label', title="Ratio > 1.0 indicates more Tx Plans than New Patients")
+                                    fig_ratio.update_traces(textposition='outside')
+                                    st.plotly_chart(style_high_end_chart(fig_ratio), use_container_width=True)
 
             with tab_app:
                 if df_apps.empty: st.info("No APP data found.")
@@ -1836,6 +1773,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                              latest_prov = prov_fin[prov_fin['Month_Clean'] == latest_fin_date]
                              latest_prov = latest_prov.groupby('Name', as_index=False)[['Charges', 'Payments']].sum()
                              
+                             # Fix for division by zero
                              latest_prov['% Payments/Charges'] = latest_prov.apply(lambda x: (x['Payments'] / x['Charges']) if x['Charges'] > 0 else 0, axis=1)
 
                              c1, c2 = st.columns(2)
