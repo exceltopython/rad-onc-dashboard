@@ -1046,8 +1046,9 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                                     hist_trend_26 = pd.concat([hist_trend_26, new_row_26], ignore_index=True)
                                             
                                             hist_table_df_26 = hist_trend_26.copy()
-                                            hist_table_df_26['Year'] = hist_table_df_26['Year'].astype(int).astype(str)
-                                            hist_table_T_26 = hist_table_df_26.set_index('Year').T
+                                            # THE FIX: Force unique years before flipping the table
+                                            hist_table_T_26 = hist_table_df_26.groupby('Year').sum().T
+                                            st.dataframe(hist_table_T_26.style.format("{:,.0f}"), use_container_width=True)
                                             st.dataframe(hist_table_T_26.style.format("{:,.0f}"), use_container_width=True)
 
                                     if not df_view_26.empty:
