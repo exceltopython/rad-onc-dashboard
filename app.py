@@ -259,7 +259,7 @@ with st.sidebar:
         if server_files: st.success(f"✅ Loaded {len(server_files)} master files.")
         uploaded = st.file_uploader("Add Temporary Files", type=['xlsx'], accept_multiple_files=True)
     
-    all_f = server_files + (uploaded if uploaded else [])
+all_f = server_files + (uploaded if uploaded else [])
     if all_f:
         df_c, df_p, df_f, df_cons, df_app = process_files(all_f)
 # --- UI TABS ---
