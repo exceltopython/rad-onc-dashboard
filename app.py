@@ -639,20 +639,20 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         if not df_list: return pd.DataFrame()
         df = pd.concat(df_list, ignore_index=True)
         if 'Month_Clean' in df.columns:
-            # Force all dates to exact 1st of month to guarantee overlap detection
             df['Month_Clean'] = df['Month_Clean'].apply(standardize_date)
             df = df.dropna(subset=['Month_Clean'])
-            # Sort descending to keep newest file's data
-            df = df.sort_values('Month_Clean', ascending=False)
+            # Sort by Month_Clean then by Total RVUs to keep the highest value if duplicates exist
+            df = df.sort_values(['Month_Clean', 'Total RVUs'], ascending=[False, False])
         
         valid_subset = [c for c in subset_cols if c in df.columns]
         if valid_subset:
+            # This removes duplicates where Name/Month/ID are identical
             df = df.drop_duplicates(subset=valid_subset, keep='first')
         
         if not df.empty and 'Month_Clean' in df.columns:
             df['Month_Label'] = df['Month_Clean'].dt.strftime('%b-%y')
-            if 'Quarter' not in df.columns:
-                df['Quarter'] = df['Month_Clean'].apply(lambda x: f"Q{x.quarter} {x.year}")
+            # Add a unique Month-Year-Clinic key to prevent pivot overlap
+            df['Pivot_Key'] = df['Month_Label'] 
         return df
 
     def process_files(file_objects):
