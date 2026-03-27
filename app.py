@@ -254,7 +254,7 @@ if os.path.exists(SERVER_DIR):
             for f in files:
                 if f.endswith((".xlsx", ".xls")): server_files.append(LocalFile(os.path.join(root, f)))
 
-    with st.sidebar:
+with st.sidebar:
         st.header("Data Import")
         if server_files: st.success(f"✅ Loaded {len(server_files)} master files.")
         uploaded = st.file_uploader("Add Temporary Files", type=['xlsx'], accept_multiple_files=True)
