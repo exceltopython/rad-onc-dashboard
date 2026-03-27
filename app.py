@@ -1031,33 +1031,33 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     
                                     # --- CONCISE HISTORICAL TABLE ---
                                     with st.container(border=True):
-    st.markdown("##### 📅 Historical Data Summary")
-    df_hist_26 = get_historical_df()
+                                    st.markdown("##### 📅 Historical Data Summary")
+                                        df_hist_26 = get_historical_df()
     
-    if clinic_filter_26 == "TriStar": df_hist_view_26 = df_hist_26[df_hist_26['ID'].isin(TRISTAR_IDS)]
-    elif clinic_filter_26 == "Ascension": df_hist_view_26 = df_hist_26[df_hist_26['ID'].isin(ASCENSION_IDS)]
-    elif clinic_filter_26 == "All": df_hist_view_26 = df_hist_26.copy()
-    else: df_hist_view_26 = pd.DataFrame()
-    
-    if not df_hist_view_26.empty:
-        # Grouping by Year ensures we don't have duplicate Year columns after transposing
-        hist_trend_26 = df_hist_view_26.groupby('Year')[['Total RVUs']].sum().reset_index()
-        
-        # Add current 2026 YTD if it exists and isn't already in the hist_trend
-        if not df_view_26.empty:
-            ytd_curr_26 = df_view_26['Total RVUs'].sum()
-            if ytd_curr_26 > 0 and 2026 not in hist_trend_26['Year'].values:
-                new_row_26 = pd.DataFrame({"Year": [2026], "Total RVUs": [ytd_curr_26]})
-                hist_trend_26 = pd.concat([hist_trend_26, new_row_26], ignore_index=True)
-
-        hist_table_df_26 = hist_trend_26.copy()
-        hist_table_df_26['Year'] = hist_table_df_26['Year'].astype(int).astype(str)
-        
-        # FINAL FIX: Force unique index before transposing to prevent PyArrow error
-        hist_table_df_26 = hist_table_df_26.groupby('Year').sum()
-        hist_table_T_26 = hist_table_df_26.T
-        
-        st.dataframe(hist_table_T_26.style.format("{:,.0f}"), use_container_width=True)
+                                    if clinic_filter_26 == "TriStar": df_hist_view_26 = df_hist_26[df_hist_26['ID'].isin(TRISTAR_IDS)]
+                                    elif clinic_filter_26 == "Ascension": df_hist_view_26 = df_hist_26[df_hist_26['ID'].isin(ASCENSION_IDS)]
+                                    elif clinic_filter_26 == "All": df_hist_view_26 = df_hist_26.copy()
+                                    else: df_hist_view_26 = pd.DataFrame()
+                                    
+                                    if not df_hist_view_26.empty:
+                                        # Grouping by Year ensures we don't have duplicate Year columns after transposing
+                                        hist_trend_26 = df_hist_view_26.groupby('Year')[['Total RVUs']].sum().reset_index()
+                                        
+                                        # Add current 2026 YTD if it exists and isn't already in the hist_trend
+                                        if not df_view_26.empty:
+                                            ytd_curr_26 = df_view_26['Total RVUs'].sum()
+                                            if ytd_curr_26 > 0 and 2026 not in hist_trend_26['Year'].values:
+                                                new_row_26 = pd.DataFrame({"Year": [2026], "Total RVUs": [ytd_curr_26]})
+                                                hist_trend_26 = pd.concat([hist_trend_26, new_row_26], ignore_index=True)
+                                
+                                        hist_table_df_26 = hist_trend_26.copy()
+                                        hist_table_df_26['Year'] = hist_table_df_26['Year'].astype(int).astype(str)
+                                        
+                                        # FINAL FIX: Force unique index before transposing to prevent PyArrow error
+                                        hist_table_df_26 = hist_table_df_26.groupby('Year').sum()
+                                        hist_table_T_26 = hist_table_df_26.T
+                                        
+                                        st.dataframe(hist_table_T_26.style.format("{:,.0f}"), use_container_width=True)
 
                                     if not df_view_26.empty:
                                         c1, c2 = st.columns(2)
