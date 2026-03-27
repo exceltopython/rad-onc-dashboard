@@ -361,5 +361,5 @@ if all_f:
                 latest_fin = df_f[df_f['Month_Clean'] == df_f['Month_Clean'].max()]
                 st.dataframe(latest_fin[['Name', 'Charges', 'Payments']].style.format({'Charges': '${:,.2f}', 'Payments': '${:,.2f}'}).background_gradient(cmap="Greens"), use_container_width=True)
 
-    else:
+else:
         st.info("👋 Master data not found. Please verify the 'Reports' folder on GitHub or upload productivity files.")
