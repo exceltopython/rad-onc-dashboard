@@ -1032,7 +1032,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     # --- CONCISE HISTORICAL TABLE ---
                                 with st.container(border=True):
                                     st.markdown("##### 📅 Historical Data Summary")
-                                        df_hist_26 = get_historical_df()
+                                    df_hist_26 = get_historical_df()
     
                                     if clinic_filter_26 == "TriStar": df_hist_view_26 = df_hist_26[df_hist_26['ID'].isin(TRISTAR_IDS)]
                                     elif clinic_filter_26 == "Ascension": df_hist_view_26 = df_hist_26[df_hist_26['ID'].isin(ASCENSION_IDS)]
