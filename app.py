@@ -199,7 +199,7 @@ def parse_consults_data(df, sheet_name, target_year=None):
             recs.append({"Name": sheet_name, "Month_Clean": dt, "Count": val / CONSULT_CONVERSION, "Clinic_Tag": sheet_name})
         return pd.DataFrame(recs)
 
-    def parse_app_cpt_data(df, provider_name, target_year=None):
+def parse_app_cpt_data(df, provider_name, target_year=None):
         header_idx = find_date_row(df)
         recs = []
         for cpt, rate in APP_CPT_RATES.items():
