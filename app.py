@@ -182,7 +182,7 @@ def parse_financial_sheet(df, file_date, tag, mode="Provider"):
                 })
         return pd.DataFrame(recs)
 
-    def parse_consults_data(df, sheet_name, target_year=None):
+def parse_consults_data(df, sheet_name, target_year=None):
         header_idx = find_date_row(df)
         rvu_start = 0
         for r in range(len(df)):
