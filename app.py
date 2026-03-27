@@ -635,25 +635,25 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         return None
 
     # --- DEDUPLICATION HELPER ---
-   def safe_dedup_and_format(df_list, subset_cols):
-    if not df_list: return pd.DataFrame()
-    df = pd.concat(df_list, ignore_index=True)
-    if 'Month_Clean' in df.columns:
-        df['Month_Clean'] = df['Month_Clean'].apply(standardize_date)
-        df = df.dropna(subset=['Month_Clean'])
-        # Sort by Month_Clean then by Total RVUs to keep the highest value if duplicates exist
-        df = df.sort_values(['Month_Clean', 'Total RVUs'], ascending=[False, False])
-    
-    valid_subset = [c for c in subset_cols if c in df.columns]
-    if valid_subset:
-        # This removes duplicates where Name/Month/ID are identical
-        df = df.drop_duplicates(subset=valid_subset, keep='first')
-    
-    if not df.empty and 'Month_Clean' in df.columns:
-        df['Month_Label'] = df['Month_Clean'].dt.strftime('%b-%y')
-        # Add a unique Month-Year-Clinic key to prevent pivot overlap
-        df['Pivot_Key'] = df['Month_Label'] 
-    return df
+    def safe_dedup_and_format(df_list, subset_cols):
+        if not df_list: return pd.DataFrame()
+        df = pd.concat(df_list, ignore_index=True)
+        if 'Month_Clean' in df.columns:
+            # Force all dates to exact 1st of month to guarantee overlap detection
+            df['Month_Clean'] = df['Month_Clean'].apply(standardize_date)
+            df = df.dropna(subset=['Month_Clean'])
+            # Sort descending to keep newest file's data
+            df = df.sort_values('Month_Clean', ascending=False)
+        
+        valid_subset = [c for c in subset_cols if c in df.columns]
+        if valid_subset:
+            df = df.drop_duplicates(subset=valid_subset, keep='first')
+        
+        if not df.empty and 'Month_Clean' in df.columns:
+            df['Month_Label'] = df['Month_Clean'].dt.strftime('%b-%y')
+            if 'Quarter' not in df.columns:
+                df['Quarter'] = df['Month_Clean'].apply(lambda x: f"Q{x.quarter} {x.year}")
+        return df
 
     def process_files(file_objects):
         # 1. OS.WALK TO GET FILES FROM SUBFOLDERS
@@ -1031,33 +1031,25 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     
                                     # --- CONCISE HISTORICAL TABLE ---
                                     with st.container(border=True):
-    st.markdown("##### 📅 Historical Data Summary")
-    df_hist_26 = get_historical_df()
-    
-    if clinic_filter_26 == "TriStar": df_hist_view_26 = df_hist_26[df_hist_26['ID'].isin(TRISTAR_IDS)]
-    elif clinic_filter_26 == "Ascension": df_hist_view_26 = df_hist_26[df_hist_26['ID'].isin(ASCENSION_IDS)]
-    elif clinic_filter_26 == "All": df_hist_view_26 = df_hist_26.copy()
-    else: df_hist_view_26 = pd.DataFrame()
-    
-    if not df_hist_view_26.empty:
-        # Grouping by Year ensures we don't have duplicate Year columns after transposing
-        hist_trend_26 = df_hist_view_26.groupby('Year')[['Total RVUs']].sum().reset_index()
-        
-        # Add current 2026 YTD if it exists and isn't already in the hist_trend
-        if not df_view_26.empty:
-            ytd_curr_26 = df_view_26['Total RVUs'].sum()
-            if ytd_curr_26 > 0 and 2026 not in hist_trend_26['Year'].values:
-                new_row_26 = pd.DataFrame({"Year": [2026], "Total RVUs": [ytd_curr_26]})
-                hist_trend_26 = pd.concat([hist_trend_26, new_row_26], ignore_index=True)
-
-        hist_table_df_26 = hist_trend_26.copy()
-        hist_table_df_26['Year'] = hist_table_df_26['Year'].astype(int).astype(str)
-        
-        # FINAL FIX: Force unique index before transposing to prevent PyArrow error
-        hist_table_df_26 = hist_table_df_26.groupby('Year').sum()
-        hist_table_T_26 = hist_table_df_26.T
-        
-        st.dataframe(hist_table_T_26.style.format("{:,.0f}"), use_container_width=True)
+                                        st.markdown("##### 📅 Historical Data Summary")
+                                        df_hist_26 = get_historical_df()
+                                        if clinic_filter_26 == "TriStar": df_hist_view_26 = df_hist_26[df_hist_26['ID'].isin(TRISTAR_IDS)]
+                                        elif clinic_filter_26 == "Ascension": df_hist_view_26 = df_hist_26[df_hist_26['ID'].isin(ASCENSION_IDS)]
+                                        elif clinic_filter_26 == "All": df_hist_view_26 = df_hist_26.copy()
+                                        else: df_hist_view_26 = pd.DataFrame()
+                                        
+                                        if not df_hist_view_26.empty:
+                                            hist_trend_26 = df_hist_view_26.groupby('Year')[['Total RVUs']].sum().reset_index()
+                                            if not df_view_26.empty:
+                                                ytd_curr_26 = df_view_26['Total RVUs'].sum()
+                                                if ytd_curr_26 > 0:
+                                                    new_row_26 = pd.DataFrame({"Year": [2026], "Total RVUs": [ytd_curr_26]})
+                                                    hist_trend_26 = pd.concat([hist_trend_26, new_row_26], ignore_index=True)
+                                            
+                                            hist_table_df_26 = hist_trend_26.copy()
+                                            hist_table_df_26['Year'] = hist_table_df_26['Year'].astype(int).astype(str)
+                                            hist_table_T_26 = hist_table_df_26.set_index('Year').T
+                                            st.dataframe(hist_table_T_26.style.format("{:,.0f}"), use_container_width=True)
 
                                     if not df_view_26.empty:
                                         c1, c2 = st.columns(2)
