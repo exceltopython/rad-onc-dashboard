@@ -654,35 +654,35 @@ if check_password():
                                 fig_p = px.pie(pie_src.groupby('Name')['Total RVUs'].sum().reset_index(), values='Total RVUs', names='Name', hole=0.4)
                                 st.plotly_chart(style_high_end_chart(fig_p), use_container_width=True)
                                 with tab_c_25:
-        df_clinic_25 = df_clinic[df_clinic['Month_Clean'].dt.year == 2025].copy() if not df_clinic.empty else pd.DataFrame()
-            if df_clinic_25.empty: st.info("No 2025 Clinic data found.")
-            else:
-                clinic_filter_25 = st.radio("Select View:", ["All", "TriStar", "Ascension", "LROC", "TOPC", "TROC", "Sumner"], key="r25")
-                with st.container(border=True):
-                    st.markdown("##### 📅 Historical Data Summary")
-                    df_hist_25 = get_historical_df()
-                    h_agg = df_hist_25.groupby('Year')[['Total RVUs']].sum().reset_index()
-                    ytd_25 = df_clinic_25['Total RVUs'].sum()
-                    if ytd_25 > 0:
-                        if 2025 in h_agg['Year'].values: h_agg.loc[h_agg['Year'] == 2025, 'Total RVUs'] = ytd_25
-                        else: h_agg = pd.concat([h_agg, pd.DataFrame({"Year": [2025], "Total RVUs": [ytd_25]})])
-                    h_agg['Year'] = h_agg['Year'].astype(str)
-                    st.dataframe(h_agg.groupby('Year').sum().T.style.format("{:,.0f}"), use_container_width=True)
-                if not df_clinic_25.empty:
-                    st.plotly_chart(style_high_end_chart(px.line(df_clinic_25.sort_values('Month_Clean'), x='Month_Clean', y='Total RVUs', color='Name', markers=True)))
-
-        with tab_md_26:
-            if not df_mds.empty:
-                df_mds_26 = df_mds[df_mds['Month_Clean'].dt.year == 2026].copy()
-                st.plotly_chart(style_high_end_chart(px.bar(df_mds_26.groupby('Name')['Total RVUs'].sum().reset_index().sort_values('Total RVUs'), x='Total RVUs', y='Name', orientation='h', text_auto='.2s', color='Total RVUs', color_continuous_scale='Viridis')))
-                if not df_md_consults.empty:
-                    st.markdown("### 📝 Tx Plan Complex (CPT 77263)")
-                    piv_cons = df_md_consults[df_md_consults['Month_Clean'].dt.year == 2026].pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
-                    st.dataframe(piv_cons.style.format("{:,.1f}").background_gradient(cmap="Purples"), use_container_width=True)
-
-        with tab_fin:
-            if not df_financial.empty:
-                latest_f = df_financial[df_financial['Month_Clean'] == df_financial['Month_Clean'].max()]
-                st.dataframe(latest_f[['Name', 'Charges', 'Payments']].style.format({'Charges': '${:,.0f}', 'Payments': '${:,.0f}'}).background_gradient(cmap="Greens"), use_container_width=True)
-            else: st.warning("No Financial data found.")
-    else: st.info("👋 Upload files or verify GitHub folder.")
+                                    df_clinic_25 = df_clinic[df_clinic['Month_Clean'].dt.year == 2025].copy() if not df_clinic.empty else pd.DataFrame()
+                    if df_clinic_25.empty: st.info("No 2025 Clinic data found.")
+                    else:
+                        clinic_filter_25 = st.radio("Select View:", ["All", "TriStar", "Ascension", "LROC", "TOPC", "TROC", "Sumner"], key="r25")
+                        with st.container(border=True):
+                            st.markdown("##### 📅 Historical Data Summary")
+                            df_hist_25 = get_historical_df()
+                            h_agg = df_hist_25.groupby('Year')[['Total RVUs']].sum().reset_index()
+                            ytd_25 = df_clinic_25['Total RVUs'].sum()
+                            if ytd_25 > 0:
+                                if 2025 in h_agg['Year'].values: h_agg.loc[h_agg['Year'] == 2025, 'Total RVUs'] = ytd_25
+                                else: h_agg = pd.concat([h_agg, pd.DataFrame({"Year": [2025], "Total RVUs": [ytd_25]})])
+                            h_agg['Year'] = h_agg['Year'].astype(str)
+                            st.dataframe(h_agg.groupby('Year').sum().T.style.format("{:,.0f}"), use_container_width=True)
+                        if not df_clinic_25.empty:
+                            st.plotly_chart(style_high_end_chart(px.line(df_clinic_25.sort_values('Month_Clean'), x='Month_Clean', y='Total RVUs', color='Name', markers=True)))
+        
+                with tab_md_26:
+                    if not df_mds.empty:
+                        df_mds_26 = df_mds[df_mds['Month_Clean'].dt.year == 2026].copy()
+                        st.plotly_chart(style_high_end_chart(px.bar(df_mds_26.groupby('Name')['Total RVUs'].sum().reset_index().sort_values('Total RVUs'), x='Total RVUs', y='Name', orientation='h', text_auto='.2s', color='Total RVUs', color_continuous_scale='Viridis')))
+                        if not df_md_consults.empty:
+                            st.markdown("### 📝 Tx Plan Complex (CPT 77263)")
+                            piv_cons = df_md_consults[df_md_consults['Month_Clean'].dt.year == 2026].pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
+                            st.dataframe(piv_cons.style.format("{:,.1f}").background_gradient(cmap="Purples"), use_container_width=True)
+        
+                with tab_fin:
+                    if not df_financial.empty:
+                        latest_f = df_financial[df_financial['Month_Clean'] == df_financial['Month_Clean'].max()]
+                        st.dataframe(latest_f[['Name', 'Charges', 'Payments']].style.format({'Charges': '${:,.0f}', 'Payments': '${:,.0f}'}).background_gradient(cmap="Greens"), use_container_width=True)
+                    else: st.warning("No Financial data found.")
+            else: st.info("👋 Upload files or verify GitHub folder.")
