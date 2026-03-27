@@ -403,7 +403,7 @@ if check_password():
                         records.append({"Name": sheet_name, "Month_Clean": dt_clean, "Count": val / CONSULT_CONVERSION, "Clinic_Tag": sheet_name})
         except: pass
         return pd.DataFrame(records)
-        def parse_visits_sheet(df, filename_date, clinic_tag="General", target_year=None):
+    def parse_visits_sheet(df, filename_date, clinic_tag="General", target_year=None):
         records = []; file_dt = standardize_date(filename_date)
         if target_year and pd.notna(file_dt) and file_dt.year != target_year: return pd.DataFrame(), []
         try:
