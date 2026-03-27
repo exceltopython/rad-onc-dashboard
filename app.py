@@ -214,7 +214,7 @@ def parse_app_cpt_data(df, provider_name, target_year=None):
                     break
         return pd.DataFrame(recs)
 
-    def process_files(file_objects):
+def process_files(file_objects):
         clinic_rvu, prov_rvu, fin_cpa, consult_77263, app_99 = [], [], [], [], []
         for f_obj in file_objects:
             path_or_buf = f_obj if hasattr(f_obj, 'read') else f_obj.path
