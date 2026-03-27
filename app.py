@@ -249,7 +249,7 @@ def process_files(file_objects):
     # --- 3. UI ASSEMBLY ---
 st.title("🩺 Radiation Oncology Division Analytics")
 server_files = []
-    if os.path.exists(SERVER_DIR):
+if os.path.exists(SERVER_DIR):
         for root, _, files in os.walk(SERVER_DIR):
             for f in files:
                 if f.endswith((".xlsx", ".xls")): server_files.append(LocalFile(os.path.join(root, f)))
