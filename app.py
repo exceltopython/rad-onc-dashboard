@@ -260,7 +260,7 @@ with st.sidebar:
         uploaded = st.file_uploader("Add Temporary Files", type=['xlsx'], accept_multiple_files=True)
     
 all_f = server_files + (uploaded if uploaded else [])
-    if all_f:
+if all_f:
         df_c, df_p, df_f, df_cons, df_app = process_files(all_f)
 # --- UI TABS ---
         tab_c_26, tab_c_25, tab_md_26, tab_md_25, tab_fin = st.tabs([
