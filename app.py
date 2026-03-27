@@ -636,18 +636,28 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
     # --- DEDUPLICATION HELPER ---
     def safe_dedup_and_format(df_list, subset_cols):
         if not df_list: return pd.DataFrame()
+        
+        # Filter out any empty DataFrames before concatenating
+        df_list = [d for d in df_list if not d.empty]
+        if not df_list: return pd.DataFrame()
+        
         df = pd.concat(df_list, ignore_index=True)
+        
         if 'Month_Clean' in df.columns:
             df['Month_Clean'] = df['Month_Clean'].apply(standardize_date)
             df = df.dropna(subset=['Month_Clean'])
             
-            # Guard: Only sort by 'Total RVUs' if the column actually exists
-            sort_order = ['Month_Clean']
+            # FIXED: Ensure sort_by and ascending lists are the exact same length
+            sort_by = ['Month_Clean']
+            asc_list = [False]
+            
             if 'Total RVUs' in df.columns:
-                sort_order.append('Total RVUs')
-            df = df.sort_values(sort_order, ascending=[False, False])
+                sort_by.append('Total RVUs')
+                asc_list.append(False)
+                
+            df = df.sort_values(by=sort_by, ascending=asc_list)
         
-        # Guard: Only deduplicate based on columns that exist in the data
+        # Only deduplicate columns that actually exist in this specific dataframe
         valid_subset = [c for c in subset_cols if c in df.columns]
         if valid_subset:
             df = df.drop_duplicates(subset=valid_subset, keep='first')
@@ -656,6 +666,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             df['Month_Label'] = df['Month_Clean'].dt.strftime('%b-%y')
             if 'Quarter' not in df.columns:
                 df['Quarter'] = df['Month_Clean'].apply(lambda x: f"Q{x.quarter} {x.year}")
+                
         return df
 
     def process_files(file_objects):
