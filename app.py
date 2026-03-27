@@ -29,7 +29,6 @@ def inject_custom_css():
         .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p { font-size: 20px !important; font-weight: 700 !important; margin: 0px; }
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] { background-color: #1E3A8A !important; color: #FFFFFF !important; border-color: #1E3A8A; }
         div[data-testid="stDataFrame"] div[role="columnheader"] { color: #000000 !important; font-weight: 900 !important; font-size: 14px !important; }
-        [data-testid="stDataFrame"] th { color: #000000 !important; font-weight: 900 !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -47,22 +46,16 @@ def style_high_end_chart(fig):
     )
     return fig
 
-# --- 2. PASSWORD CONFIGURATION ---
+# --- PASSWORD ---
 APP_PASSWORD = "RadOnc2026rj"
 
 def check_password():
-    def password_entered():
-        if st.session_state["password"] == APP_PASSWORD:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
     if "password_correct" not in st.session_state:
-        st.text_input("🔒 Enter Dashboard Password:", type="password", on_change=password_entered, key="password")
+        st.text_input("🔒 Enter Dashboard Password:", type="password", on_change=lambda: st.session_state.update({"password_correct": st.session_state["password"] == APP_PASSWORD}), key="password")
         return False
     return st.session_state.get("password_correct", False)
 
-# --- 3. HISTORICAL DATA ENTRY (2019-2025) ---
+# --- 2. HISTORICAL DATA ENTRY (2019-2025) ---
 HISTORICAL_DATA = {
     2019: {"CENT": 18430, "Dickson": 11420, "Skyline": 13910, "Summit": 14690, "Stonecrest": 8600, "STW": 22030, "Midtown": 14730, "MURF": 38810, "Sumner": 14910, "TOPC": 15690, "LROC": 0, "TROC": 0},
     2020: {"CENT": 19160, "Dickson": 12940, "Skyline": 13180, "Summit": 11540, "Stonecrest": 7470, "STW": 17070, "Midtown": 14560, "MURF": 37890, "Sumner": 14760, "TOPC": 22010, "LROC": 0, "TROC": 0},
@@ -86,11 +79,16 @@ PROVIDER_CONFIG = {
     "Gray": 1.0, "Jones": 1.0, "Lee": 1.0, "Lewis": 1.0, "Lipscomb": 0.6, "Lydon": 1.0, "Mayo": 1.0, "Mondschein": 1.0,
     "Nguyen": 1.0, "Osborne": 1.0, "Phillips": 1.0, "Sidrys": 1.0, "Sittig": 1.0, "Strickler": 1.0, "Wakefield": 1.0, "Wendt": 1.0, "Whitaker": 1.0
 }
-APP_LIST = ["Burke", "Ellis", "Lewis", "Lydon"]
 TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
 IGNORED_SHEETS = ["RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
+SERVER_DIR = "Reports"
 
-# --- 4. DATA HELPERS ---
+# --- 3. DATA HELPERS ---
+
+class FileWrapper:
+    def __init__(self, path):
+        self.path = path
+        self.name = os.path.basename(path)
 
 def standardize_date(x):
     if pd.isna(x): return pd.NaT
@@ -102,15 +100,6 @@ def standardize_date(x):
             try: return pd.to_datetime(x.strip()).replace(day=1)
             except: return pd.NaT
     return pd.NaT
-
-def clean_number(val):
-    if pd.isna(val): return 0.0
-    try:
-        val_str = str(val).strip().replace(',', '').replace('%', '').replace('$', '')
-        if val_str.startswith("(") and val_str.endswith(")"): val_str = "-" + val_str[1:-1]
-        if val_str in ["", "-", "NaN"]: return 0.0
-        return float(val_str)
-    except: return 0.0
 
 def match_provider(name_str):
     if not isinstance(name_str, str) or not name_str.strip(): return None
@@ -137,7 +126,7 @@ def safe_dedup_and_format(df_list, subset_cols):
         df['Quarter'] = df['Month_Clean'].apply(lambda x: f"Q{x.quarter} {x.year}")
     return df
 
-# --- 5. PARSERS ---
+# --- 4. PARSERS ---
 
 def find_date_row(df):
     months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
@@ -176,7 +165,11 @@ def process_files(file_objects):
         fname = f.name.upper()
         year_match = re.search(r'202[4-6]', fname)
         target_year = int(year_match.group(0)) if year_match else None
-        xls = pd.read_excel(f, sheet_name=None, header=None)
+        
+        # Determine if it's a Streamlit UploadedFile or a Local Path
+        path_or_buf = f if hasattr(f, 'read') else f.path
+        xls = pd.read_excel(path_or_buf, sheet_name=None, header=None)
+        
         for sname, df in xls.items():
             if any(ig in sname.upper() for ig in IGNORED_SHEETS): continue
             if sname in CLINIC_CONFIG:
@@ -190,81 +183,88 @@ def process_files(file_objects):
     return safe_dedup_and_format(clinic_data, ['Name', 'Month_Clean', 'ID']), \
            safe_dedup_and_format(provider_data, ['Name', 'Month_Clean'])
 
-# --- 6. UI ---
+# --- 5. UI ASSEMBLY ---
 
 if check_password():
     st.title("🩺 Radiation Oncology Division Analytics")
     st.markdown("##### by Dr. Jones")
     st.markdown("---")
 
-    uploaded = st.sidebar.file_uploader("Upload Productivity Excel Files", type=['xlsx'], accept_multiple_files=True)
+    # RESTORED: Auto-scan for files in the GitHub 'Reports' directory
+    server_files = []
+    if os.path.exists(SERVER_DIR):
+        for root, dirs, files in os.walk(SERVER_DIR):
+            for f in files:
+                if f.endswith(".xlsx"):
+                    server_files.append(FileWrapper(os.path.join(root, f)))
+
+    with st.sidebar:
+        st.header("Data Source")
+        if server_files:
+            st.success(f"✅ Found {len(server_files)} master files in folder.")
+        uploaded = st.file_uploader("Upload Temporary Files", type=['xlsx'], accept_multiple_files=True)
     
-    if uploaded:
+    all_files = server_files + (uploaded if uploaded else [])
+    
+    if all_files:
         with st.spinner("Analyzing files..."):
-            df_clinic, df_provider = process_files(uploaded)
+            df_clinic, df_provider = process_files(all_files)
 
-        tab_c26, tab_c25, tab_md26, tab_md25 = st.tabs(["🏥 Clinic 2026", "🏥 Clinic 2025", "👨‍⚕️ MD 2026", "👨‍⚕️ MD 2025"])
+        if df_clinic.empty:
+            st.warning("No valid data found in the files.")
+        else:
+            t_c26, t_c25, t_md26, t_md25 = st.tabs(["🏥 Clinic 2026", "🏥 Clinic 2025", "👨‍⚕️ MD 2026", "👨‍⚕️ MD 2025"])
 
-        def render_hist_summary(df_current, current_year, filter_ids=None):
-            # Get hardcoded historical data
-            records = []
-            for y, data in HISTORICAL_DATA.items():
-                for cid, rvu in data.items():
-                    if cid in CLINIC_CONFIG:
-                        records.append({"ID": cid, "Year": y, "Total RVUs": rvu})
-            df_hist = pd.DataFrame(records)
-            
-            if filter_ids: df_hist = df_hist[df_hist['ID'].isin(filter_ids)]
-            
-            # Aggregate historical by year
-            hist_agg = df_hist.groupby('Year')[['Total RVUs']].sum().reset_index()
-            
-            # Merge with calculated YTD from current data if applicable
-            if not df_current.empty:
-                ytd_val = df_current[df_current['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
-                if ytd_val > 0:
-                    # If the year is already in hist_agg, update it, otherwise append
-                    if current_year in hist_agg['Year'].values:
-                        hist_agg.loc[hist_agg['Year'] == current_year, 'Total RVUs'] += ytd_val
-                    else:
-                        hist_agg = pd.concat([hist_agg, pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_val]})])
+            def render_hist_summary(df_current, current_year, filter_ids=None):
+                records = []
+                for y, data in HISTORICAL_DATA.items():
+                    for cid, rvu in data.items():
+                        if cid in CLINIC_CONFIG:
+                            records.append({"ID": cid, "Year": y, "Total RVUs": rvu})
+                df_hist = pd.DataFrame(records)
+                if filter_ids: df_hist = df_hist[df_hist['ID'].isin(filter_ids)]
+                hist_agg = df_hist.groupby('Year')[['Total RVUs']].sum().reset_index()
+                
+                if not df_current.empty:
+                    ytd_val = df_current[df_current['Month_Clean'].dt.year == current_year]['Total RVUs'].sum()
+                    if ytd_val > 0:
+                        if current_year in hist_agg['Year'].values:
+                            hist_agg.loc[hist_agg['Year'] == current_year, 'Total RVUs'] += ytd_val
+                        else:
+                            hist_agg = pd.concat([hist_agg, pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_val]})])
 
-            hist_agg['Year'] = hist_agg['Year'].astype(str)
-            # CRITICAL FIX: Ensure Year is unique before Transpose
-            hist_final = hist_agg.groupby('Year').sum().T
-            st.dataframe(hist_final.style.format("{:,.0f}"), use_container_width=True)
+                hist_agg['Year'] = hist_agg['Year'].astype(str)
+                hist_final = hist_agg.groupby('Year').sum().T
+                st.dataframe(hist_final.style.format("{:,.0f}"), use_container_width=True)
 
-        with tab_c26:
-            df_c26 = df_clinic[df_clinic['Month_Clean'].dt.year == 2026]
-            c_filter = st.selectbox("View Group:", ["All", "TriStar", "Ascension"], key="f26")
-            f_ids = TRISTAR_IDS if c_filter == "TriStar" else (ASCENSION_IDS if c_filter == "Ascension" else None)
-            
-            with st.container(border=True):
-                st.markdown("##### 📅 Historical Data Summary")
-                render_hist_summary(df_clinic, 2026, f_ids)
-            
-            if not df_c26.empty:
-                st.plotly_chart(style_high_end_chart(px.line(df_c26.sort_values('Month_Clean'), x='Month_Clean', y='Total RVUs', color='Name', markers=True)), use_container_width=True)
+            with t_c26:
+                df_c26 = df_clinic[df_clinic['Month_Clean'].dt.year == 2026]
+                c_filter = st.selectbox("View Group:", ["All", "TriStar", "Ascension"], key="f26")
+                f_ids = TRISTAR_IDS if c_filter == "TriStar" else (ASCENSION_IDS if c_filter == "Ascension" else None)
+                with st.container(border=True):
+                    st.markdown("##### 📅 Historical Data Summary")
+                    render_hist_summary(df_clinic, 2026, f_ids)
+                if not df_c26.empty:
+                    st.plotly_chart(style_high_end_chart(px.line(df_c26.sort_values('Month_Clean'), x='Month_Clean', y='Total RVUs', color='Name', markers=True)), use_container_width=True)
 
-        with tab_c25:
-            df_c25 = df_clinic[df_clinic['Month_Clean'].dt.year == 2025]
-            with st.container(border=True):
-                st.markdown("##### 📅 Historical Data Summary")
-                render_hist_summary(df_clinic, 2025)
-            
-            if not df_c25.empty:
-                st.plotly_chart(style_high_end_chart(px.line(df_c25.sort_values('Month_Clean'), x='Month_Clean', y='Total RVUs', color='Name', markers=True)), use_container_width=True)
+            with t_c25:
+                df_c25 = df_clinic[df_clinic['Month_Clean'].dt.year == 2025]
+                with st.container(border=True):
+                    st.markdown("##### 📅 Historical Data Summary")
+                    render_hist_summary(df_clinic, 2025)
+                if not df_c25.empty:
+                    st.plotly_chart(style_high_end_chart(px.line(df_c25.sort_values('Month_Clean'), x='Month_Clean', y='Total RVUs', color='Name', markers=True)), use_container_width=True)
 
-        with tab_md26:
-            df_p26 = df_provider[df_provider['Month_Clean'].dt.year == 2026]
-            if not df_p26.empty:
-                st.plotly_chart(style_high_end_chart(px.bar(df_p26.groupby('Name')['Total RVUs'].sum().reset_index().sort_values('Total RVUs'), x='Total RVUs', y='Name', orientation='h', text_auto='.2s')), use_container_width=True)
+            with t_md26:
+                df_p26 = df_provider[df_provider['Month_Clean'].dt.year == 2026]
+                if not df_p26.empty:
+                    st.plotly_chart(style_high_end_chart(px.bar(df_p26.groupby('Name')['Total RVUs'].sum().reset_index().sort_values('Total RVUs'), x='Total RVUs', y='Name', orientation='h', text_auto='.2s')), use_container_width=True)
 
-        with tab_md25:
-            df_p25 = df_provider[df_provider['Month_Clean'].dt.year == 2025]
-            if not df_p25.empty:
-                st.plotly_chart(style_high_end_chart(px.bar(df_p25.groupby('Name')['Total RVUs'].sum().reset_index().sort_values('Total RVUs'), x='Total RVUs', y='Name', orientation='h', text_auto='.2s')), use_container_width=True)
+            with t_md25:
+                df_p25 = df_provider[df_provider['Month_Clean'].dt.year == 2025]
+                if not df_p25.empty:
+                    st.plotly_chart(style_high_end_chart(px.bar(df_p25.groupby('Name')['Total RVUs'].sum().reset_index().sort_values('Total RVUs'), x='Total RVUs', y='Name', orientation='h', text_auto='.2s')), use_container_width=True)
     else:
-        st.info("👋 Upload productivity files to begin.")
+        st.info("👋 No master files found. Add files to the 'Reports' folder on GitHub or upload them manually.")
 else:
     st.warning("Locked. Please check password.")
