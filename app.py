@@ -637,37 +637,22 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
     # --- DEDUPLICATION HELPER ---
     def safe_dedup_and_format(df_list, subset_cols):
         if not df_list: return pd.DataFrame()
-        
-        # Filter out any empty DataFrames before concatenating
-        df_list = [d for d in df_list if not d.empty]
-        if not df_list: return pd.DataFrame()
-        
         df = pd.concat(df_list, ignore_index=True)
-        
         if 'Month_Clean' in df.columns:
+            # Force all dates to exact 1st of month to guarantee overlap detection
             df['Month_Clean'] = df['Month_Clean'].apply(standardize_date)
             df = df.dropna(subset=['Month_Clean'])
-            
-            # FIXED: Ensure sort_by and ascending lists are the exact same length
-            sort_by = ['Month_Clean']
-            asc_list = [False]
-            
-            if 'Total RVUs' in df.columns:
-                sort_by.append('Total RVUs')
-                asc_list.append(False)
-                
-            df = df.sort_values(by=sort_by, ascending=asc_list)
+            # Sort descending to keep newest file's data
+            df = df.sort_values('Month_Clean', ascending=False)
         
-        # Only deduplicate columns that actually exist in this specific dataframe
         valid_subset = [c for c in subset_cols if c in df.columns]
         if valid_subset:
             df = df.drop_duplicates(subset=valid_subset, keep='first')
-            
+        
         if not df.empty and 'Month_Clean' in df.columns:
             df['Month_Label'] = df['Month_Clean'].dt.strftime('%b-%y')
             if 'Quarter' not in df.columns:
                 df['Quarter'] = df['Month_Clean'].apply(lambda x: f"Q{x.quarter} {x.year}")
-                
         return df
 
     def process_files(file_objects):
@@ -1062,9 +1047,8 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                                     hist_trend_26 = pd.concat([hist_trend_26, new_row_26], ignore_index=True)
                                             
                                             hist_table_df_26 = hist_trend_26.copy()
-                                            # THE FIX: Force unique years before flipping the table
-                                            hist_table_T_26 = hist_table_df_26.groupby('Year').sum().T
-                                            st.dataframe(hist_table_T_26.style.format("{:,.0f}"), use_container_width=True)
+                                            hist_table_df_26['Year'] = hist_table_df_26['Year'].astype(int).astype(str)
+                                            hist_table_T_26 = hist_table_df_26.set_index('Year').T
                                             st.dataframe(hist_table_T_26.style.format("{:,.0f}"), use_container_width=True)
 
                                     if not df_view_26.empty:
@@ -1842,4 +1826,3 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                             st.dataframe(monthly_display.style.format(format_dict).background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
     else:
         st.info("👋 Ready. View Only Mode: Add files to 'Reports' folder in GitHub to update data.")
-
