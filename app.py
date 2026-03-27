@@ -638,16 +638,20 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         if not df_list: return pd.DataFrame()
         df = pd.concat(df_list, ignore_index=True)
         if 'Month_Clean' in df.columns:
-            # Force all dates to exact 1st of month to guarantee overlap detection
             df['Month_Clean'] = df['Month_Clean'].apply(standardize_date)
             df = df.dropna(subset=['Month_Clean'])
-            # Sort descending to keep newest file's data
-            df = df.sort_values('Month_Clean', ascending=False)
+            
+            # Guard: Only sort by 'Total RVUs' if the column actually exists
+            sort_order = ['Month_Clean']
+            if 'Total RVUs' in df.columns:
+                sort_order.append('Total RVUs')
+            df = df.sort_values(sort_order, ascending=[False, False])
         
+        # Guard: Only deduplicate based on columns that exist in the data
         valid_subset = [c for c in subset_cols if c in df.columns]
         if valid_subset:
             df = df.drop_duplicates(subset=valid_subset, keep='first')
-        
+            
         if not df.empty and 'Month_Clean' in df.columns:
             df['Month_Label'] = df['Month_Clean'].dt.strftime('%b-%y')
             if 'Quarter' not in df.columns:
