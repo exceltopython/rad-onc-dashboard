@@ -247,7 +247,7 @@ def process_files(file_objects):
                safe_dedup_and_format(app_99, ['Name', 'Month_Clean', 'CPT'])
 
     # --- 3. UI ASSEMBLY ---
-    st.title("🩺 Radiation Oncology Division Analytics")
+st.title("🩺 Radiation Oncology Division Analytics")
     server_files = []
     if os.path.exists(SERVER_DIR):
         for root, _, files in os.walk(SERVER_DIR):
