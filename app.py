@@ -1030,7 +1030,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                             st.dataframe(piv_consult_26.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
                                     
                                     # --- CONCISE HISTORICAL TABLE ---
-                                    with st.container(border=True):
+                                with st.container(border=True):
                                     st.markdown("##### 📅 Historical Data Summary")
                                         df_hist_26 = get_historical_df()
     
