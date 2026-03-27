@@ -654,7 +654,7 @@ if check_password():
                                 fig_p = px.pie(pie_src.groupby('Name')['Total RVUs'].sum().reset_index(), values='Total RVUs', names='Name', hole=0.4)
                                 st.plotly_chart(style_high_end_chart(fig_p), use_container_width=True)
                                 with tab_c_25:
-            df_clinic_25 = df_clinic[df_clinic['Month_Clean'].dt.year == 2025].copy() if not df_clinic.empty else pd.DataFrame()
+        df_clinic_25 = df_clinic[df_clinic['Month_Clean'].dt.year == 2025].copy() if not df_clinic.empty else pd.DataFrame()
             if df_clinic_25.empty: st.info("No 2025 Clinic data found.")
             else:
                 clinic_filter_25 = st.radio("Select View:", ["All", "TriStar", "Ascension", "LROC", "TOPC", "TROC", "Sumner"], key="r25")
