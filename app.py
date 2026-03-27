@@ -1368,26 +1368,36 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                             piv_consult_25["Total"] = piv_consult_25.sum(axis=1)
                                             st.dataframe(piv_consult_25.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
                                     
-                                    # --- CONCISE HISTORICAL TABLE ---
+                            # --- FIXED HISTORICAL TABLE (2025 TAB) ---
                                     with st.container(border=True):
                                         st.markdown("##### 📅 Historical Data Summary")
                                         df_hist_25 = get_historical_df()
+                                        
                                         if clinic_filter_25 == "TriStar": df_hist_view_25 = df_hist_25[df_hist_25['ID'].isin(TRISTAR_IDS)]
                                         elif clinic_filter_25 == "Ascension": df_hist_view_25 = df_hist_25[df_hist_25['ID'].isin(ASCENSION_IDS)]
                                         elif clinic_filter_25 == "All": df_hist_view_25 = df_hist_25.copy()
                                         else: df_hist_view_25 = pd.DataFrame()
                                         
                                         if not df_hist_view_25.empty:
+                                            # Group by Year first to collapse dictionary data
                                             hist_trend_25 = df_hist_view_25.groupby('Year')[['Total RVUs']].sum().reset_index()
+                                            
+                                            # Merge current file data for 2025 if it exists
                                             if not df_view_25.empty:
                                                 ytd_curr_25 = df_view_25['Total RVUs'].sum()
                                                 if ytd_curr_25 > 0:
-                                                    new_row_25 = pd.DataFrame({"Year": [2025], "Total RVUs": [ytd_curr_25]})
-                                                    hist_trend_25 = pd.concat([hist_trend_25, new_row_25], ignore_index=True)
+                                                    if 2025 in hist_trend_25['Year'].values:
+                                                        # Update the existing 2025 row with live data
+                                                        hist_trend_25.loc[hist_trend_25['Year'] == 2025, 'Total RVUs'] = ytd_curr_25
+                                                    else:
+                                                        new_row_25 = pd.DataFrame({"Year": [2025], "Total RVUs": [ytd_curr_25]})
+                                                        hist_trend_25 = pd.concat([hist_trend_25, new_row_25], ignore_index=True)
                                             
                                             hist_table_df_25 = hist_trend_25.copy()
                                             hist_table_df_25['Year'] = hist_table_df_25['Year'].astype(int).astype(str)
-                                            hist_table_T_25 = hist_table_df_25.set_index('Year').T
+                                            
+                                            # THE FINAL FIX: Collapse any remaining duplicates before Transposing
+                                            hist_table_T_25 = hist_table_df_25.groupby('Year').sum().T
                                             st.dataframe(hist_table_T_25.style.format("{:,.0f}"), use_container_width=True)
 
                                     if not df_view_25.empty:
@@ -1399,58 +1409,13 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                                 sorted_months_25 = df_view_25.sort_values("Month_Clean")["Month_Label"].unique()
                                                 piv_25 = piv_25.reindex(columns=sorted_months_25).fillna(0)
                                                 piv_25["Total"] = piv_25.sum(axis=1)
-                                                st.dataframe(piv_25.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                                                st.dataframe(piv_25.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Reds"))
                                         with c2:
                                             with st.container(border=True):
                                                 st.markdown("#### 📆 Quarterly Data")
                                                 piv_q_25 = df_view_25.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                                                 piv_q_25["Total"] = piv_q_25.sum(axis=1)
-                                                st.dataframe(piv_q_25.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
-
-
-                            if clinic_filter_25 in ["TriStar", "Ascension", "All", "LROC", "TOPC", "TROC", "Sumner"]:
-                                with st.container(border=True):
-                                    st.markdown(f"#### 📈 Long-Term History ({view_title_25})")
-                                    df_hist_25 = get_historical_df()
-                                    if clinic_filter_25 == "TriStar": df_hist_view_25 = df_hist_25[df_hist_25['ID'].isin(TRISTAR_IDS)]
-                                    elif clinic_filter_25 == "Ascension": df_hist_view_25 = df_hist_25[df_hist_25['ID'].isin(ASCENSION_IDS)]
-                                    elif clinic_filter_25 == "All": df_hist_view_25 = df_hist_25.copy()
-                                    elif clinic_filter_25 == "Sumner": df_hist_view_25 = df_hist_25[df_hist_25['ID'] == 'Sumner']
-                                    else: target_id_25 = 'LROC' if 'LROC' in clinic_filter_25 else ('TOPC' if 'Proton' in view_title_25 else 'TROC'); df_hist_view_25 = df_hist_25[df_hist_25['ID'] == target_id_25]
-                                    
-                                    if not df_hist_view_25.empty:
-                                        hist_trend_25 = df_hist_view_25.groupby('Year')[['Total RVUs']].sum().reset_index()
-                                        if not df_view_25.empty:
-                                            ytd_curr_25 = df_view_25['Total RVUs'].sum()
-                                            if ytd_curr_25 > 0:
-                                                new_row_25 = pd.DataFrame({"Year": [2025], "Total RVUs": [ytd_curr_25]})
-                                                hist_trend_25 = pd.concat([hist_trend_25, new_row_25], ignore_index=True)
-                                        fig_long_25 = px.bar(hist_trend_25, x='Year', y='Total RVUs', text_auto='.2s')
-                                        st.plotly_chart(style_high_end_chart(fig_long_25), use_container_width=True)
-                                        
-                                        if clinic_filter_25 not in ["TriStar", "Ascension", "All"]:
-                                             hist_table_df_25 = hist_trend_25.copy()
-                                             hist_table_df_25['Year'] = hist_table_df_25['Year'].astype(int).astype(str)
-                                             hist_table_T_25 = hist_table_df_25.set_index('Year').T
-                                             st.dataframe(hist_table_T_25.style.format("{:,.0f}"), use_container_width=True)
-
-                                        if clinic_filter_25 in ["TriStar", "Ascension"]:
-                                            st.markdown("---"); st.markdown("##### 🏥 Individual Clinic History")
-                                            target_ids_25 = TRISTAR_IDS if clinic_filter_25 == "TriStar" else ASCENSION_IDS
-                                            cols_25 = st.columns(2)
-                                            for idx, c_id in enumerate(target_ids_25):
-                                                c_name = CLINIC_CONFIG.get(c_id, {}).get('name', c_id)
-                                                c_hist = df_hist_25[df_hist_25['ID'] == c_id]
-                                                c_hist_grp = c_hist.groupby('Year')[['Total RVUs']].sum().reset_index()
-                                                if not df_view_25.empty:
-                                                    c_current = df_view_25[df_view_25['ID'] == c_id]
-                                                    ytd_c = c_current['Total RVUs'].sum()
-                                                    if ytd_c > 0:
-                                                        new_r = pd.DataFrame({"Year": [2025], "Total RVUs": [ytd_c]})
-                                                        c_hist_grp = pd.concat([c_hist_grp, new_r], ignore_index=True)
-                                                if not c_hist_grp.empty:
-                                                    fig_c = px.bar(c_hist_grp, x='Year', y='Total RVUs', text_auto='.2s', title=c_name)
-                                                    with cols_25[idx % 2]: st.plotly_chart(style_high_end_chart(fig_c), use_container_width=True)
+                                                st.dataframe(piv_q_25.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Oranges"))
                         
                         if clinic_filter_25 == "All":
                             df_pos_trend_25 = df_pos_trend[df_pos_trend['Month_Clean'].dt.year == 2025].copy() if not df_pos_trend.empty else pd.DataFrame()
