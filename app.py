@@ -281,7 +281,8 @@ if check_password():
         for year, data in HISTORICAL_DATA.items():
             for clinic_id, rvu in data.items():
                 if clinic_id in CLINIC_CONFIG:
-                    records.append({"ID": clinic_id, "Name": CLINIC_CONFIG[clinic_id]["name"], "Year": year, "Total RVUs": rvu, "Source": "Historical"})
+                    # Force numeric type immediately
+                    records.append({"ID": clinic_id, "Name": CLINIC_CONFIG[clinic_id]["name"], "Year": int(year), "Total RVUs": float(rvu)})
         return pd.DataFrame(records)
 
     def generate_narrative(df, entity_type="Provider", metric_col="Total RVUs", unit="wRVUs", timeframe="this month"):
@@ -1029,32 +1030,34 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                             piv_consult_26["Total"] = piv_consult_26.sum(axis=1)
                                             st.dataframe(piv_consult_26.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
                                     
-                                    # --- FIXED HISTORICAL TABLE (2026 TAB) ---
+                                    # --- BULLETPROOF HISTORICAL TABLE (2026 TAB) ---
                                     with st.container(border=True):
                                         st.markdown("##### 📅 Historical Data Summary")
-                                        df_hist_26 = get_historical_df()
-                                        if clinic_filter_26 == "TriStar": df_hist_view_26 = df_hist_26[df_hist_26['ID'].isin(TRISTAR_IDS)]
-                                        elif clinic_filter_26 == "Ascension": df_hist_view_26 = df_hist_26[df_hist_26['ID'].isin(ASCENSION_IDS)]
-                                        elif clinic_filter_26 == "All": df_hist_view_26 = df_hist_26.copy()
-                                        else: df_hist_view_26 = pd.DataFrame()
+                                        df_h_raw = get_historical_df()
+                                        if clinic_filter_26 == "TriStar": df_h_view = df_h_raw[df_h_raw['ID'].isin(TRISTAR_IDS)]
+                                        elif clinic_filter_26 == "Ascension": df_h_view = df_h_raw[df_h_raw['ID'].isin(ASCENSION_IDS)]
+                                        elif clinic_filter_26 == "All": df_h_view = df_h_raw.copy()
+                                        else: df_h_view = pd.DataFrame()
                                         
-                                        if not df_hist_view_26.empty:
-                                            # Aggregate dictionary data
-                                            hist_trend_26 = df_hist_view_26.groupby('Year')[['Total RVUs']].sum().reset_index()
-                                            hist_trend_26['Total RVUs'] = pd.to_numeric(hist_trend_26['Total RVUs'], errors='coerce').fillna(0)
+                                        if not df_h_view.empty:
+                                            # Aggregate historical years
+                                            h_trend = df_h_view.groupby('Year')[['Total RVUs']].sum().reset_index()
                                             
-                                            # Force merge 2026 live data
+                                            # Safely get current YTD
+                                            ytd_val = 0.0
                                             if not df_view_26.empty:
-                                                ytd_val_26 = float(df_view_26['Total RVUs'].sum())
-                                                if 2026 in hist_trend_26['Year'].values:
-                                                    hist_trend_26.loc[hist_trend_26['Year'] == 2026, 'Total RVUs'] = ytd_val_26
-                                                else:
-                                                    hist_trend_26 = pd.concat([hist_trend_26, pd.DataFrame({"Year": [2026], "Total RVUs": [ytd_val_26]})], ignore_index=True)
+                                                ytd_val = float(df_view_26['Total RVUs'].sum())
                                             
-                                            hist_trend_26['Year'] = hist_trend_26['Year'].astype(int).astype(str)
-                                            # Merging any potential duplicate year columns before flip
-                                            hist_final_26 = hist_trend_26.groupby('Year').sum().T
-                                            st.dataframe(hist_final_26.style.format("{:,.0f}"), use_container_width=True)
+                                            # Create a dataframe for the current year
+                                            curr_yr_df = pd.DataFrame({"Year": [2026], "Total RVUs": [ytd_val]})
+                                            
+                                            # Combine, group by year (to merge duplicates), and transpose
+                                            final_trend = pd.concat([h_trend, curr_yr_df], ignore_index=True)
+                                            final_trend['Year'] = final_trend['Year'].astype(int).astype(str)
+                                            
+                                            # This groupby is the "magic" that prevents the duplicate column crash
+                                            hist_table_final = final_trend.groupby('Year').sum().T
+                                            st.dataframe(hist_table_final.style.format("{:,.0f}"), use_container_width=True)
                                             
                                     if not df_view_26.empty:
                                         c1, c2 = st.columns(2)
@@ -1360,29 +1363,29 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                             piv_consult_25["Total"] = piv_consult_25.sum(axis=1)
                                             st.dataframe(piv_consult_25.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
                                     
-                                   # --- FIXED HISTORICAL TABLE (2025 TAB) ---
+                                   # --- BULLETPROOF HISTORICAL TABLE (2025 TAB) ---
                                     with st.container(border=True):
                                         st.markdown("##### 📅 Historical Data Summary")
-                                        df_hist_25 = get_historical_df()
-                                        if clinic_filter_25 == "TriStar": df_hist_view_25 = df_hist_25[df_hist_25['ID'].isin(TRISTAR_IDS)]
-                                        elif clinic_filter_25 == "Ascension": df_hist_view_25 = df_hist_25[df_hist_25['ID'].isin(ASCENSION_IDS)]
-                                        elif clinic_filter_25 == "All": df_hist_view_25 = df_hist_25.copy()
-                                        else: df_hist_view_25 = pd.DataFrame()
+                                        df_h_raw_25 = get_historical_df()
+                                        if clinic_filter_25 == "TriStar": df_h_view_25 = df_h_raw_25[df_h_raw_25['ID'].isin(TRISTAR_IDS)]
+                                        elif clinic_filter_25 == "Ascension": df_h_view_25 = df_h_raw_25[df_h_raw_25['ID'].isin(ASCENSION_IDS)]
+                                        elif clinic_filter_25 == "All": df_h_view_25 = df_h_raw_25.copy()
+                                        else: df_h_view_25 = pd.DataFrame()
                                         
-                                        if not df_hist_view_25.empty:
-                                            hist_trend_25 = df_hist_view_25.groupby('Year')[['Total RVUs']].sum().reset_index()
-                                            hist_trend_25['Total RVUs'] = pd.to_numeric(hist_trend_25['Total RVUs'], errors='coerce').fillna(0)
+                                        if not df_h_view_25.empty:
+                                            h_trend_25 = df_h_view_25.groupby('Year')[['Total RVUs']].sum().reset_index()
                                             
+                                            ytd_val_25 = 0.0
                                             if not df_view_25.empty:
                                                 ytd_val_25 = float(df_view_25['Total RVUs'].sum())
-                                                if 2025 in hist_trend_25['Year'].values:
-                                                    hist_trend_25.loc[hist_trend_25['Year'] == 2025, 'Total RVUs'] = ytd_val_25
-                                                else:
-                                                    hist_trend_25 = pd.concat([hist_trend_25, pd.DataFrame({"Year": [2025], "Total RVUs": [ytd_val_25]})], ignore_index=True)
                                             
-                                            hist_trend_25['Year'] = hist_trend_25['Year'].astype(int).astype(str)
-                                            hist_final_25 = hist_trend_25.groupby('Year').sum().T
-                                            st.dataframe(hist_final_25.style.format("{:,.0f}"), use_container_width=True)
+                                            curr_yr_df_25 = pd.DataFrame({"Year": [2025], "Total RVUs": [ytd_val_25]})
+                                            
+                                            final_trend_25 = pd.concat([h_trend_25, curr_yr_df_25], ignore_index=True)
+                                            final_trend_25['Year'] = final_trend_25['Year'].astype(int).astype(str)
+                                            
+                                            hist_table_final_25 = final_trend_25.groupby('Year').sum().T
+                                            st.dataframe(hist_table_final_25.style.format("{:,.0f}"), use_container_width=True)
                                             
                                     if not df_view_25.empty:
                                         c1, c2 = st.columns(2)
