@@ -1033,35 +1033,29 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     with st.container(border=True):
                                         st.markdown("##### 📅 Historical Data Summary")
                                         df_hist_26 = get_historical_df()
-                                        
-                                        # Filter based on your radio selection
                                         if clinic_filter_26 == "TriStar": df_hist_view_26 = df_hist_26[df_hist_26['ID'].isin(TRISTAR_IDS)]
                                         elif clinic_filter_26 == "Ascension": df_hist_view_26 = df_hist_26[df_hist_26['ID'].isin(ASCENSION_IDS)]
                                         elif clinic_filter_26 == "All": df_hist_view_26 = df_hist_26.copy()
                                         else: df_hist_view_26 = pd.DataFrame()
                                         
                                         if not df_hist_view_26.empty:
-                                            # Step 1: Group by year to merge any dictionary duplicates
+                                            # Aggregate dictionary data
                                             hist_trend_26 = df_hist_view_26.groupby('Year')[['Total RVUs']].sum().reset_index()
+                                            hist_trend_26['Total RVUs'] = pd.to_numeric(hist_trend_26['Total RVUs'], errors='coerce').fillna(0)
                                             
-                                            # Step 2: Merge 2026 YTD from your live Excel files
+                                            # Force merge 2026 live data
                                             if not df_view_26.empty:
-                                                ytd_val_26 = df_view_26['Total RVUs'].sum()
-                                                if ytd_val_26 > 0:
-                                                    if 2026 in hist_trend_26['Year'].values:
-                                                        hist_trend_26.loc[hist_trend_26['Year'] == 2026, 'Total RVUs'] = ytd_val_26
-                                                    else:
-                                                        new_row_26 = pd.DataFrame({"Year": [2026], "Total RVUs": [ytd_val_26]})
-                                                        hist_trend_26 = pd.concat([hist_trend_26, new_row_26], ignore_index=True)
+                                                ytd_val_26 = float(df_view_26['Total RVUs'].sum())
+                                                if 2026 in hist_trend_26['Year'].values:
+                                                    hist_trend_26.loc[hist_trend_26['Year'] == 2026, 'Total RVUs'] = ytd_val_26
+                                                else:
+                                                    hist_trend_26 = pd.concat([hist_trend_26, pd.DataFrame({"Year": [2026], "Total RVUs": [ytd_val_26]})], ignore_index=True)
                                             
-                                            hist_table_df_26 = hist_trend_26.copy()
-                                            hist_table_df_26['Year'] = hist_table_df_26['Year'].astype(int).astype(str)
+                                            hist_trend_26['Year'] = hist_trend_26['Year'].astype(int).astype(str)
+                                            # Merging any potential duplicate year columns before flip
+                                            hist_final_26 = hist_trend_26.groupby('Year').sum().T
+                                            st.dataframe(hist_final_26.style.format("{:,.0f}"), use_container_width=True)
                                             
-                                            # THE FINAL FIX: Force unique years before flipping (transposing) the table
-                                            # This is what stops the 'Duplicate column names' crash
-                                            hist_table_final_26 = hist_table_df_26.groupby('Year').sum().T
-                                            st.dataframe(hist_table_final_26.style.format("{:,.0f}"), use_container_width=True)
-
                                     if not df_view_26.empty:
                                         c1, c2 = st.columns(2)
                                         with c1:
@@ -1366,7 +1360,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                             piv_consult_25["Total"] = piv_consult_25.sum(axis=1)
                                             st.dataframe(piv_consult_25.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
                                     
-                                    # --- FIXED HISTORICAL TABLE (2025 TAB) ---
+                                   # --- FIXED HISTORICAL TABLE (2025 TAB) ---
                                     with st.container(border=True):
                                         st.markdown("##### 📅 Historical Data Summary")
                                         df_hist_25 = get_historical_df()
@@ -1376,26 +1370,20 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                         else: df_hist_view_25 = pd.DataFrame()
                                         
                                         if not df_hist_view_25.empty:
-                                            # Group by Year first to collapse dictionary data
                                             hist_trend_25 = df_hist_view_25.groupby('Year')[['Total RVUs']].sum().reset_index()
+                                            hist_trend_25['Total RVUs'] = pd.to_numeric(hist_trend_25['Total RVUs'], errors='coerce').fillna(0)
                                             
-                                            # Add current 2025 totals from live files (this is where the duplication usually happens)
                                             if not df_view_25.empty:
-                                                ytd_curr_25 = df_view_25['Total RVUs'].sum()
-                                                if ytd_curr_25 > 0:
-                                                    if 2025 in hist_trend_25['Year'].values:
-                                                        hist_trend_25.loc[hist_trend_25['Year'] == 2025, 'Total RVUs'] = ytd_curr_25
-                                                    else:
-                                                        new_row_25 = pd.DataFrame({"Year": [2025], "Total RVUs": [ytd_curr_25]})
-                                                        hist_trend_25 = pd.concat([hist_trend_25, new_row_25], ignore_index=True)
+                                                ytd_val_25 = float(df_view_25['Total RVUs'].sum())
+                                                if 2025 in hist_trend_25['Year'].values:
+                                                    hist_trend_25.loc[hist_trend_25['Year'] == 2025, 'Total RVUs'] = ytd_val_25
+                                                else:
+                                                    hist_trend_25 = pd.concat([hist_trend_25, pd.DataFrame({"Year": [2025], "Total RVUs": [ytd_val_25]})], ignore_index=True)
                                             
-                                            hist_table_df_25 = hist_trend_25.copy()
-                                            hist_table_df_25['Year'] = hist_table_df_25['Year'].astype(int).astype(str)
+                                            hist_trend_25['Year'] = hist_trend_25['Year'].astype(int).astype(str)
+                                            hist_final_25 = hist_trend_25.groupby('Year').sum().T
+                                            st.dataframe(hist_final_25.style.format("{:,.0f}"), use_container_width=True)
                                             
-                                            # THE CRITICAL FIX: Group by Year one last time before transposing
-                                            hist_table_T_25 = hist_table_df_25.groupby('Year').sum().T
-                                            st.dataframe(hist_table_T_25.style.format("{:,.0f}"), use_container_width=True)
-
                                     if not df_view_25.empty:
                                         c1, c2 = st.columns(2)
                                         with c1:
@@ -1579,34 +1567,43 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     st.markdown("### 📊 Metric (2026)")
                     md_view_26 = st.radio("Select View:", ["wRVU Productivity", "Office Visits"], key="md_radio_26")
                 
-                with col_main_md_26:
+               with col_main_md_26:
+                    # Robust Year Filtering
                     df_mds_26 = df_mds[df_mds['Month_Clean'].dt.year == 2026].copy() if not df_mds.empty else pd.DataFrame()
+                    
                     if md_view_26 == "wRVU Productivity":
-                        if df_mds_26.empty: st.info("No wRVU data found for 2026.")
+                        if df_mds_26.empty:
+                            st.info("No Physician productivity data found for 2026.")
                         else:
                             st.info(generate_narrative(df_mds_26, "Physician"))
+                            
                             with st.container(border=True):
-                                st.markdown("#### 📅 2026 Trend (RVU per FTE)")
+                                st.markdown("#### 📈 2026 Trend (RVU per FTE)")
                                 fig_trend = px.line(df_mds_26.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
                                 st.plotly_chart(style_high_end_chart(fig_trend), use_container_width=True)
+                            
                             with st.container(border=True):
                                 st.markdown("#### 🏆 Year-to-Date Total RVUs (2026)")
+                                # THE FIX: Aggregating by Name before sorting and plotting
                                 ytd_sum = df_mds_26.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
                                 fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
                                 st.plotly_chart(style_high_end_chart(fig_ytd), use_container_width=True)
+                            
                             c1, c2 = st.columns(2)
                             with c1:
-                                st.markdown("#### 🔢 Monthly Data")
-                                piv = df_mds_26.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                sorted_months_md = df_mds_26.sort_values("Month_Clean")["Month_Label"].unique()
-                                piv = piv.reindex(columns=sorted_months_md).fillna(0)
-                                piv["Total"] = piv.sum(axis=1)
-                                st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                                with st.container(border=True):
+                                    st.markdown("#### 🔢 Monthly Data")
+                                    piv = df_mds_26.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                                    sorted_months_md = df_mds_26.sort_values("Month_Clean")["Month_Label"].unique()
+                                    piv = piv.reindex(columns=sorted_months_md).fillna(0)
+                                    piv["Total"] = piv.sum(axis=1)
+                                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                             with c2:
-                                st.markdown("#### 📆 Quarterly Data")
-                                piv_q = df_mds_26.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                                piv_q["Total"] = piv_q.sum(axis=1)
-                                st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                                with st.container(border=True):
+                                    st.markdown("#### 📆 Quarterly Data")
+                                    piv_q = df_mds_26.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                                    piv_q["Total"] = piv_q.sum(axis=1)
+                                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
                     
                     elif md_view_26 == "Office Visits":
                         df_visits_26 = df_visits[df_visits['Month_Clean'].dt.year == 2026].copy() if not df_visits.empty else pd.DataFrame()
