@@ -1561,14 +1561,15 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             # ==========================================
             # MD ANALYTICS - 2026 TAB
             # ==========================================
+            # --- START REPLACEMENT AT Line 1564 ---
             with tab_md_26:
                 col_nav_md_26, col_main_md_26 = st.columns([1, 5])
                 with col_nav_md_26:
                     st.markdown("### 📊 Metric (2026)")
                     md_view_26 = st.radio("Select View:", ["wRVU Productivity", "Office Visits"], key="md_radio_26")
-                
-               with col_main_md_26:
-                    # Robust Year Filtering
+            
+                with col_main_md_26:
+                    # Step 1: Filter Physician data for 2026
                     df_mds_26 = df_mds[df_mds['Month_Clean'].dt.year == 2026].copy() if not df_mds.empty else pd.DataFrame()
                     
                     if md_view_26 == "wRVU Productivity":
@@ -1584,7 +1585,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                             
                             with st.container(border=True):
                                 st.markdown("#### 🏆 Year-to-Date Total RVUs (2026)")
-                                # THE FIX: Aggregating by Name before sorting and plotting
+                                # Aggregate by Name to handle duplicates across multiple files
                                 ytd_sum = df_mds_26.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
                                 fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
                                 st.plotly_chart(style_high_end_chart(fig_ytd), use_container_width=True)
@@ -1604,6 +1605,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     piv_q = df_mds_26.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                                     piv_q["Total"] = piv_q.sum(axis=1)
                                     st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+# --- END REPLACEMENT ---
                     
                     elif md_view_26 == "Office Visits":
                         df_visits_26 = df_visits[df_visits['Month_Clean'].dt.year == 2026].copy() if not df_visits.empty else pd.DataFrame()
