@@ -450,44 +450,51 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
     def parse_consults_data(df, sheet_name, log, target_year=None):
         records = []
         try:
+            # Force numeric header index
             header_row_idx = find_date_row(df)
-            # Use 3.06 for 2026, fallback to 3.14
+            
+            # 2026 specific wRVU conversion
             current_conv = 3.06 if target_year == 2026 else 3.14
 
-            rvu_section_start = 0
-            for r in range(len(df)):
-                val = str(df.iloc[r, 0]).upper()
-                if any(x in val for x in ["WORK RVU", "WRVU", "PHYSICIAN WORK"]):
-                    rvu_section_start = r
-                    break
-            
+            # Find the row specifically for 77263
             cpt_row_idx = -1
-            for r in range(rvu_section_start, len(df)):
+            for r in range(len(df)):
                 row_val = str(df.iloc[r, 0]).strip()
+                # Exact match check to avoid grabbing sub-total rows
                 if "77263" in row_val:
                     cpt_row_idx = r
                     break
             
             if cpt_row_idx != -1:
-                for col in df.columns[4:]: 
+                # Iterate through all columns starting from index 4
+                for col in range(4, len(df.columns)): 
                     header_val = df.iloc[header_row_idx, col]
                     dt_clean = standardize_date(header_val)
                     
-                    if pd.isna(dt_clean): continue
+                    # If date fails, try to force it from the string "Feb-26"
+                    if pd.isna(dt_clean) and isinstance(header_val, str):
+                        try:
+                            dt_clean = pd.to_datetime(header_val, format='%b-%y')
+                        except:
+                            continue
+
+                    if pd.isna(dt_clean):
+                        continue
                     
-                    # --- THE FORGIVING FILTER ---
-                    # If target_year is 2026, we accept data even if the cell technically
-                    # says 2025, provided it is in the latter half of the sheet 
-                    # or labelled as Jan/Feb/Mar.
+                    # ACCEPTANCE WINDOW:
+                    # For a 2026 file, accept anything from Nov 2025 to Jan 2027
                     if target_year == 2026:
-                        # Accept any month from Dec 2025 through 2026
                         if not (dt_clean.year == 2026 or (dt_clean.year == 2025 and dt_clean.month >= 11)):
                             continue
                     elif target_year and dt_clean.year != target_year:
                         continue
                     
-                    val = clean_number(df.iloc[cpt_row_idx, col])
+                    # Get the raw numeric value
+                    raw_val = df.iloc[cpt_row_idx, col]
+                    val = clean_number(raw_val)
+                    
                     if val is not None:
+                        # Convert wRVU value back to a "Count" of procedures
                         count = val / current_conv
                         records.append({
                             "Name": sheet_name, 
