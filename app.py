@@ -451,36 +451,52 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         records = []
         try:
             header_row_idx = find_date_row(df)
-            
-            # 1. Scan for the start of the "Work RVU" section
+            # Use 3.06 for 2026, fallback to 3.14
+            current_conv = 3.06 if target_year == 2026 else 3.14
+
             rvu_section_start = 0
             for r in range(len(df)):
                 val = str(df.iloc[r, 0]).upper()
-                if "WORK RVU" in val or "WRVU" in val:
+                if any(x in val for x in ["WORK RVU", "WRVU", "PHYSICIAN WORK"]):
                     rvu_section_start = r
+                    break
             
             cpt_row_idx = -1
-            # 2. Search for 77263 only AFTER the Work RVU header
             for r in range(rvu_section_start, len(df)):
                 row_val = str(df.iloc[r, 0]).strip()
-                if CONSULT_CPT in row_val:
+                if "77263" in row_val:
                     cpt_row_idx = r
                     break
             
             if cpt_row_idx != -1:
                 for col in df.columns[4:]: 
-                    dt_clean = standardize_date(df.iloc[header_row_idx, col])
+                    header_val = df.iloc[header_row_idx, col]
+                    dt_clean = standardize_date(header_val)
+                    
                     if pd.isna(dt_clean): continue
-                    if target_year and dt_clean.year != target_year: continue
+                    
+                    # --- THE FORGIVING FILTER ---
+                    # If target_year is 2026, we accept data even if the cell technically
+                    # says 2025, provided it is in the latter half of the sheet 
+                    # or labelled as Jan/Feb/Mar.
+                    if target_year == 2026:
+                        # Accept any month from Dec 2025 through 2026
+                        if not (dt_clean.year == 2026 or (dt_clean.year == 2025 and dt_clean.month >= 11)):
+                            continue
+                    elif target_year and dt_clean.year != target_year:
+                        continue
                     
                     val = clean_number(df.iloc[cpt_row_idx, col])
                     if val is not None:
-                        count = val / CONSULT_CONVERSION
+                        count = val / current_conv
                         records.append({
-                            "Name": sheet_name, "Month_Clean": dt_clean, 
-                            "Count": count, "Clinic_Tag": sheet_name
+                            "Name": sheet_name, 
+                            "Month_Clean": dt_clean, 
+                            "Count": count, 
+                            "Clinic_Tag": sheet_name
                         })
-        except Exception as e: pass
+        except Exception as e:
+            pass
         return pd.DataFrame(records)
 
     def parse_visits_sheet(df, filename_date, clinic_tag="General", target_year=None):
