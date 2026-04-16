@@ -1185,6 +1185,53 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     div_avg = df_fte_latest['Total RVUs'].sum() / df_fte_latest['FTE'].sum() if df_fte_latest['FTE'].sum() > 0 else 0
                                     st.caption(f"**Division Average:** {div_avg:,.0f} wRVU/FTE")
                                     
+                        # --- NEW: QUARTERLY PERFORMANCE BY CENTER (ALL VIEW) ---
+                        if clinic_filter_26 == "All":
+                            # Target the most recent quarter (Q1 2026) as requested
+                            target_q = "Q1 2026"
+                            df_q_data = df_clinic_26[df_clinic_26['Quarter'] == target_q].copy()
+
+                            if not df_q_data.empty:
+                                st.markdown("---")
+                                cq1, cq2 = st.columns(2)
+                                
+                                # 1. TOTAL VOLUME CHART (Not per FTE)
+                                with cq1:
+                                    with st.container(border=True):
+                                        st.markdown(f"#### 📊 Total wRVU Volume: {target_q}")
+                                        # Sum up the monthly RVUs for the quarter
+                                        df_q_sum = df_q_data.groupby('Name')[['Total RVUs']].sum().reset_index()
+                                        
+                                        fig_q_vol = px.bar(
+                                            df_q_sum.sort_values('Total RVUs', ascending=False),
+                                            x='Name', 
+                                            y='Total RVUs',
+                                            text_auto='.2s',
+                                            color='Total RVUs',
+                                            color_continuous_scale='Blues',
+                                            title=f"Total Center Volume ({target_q})"
+                                        )
+                                        st.plotly_chart(style_high_end_chart(fig_q_vol), use_container_width=True)
+
+                                # 2. QUARTERLY EFFICIENCY CHART (per FTE)
+                                with cq2:
+                                    with st.container(border=True):
+                                        st.markdown(f"#### 🩺 Efficiency: wRVU per FTE: {target_q}")
+                                        # Sum RVUs and divide by the Configured FTE for that center
+                                        df_q_eff = df_q_data.groupby('Name').agg({'Total RVUs': 'sum', 'FTE': 'max'}).reset_index()
+                                        df_q_eff['RVU per FTE'] = df_q_eff.apply(lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
+                                        
+                                        fig_q_eff = px.bar(
+                                            df_q_eff.sort_values('RVU per FTE', ascending=False),
+                                            x='Name', 
+                                            y='RVU per FTE',
+                                            text_auto='.0f',
+                                            color='RVU per FTE',
+                                            color_continuous_scale='Portland',
+                                            title=f"Quarterly wRVU per FTE ({target_q})"
+                                        )
+                                        st.plotly_chart(style_high_end_chart(fig_q_eff), use_container_width=True)
+                        
                         
                         if clinic_filter_26 in ["TriStar", "Ascension"]:
                             st.markdown("---")
