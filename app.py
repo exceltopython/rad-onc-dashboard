@@ -1156,6 +1156,36 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     st.dataframe(piv_np_net_26.style.format("{:,.0f}").background_gradient(cmap="Greens").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
 
 
+                        # --- NEW: wRVU PER FTE BY CENTER (ALL VIEW) ---
+                        if clinic_filter_26 == "All":
+                            st.markdown("---")
+                            with st.container(border=True):
+                                st.markdown("### 🩺 Efficiency: wRVU per FTE by Center (2026)")
+                                
+                                # Filter for 2026 and get the latest month available
+                                max_date_fte = df_clinic_26['Month_Clean'].max()
+                                df_fte_latest = df_clinic_26[df_clinic_26['Month_Clean'] == max_date_fte].copy()
+                                
+                                if not df_fte_latest.empty:
+                                    # Create the bar chart
+                                    fig_fte = px.bar(
+                                        df_fte_latest.sort_values('RVU per FTE', ascending=False),
+                                        x='Name', 
+                                        y='RVU per FTE',
+                                        text_auto='.0f',
+                                        color='RVU per FTE',
+                                        color_continuous_scale='Portland',
+                                        title=f"wRVU per FTE: {max_date_fte.strftime('%B %Y')}"
+                                    )
+                                    
+                                    # Standardize look to match your other charts
+                                    st.plotly_chart(style_high_end_chart(fig_fte), use_container_width=True)
+                                    
+                                    # Add a quick metric comparison for the Division average
+                                    div_avg = df_fte_latest['Total RVUs'].sum() / df_fte_latest['FTE'].sum() if df_fte_latest['FTE'].sum() > 0 else 0
+                                    st.caption(f"**Division Average:** {div_avg:,.0f} wRVU/FTE")
+                                    
+                        
                         if clinic_filter_26 in ["TriStar", "Ascension"]:
                             st.markdown("---")
                             st.subheader(f"🔍 Detailed Breakdown by Clinic ({view_title_26})")
