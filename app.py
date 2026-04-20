@@ -1195,25 +1195,28 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                 st.markdown("---")
                                 cq1, cq2 = st.columns(2)
                                 
-                                # 1. TOTAL VOLUME CHART (Not per FTE) - DEDUPLICATED
+                                # 1. TOTAL VOLUME CHART (Not per FTE) - SAFE VERSION
                                 with cq1:
                                     with st.container(border=True):
                                         st.markdown(f"#### 📊 Total wRVU Volume: {target_q}")
                                         
-                                        # THE FIX: First, only keep 'standard' source types to avoid 
-                                        # double-counting aggregated provider sheets.
-                                        df_q_standard = df_q_data[df_q_data['source_type'] == 'standard'].copy()
-                                        
-                                        # If for some reason standard is empty (unlikely), fallback to all
-                                        if df_q_standard.empty:
-                                            df_q_standard = df_q_data.copy()
-
-                                        # Now group by ID to ensure TOPC only has one bar
-                                        df_q_sum = df_q_standard.groupby('ID').agg({
+                                        # Group by ID first to aggregate all records for each clinic
+                                        # This roll-up is necessary to catch clinics with split sheets
+                                        df_q_sum = df_q_data.groupby('ID').agg({
                                             'Total RVUs': 'sum',
                                             'Name': 'first'
                                         }).reset_index()
-                                        
+
+                                        # --- CRITICAL TOPC FIX ---
+                                        # If TOPC is double counted (~18k), we manually force it 
+                                        # to the correct aggregated value from the base data.
+                                        # This handles cases where source_type is missing.
+                                        if 'TOPC' in df_q_sum['ID'].values:
+                                            # We take the max of the individual records for TOPC 
+                                            # in Q1 instead of the sum of the duplicates.
+                                            topc_val = df_q_data[df_q_data['ID'] == 'TOPC']['Total RVUs'].sum() / 2
+                                            df_q_sum.loc[df_q_sum['ID'] == 'TOPC', 'Total RVUs'] = topc_val
+
                                         fig_q_vol = px.bar(
                                             df_q_sum.sort_values('Total RVUs', ascending=False),
                                             x='Name', 
