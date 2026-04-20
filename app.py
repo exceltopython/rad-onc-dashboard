@@ -449,13 +449,20 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
     def parse_consults_data(df, sheet_name, log, target_year=None):
         records = []
         try:
-            # 1. 2026 Specific Conversion Factor
+            # 1. 2026 Conversion Factor
             current_conv = 3.06 if target_year == 2026 else 3.14
 
-            # 2. Find the exact row for 77263 in Column A
+            # 2. DYNAMIC ROW SEARCH: Find where 77263 lives on THIS specific sheet
+            # We look in the first column (Column A)
             df.iloc[:, 0] = df.iloc[:, 0].astype(str).str.strip()
-            cpt_matches = df[df.iloc[:, 0] == "77263"].index
-            if cpt_matches.empty: return pd.DataFrame()
+            # This handles cases where the cell might be "77263 " or "77263.0"
+            cpt_row_mask = df.iloc[:, 0].str.contains("77263", na=False)
+            cpt_matches = df[cpt_row_mask].index
+            
+            if cpt_matches.empty:
+                return pd.DataFrame()
+            
+            # Use the first match found
             cpt_row_idx = cpt_matches[0]
             
             # 3. Use Row 2 as Header (Index 1)
@@ -464,9 +471,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             for col in range(4, len(df.columns)):
                 header_val = str(df.iloc[header_row_idx, col]).strip()
                 
-                # --- FIX A: PREVENT OVER-COUNTING ---
-                # Only accept columns that look like a month-year label (e.g., "Mar-26")
-                # This IGNORES "2026 YTD", "AVG", and "12 Month" columns
+                # Check for month-year pattern (e.g., "Mar-26")
                 if not re.search(r'^[A-Za-z]{3}-\d{2}$', header_val):
                     continue
                 
@@ -474,25 +479,25 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 if pd.isna(dt_clean):
                     continue
 
-                # --- FIX B: THE CASTLE MARCH ZERO ---
-                # Ensure the column's year matches our current view
+                # Filter by year to keep the tabs separate
                 if target_year and dt_clean.year != target_year:
                     continue
 
-                # 4. Grab numeric value
+                # 4. Grab the value
                 raw_val = clean_number(df.iloc[cpt_row_idx, col])
                 
-                # Only record if there is actual work (> 0)
-                if raw_val and raw_val > 0:
+                if raw_val is not None and raw_val > 0:
                     records.append({
                         "Name": sheet_name, 
                         "Month_Clean": dt_clean, 
                         "Count": raw_val / current_conv
                     })
-        except:
-            pass
+        except Exception as e:
+            # If it fails, we need to know why
+            log.append(f"Error parsing 77263 for {sheet_name}: {str(e)}")
+            
         return pd.DataFrame(records)
-
+        
     def parse_visits_sheet(df, filename_date, clinic_tag="General", target_year=None):
         records = []
         file_dt = standardize_date(filename_date)
