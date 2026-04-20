@@ -446,15 +446,14 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 })
         return pd.DataFrame(records)
 
-    # --- CRITICAL FIX FOR 77263: AVOID CHARGES ROW ---
     def parse_consults_data(df, sheet_name, log, target_year=None):
         records = []
         try:
-            # 1. Identify the Conversion Factor
+            # 1. Update Conversion Factor for 2026
             current_conv = 3.06 if target_year == 2026 else 3.14
 
-            # 2. Find the exact row index for 77263 in Column A (Index 0)
-            # We convert to string to ensure "77263" matches regardless of Excel formatting
+            # 2. Find the exact row for 77263 in Column A
+            # We force everything to string to prevent Excel float/int mismatch
             df.iloc[:, 0] = df.iloc[:, 0].astype(str).str.strip()
             cpt_matches = df[df.iloc[:, 0] == "77263"].index
             
@@ -463,28 +462,30 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             
             cpt_row_idx = cpt_matches[0]
             
-            # 3. Define the Header Row (Row 2 in Excel is index 1 in Python)
+            # 3. Define the Header Row (Row 2 in Excel is Index 1 in Python)
             header_row_idx = 1 
             
-            # 4. Iterate through data columns (starting at Column E / index 4)
+            # 4. Iterate through Month Columns (Starting at Column E / Index 4)
             for col in range(4, len(df.columns)):
+                # Get the literal text from Row 2 (e.g., "Jan-26")
                 header_val = str(df.iloc[header_row_idx, col]).strip()
                 
-                # Only process if the header looks like a month (e.g., "Jan-26")
-                # This prevents grabbing "YTD" or "Total" columns by mistake
-                if not any(m in header_val for m in ["-25", "-26"]):
+                # Check if the header matches the current year we are viewing
+                # This stops us from grabbing "Total" or "Average" columns
+                year_suffix = f"-{str(target_year)[-2:]}" if target_year else "-26"
+                if year_suffix not in header_val:
                     continue
                 
-                # Standardize the header string into a real date object
+                # Convert the text "Jan-26" into a standardized date
                 dt_clean = standardize_date(header_val)
                 if pd.isna(dt_clean):
                     continue
 
-                # 5. Grab the value at the intersection of our CPT row and current Column
+                # 5. Grab the numeric value at the intersection
                 raw_val = df.iloc[cpt_row_idx, col]
                 val = clean_number(raw_val)
                 
-                if val is not None:
+                if val is not None and val != 0:
                     records.append({
                         "Name": sheet_name, 
                         "Month_Clean": dt_clean, 
