@@ -452,32 +452,37 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             # 1. 2026 Specific Conversion Factor
             current_conv = 3.06 if target_year == 2026 else 3.14
 
-            # 2. Find the 77263 row in Column A
+            # 2. Find the exact row for 77263 in Column A
             df.iloc[:, 0] = df.iloc[:, 0].astype(str).str.strip()
-            cpt_row_idx = df[df.iloc[:, 0] == "77263"].index
-            if cpt_row_idx.empty: return pd.DataFrame()
-            cpt_row_idx = cpt_row_idx[0]
+            cpt_matches = df[df.iloc[:, 0] == "77263"].index
+            if cpt_matches.empty: return pd.DataFrame()
+            cpt_row_idx = cpt_matches[0]
             
-            header_row_idx = 1 # Row 2 in Excel
+            # 3. Use Row 2 as Header (Index 1)
+            header_row_idx = 1 
             
             for col in range(4, len(df.columns)):
                 header_val = str(df.iloc[header_row_idx, col]).strip()
                 
-                # THE AUDIT FIX: Only pull if the column ends in -25 or -26
-                # This prevents accidentally grabbing "2026 YTD" or "Average" columns
-                if not re.search(r'-(25|26)$', header_val):
+                # --- FIX A: PREVENT OVER-COUNTING ---
+                # Only accept columns that look like a month-year label (e.g., "Mar-26")
+                # This IGNORES "2026 YTD", "AVG", and "12 Month" columns
+                if not re.search(r'^[A-Za-z]{3}-\d{2}$', header_val):
                     continue
                 
                 dt_clean = standardize_date(header_val)
-                if pd.isna(dt_clean): continue
+                if pd.isna(dt_clean):
+                    continue
 
-                # Ensure we only pull data for the year we are looking at
+                # --- FIX B: THE CASTLE MARCH ZERO ---
+                # Ensure the column's year matches our current view
                 if target_year and dt_clean.year != target_year:
                     continue
 
-                # 3. Pull and Convert the Numeric Value
+                # 4. Grab numeric value
                 raw_val = clean_number(df.iloc[cpt_row_idx, col])
                 
+                # Only record if there is actual work (> 0)
                 if raw_val and raw_val > 0:
                     records.append({
                         "Name": sheet_name, 
