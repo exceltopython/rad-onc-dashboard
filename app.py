@@ -1195,13 +1195,21 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                 st.markdown("---")
                                 cq1, cq2 = st.columns(2)
                                 
-                                # 1. TOTAL VOLUME CHART (Not per FTE) - FIXED FOR TOPC
+                                # 1. TOTAL VOLUME CHART (Not per FTE) - DEDUPLICATED
                                 with cq1:
                                     with st.container(border=True):
                                         st.markdown(f"#### 📊 Total wRVU Volume: {target_q}")
                                         
-                                        # THE FIX: Group by 'ID' first to collapse duplicates, then take the first 'Name'
-                                        df_q_sum = df_q_data.groupby('ID').agg({
+                                        # THE FIX: First, only keep 'standard' source types to avoid 
+                                        # double-counting aggregated provider sheets.
+                                        df_q_standard = df_q_data[df_q_data['source_type'] == 'standard'].copy()
+                                        
+                                        # If for some reason standard is empty (unlikely), fallback to all
+                                        if df_q_standard.empty:
+                                            df_q_standard = df_q_data.copy()
+
+                                        # Now group by ID to ensure TOPC only has one bar
+                                        df_q_sum = df_q_standard.groupby('ID').agg({
                                             'Total RVUs': 'sum',
                                             'Name': 'first'
                                         }).reset_index()
