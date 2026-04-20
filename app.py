@@ -1195,12 +1195,16 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                 st.markdown("---")
                                 cq1, cq2 = st.columns(2)
                                 
-                                # 1. TOTAL VOLUME CHART (Not per FTE)
+                                # 1. TOTAL VOLUME CHART (Not per FTE) - FIXED FOR TOPC
                                 with cq1:
                                     with st.container(border=True):
                                         st.markdown(f"#### 📊 Total wRVU Volume: {target_q}")
-                                        # Sum up the monthly RVUs for the quarter
-                                        df_q_sum = df_q_data.groupby('Name')[['Total RVUs']].sum().reset_index()
+                                        
+                                        # THE FIX: Group by 'ID' first to collapse duplicates, then take the first 'Name'
+                                        df_q_sum = df_q_data.groupby('ID').agg({
+                                            'Total RVUs': 'sum',
+                                            'Name': 'first'
+                                        }).reset_index()
                                         
                                         fig_q_vol = px.bar(
                                             df_q_sum.sort_values('Total RVUs', ascending=False),
