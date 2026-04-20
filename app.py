@@ -449,50 +449,42 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
     def parse_consults_data(df, sheet_name, log, target_year=None):
         records = []
         try:
-            # 1. Update Conversion Factor for 2026
+            # 1. 2026 Specific Conversion Factor
             current_conv = 3.06 if target_year == 2026 else 3.14
 
-            # 2. Find the exact row for 77263 in Column A
-            # We force everything to string to prevent Excel float/int mismatch
+            # 2. Find the 77263 row in Column A
             df.iloc[:, 0] = df.iloc[:, 0].astype(str).str.strip()
-            cpt_matches = df[df.iloc[:, 0] == "77263"].index
+            cpt_row_idx = df[df.iloc[:, 0] == "77263"].index
+            if cpt_row_idx.empty: return pd.DataFrame()
+            cpt_row_idx = cpt_row_idx[0]
             
-            if cpt_matches.empty:
-                return pd.DataFrame()
+            header_row_idx = 1 # Row 2 in Excel
             
-            cpt_row_idx = cpt_matches[0]
-            
-            # 3. Define the Header Row (Row 2 in Excel is Index 1 in Python)
-            header_row_idx = 1 
-            
-            # 4. Iterate through Month Columns (Starting at Column E / Index 4)
             for col in range(4, len(df.columns)):
-                # Get the literal text from Row 2 (e.g., "Jan-26")
                 header_val = str(df.iloc[header_row_idx, col]).strip()
                 
-                # Check if the header matches the current year we are viewing
-                # This stops us from grabbing "Total" or "Average" columns
-                year_suffix = f"-{str(target_year)[-2:]}" if target_year else "-26"
-                if year_suffix not in header_val:
+                # THE AUDIT FIX: Only pull if the column ends in -25 or -26
+                # This prevents accidentally grabbing "2026 YTD" or "Average" columns
+                if not re.search(r'-(25|26)$', header_val):
                     continue
                 
-                # Convert the text "Jan-26" into a standardized date
                 dt_clean = standardize_date(header_val)
-                if pd.isna(dt_clean):
+                if pd.isna(dt_clean): continue
+
+                # Ensure we only pull data for the year we are looking at
+                if target_year and dt_clean.year != target_year:
                     continue
 
-                # 5. Grab the numeric value at the intersection
-                raw_val = df.iloc[cpt_row_idx, col]
-                val = clean_number(raw_val)
+                # 3. Pull and Convert the Numeric Value
+                raw_val = clean_number(df.iloc[cpt_row_idx, col])
                 
-                if val is not None and val != 0:
+                if raw_val and raw_val > 0:
                     records.append({
                         "Name": sheet_name, 
                         "Month_Clean": dt_clean, 
-                        "Count": val / current_conv, 
-                        "Clinic_Tag": sheet_name
+                        "Count": raw_val / current_conv
                     })
-        except Exception as e:
+        except:
             pass
         return pd.DataFrame(records)
 
@@ -862,8 +854,24 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         df_visits = safe_dedup_and_format(visit_data, ['Name', 'Month_Clean', 'Clinic_Tag'])
         df_financial = safe_dedup_and_format(financial_data, ['Name', 'Month_Clean', 'Mode'])
         df_pos_trend = safe_dedup_and_format(pos_trend_data, ['Clinic_Tag', 'Month_Clean'])
-        df_consults = safe_dedup_and_format(consult_data, ['Name', 'Month_Clean', 'Clinic_Tag'])
-        df_md_consults = safe_dedup_and_format(md_consult_data, ['Name', 'Month_Clean'])
+        # --- FIXED 77263 AGGREGATION (SUMMING SPLIT SITES) ---
+        if consult_data:
+            df_cons_raw = pd.concat(consult_data, ignore_index=True)
+            # Group by Name and Month and SUM the counts to catch split-site work
+            df_consults = df_cons_raw.groupby(['Name', 'Month_Clean'], as_index=False).agg({'Count': 'sum'})
+            df_consults['Month_Label'] = df_consults['Month_Clean'].dt.strftime('%b-%y')
+            df_consults['Quarter'] = df_consults['Month_Clean'].apply(lambda x: f"Q{x.quarter} {x.year}")
+        else:
+            df_consults = pd.DataFrame()
+
+        if md_consult_data:
+            df_md_cons_raw = pd.concat(md_consult_data, ignore_index=True)
+            # Sum for the MD-specific table as well
+            df_md_consults = df_md_cons_raw.groupby(['Name', 'Month_Clean'], as_index=False).agg({'Count': 'sum'})
+            df_md_consults['Month_Label'] = df_md_consults['Month_Clean'].dt.strftime('%b-%y')
+            df_md_consults['Quarter'] = df_md_consults['Month_Clean'].apply(lambda x: f"Q{x.quarter} {x.year}")
+        else:
+            df_md_consults = pd.DataFrame()
         df_app_cpt = safe_dedup_and_format(app_cpt_data, ['Name', 'Month_Clean', 'CPT Code'])
         df_md_cpt = safe_dedup_and_format(md_cpt_data, ['Name', 'Month_Clean', 'CPT Code'])
 
