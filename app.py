@@ -465,8 +465,14 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
             # Use the first match found
             cpt_row_idx = cpt_matches[0]
             
-            # 3. Use Row 2 as Header (Index 1)
-            header_row_idx = 1 
+            # 3. DYNAMIC HEADER FINDER
+            # Checks Row 1 (idx 0) and Row 2 (idx 1) for date patterns
+            header_row_idx = 1 # Default back to Row 2
+            for r_idx in [0, 1]:
+                row_sample = df.iloc[r_idx, 4:10].astype(str).str.upper().tolist()
+                if any(re.search(r'[A-Z]{3}-\d{2}', val) for val in row_sample):
+                    header_row_idx = r_idx
+                    break 
             
             for col in range(4, len(df.columns)):
                 header_val = str(df.iloc[header_row_idx, col]).strip()
