@@ -1703,7 +1703,6 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 col_nav_md_26, col_main_md_26 = st.columns([1, 5])
                 with col_nav_md_26:
                     st.markdown("### 📊 Metric (2026)")
-                    # Added a unique key to ensure no duplication
                     md_view_26 = st.radio("Select View:", ["wRVU Productivity", "Office Visits"], key="md_radio_2026_final")
             
                 with col_main_md_26:
@@ -1757,32 +1756,17 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     st.markdown(f"#### 🆕 New Patients ({latest_v_date.year} YTD)")
                                     fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), x='New Patients', y='Name', orientation='h', text_auto=True, color='New Patients', color_continuous_scale='Greens')
                                     st.plotly_chart(style_high_end_chart(fig_np), use_container_width=True, key="visit_np_26")
-                                    
 
                     # --- THE BASEMENT: ALWAYS VISIBLE 77263 TABLE ---
                     st.markdown("---")
-                    # Filter for 2026
                     df_77263_final = df_md_consults[df_md_consults['Month_Clean'].dt.year == 2026].copy() if not df_md_consults.empty else pd.DataFrame()
-                    
                     if not df_77263_final.empty:
                         st.markdown("### 📝 MD Tx Plan Complex (CPT 77263)")
-                        # Ensure chronological sorting for columns
                         sorted_m_77 = df_77263_final.sort_values("Month_Clean")["Month_Label"].unique()
-                        
-                        # Pivot the data
                         piv_77 = df_77263_final.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
                         piv_77 = piv_77.reindex(columns=sorted_m_77).fillna(0)
                         piv_77["Total"] = piv_77.sum(axis=1)
-                        
-                        # Display with a unique key to prevent the DuplicateElement error
-                        st.dataframe(
-                            piv_77.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"), 
-                            height=500, 
-                            use_container_width=True,
-                            key="final_77263_table_2026"
-                        )
-                    else:
-                        st.warning("No 77263 data processed. Check file ingestion logs.")
+                        st.dataframe(piv_77.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"), height=500, use_container_width=True, key="table_77263_final")
 
             # ==========================================
             # MD ANALYTICS - 2025 TAB
