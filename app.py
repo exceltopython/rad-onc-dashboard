@@ -870,11 +870,16 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
         df_visits = safe_dedup_and_format(visit_data, ['Name', 'Month_Clean', 'Clinic_Tag'])
         df_financial = safe_dedup_and_format(financial_data, ['Name', 'Month_Clean', 'Mode'])
         df_pos_trend = safe_dedup_and_format(pos_trend_data, ['Clinic_Tag', 'Month_Clean'])
-        # --- FIXED 77263 AGGREGATION (SUMMING SPLIT SITES) ---
+        # --- FIXED 77263 AGGREGATION (PREVENT MULTI-FILE OVERCOUNTING) ---
         if consult_data:
             df_cons_raw = pd.concat(consult_data, ignore_index=True)
-            # Group by Name and Month and SUM the counts to catch split-site work
-            df_consults = df_cons_raw.groupby(['Name', 'Month_Clean'], as_index=False).agg({'Count': 'sum'})
+            
+            # THE FIX: Sort by filename/date so the most recent file processed is last
+            # Then, instead of SUMMING everything, we keep the LAST (most recent) 
+            # record for each Name + Month combo.
+            df_consults = df_cons_raw.drop_duplicates(subset=['Name', 'Month_Clean'], keep='last')
+            
+            # Re-add labels for display
             df_consults['Month_Label'] = df_consults['Month_Clean'].dt.strftime('%b-%y')
             df_consults['Quarter'] = df_consults['Month_Clean'].apply(lambda x: f"Q{x.quarter} {x.year}")
         else:
@@ -882,8 +887,9 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
 
         if md_consult_data:
             df_md_cons_raw = pd.concat(md_consult_data, ignore_index=True)
-            # Sum for the MD-specific table as well
-            df_md_consults = df_md_cons_raw.groupby(['Name', 'Month_Clean'], as_index=False).agg({'Count': 'sum'})
+            # Apply the same "Keep Last" logic for the MD-specific table
+            df_md_consults = df_md_cons_raw.drop_duplicates(subset=['Name', 'Month_Clean'], keep='last')
+            
             df_md_consults['Month_Label'] = df_md_consults['Month_Clean'].dt.strftime('%b-%y')
             df_md_consults['Quarter'] = df_md_consults['Month_Clean'].apply(lambda x: f"Q{x.quarter} {x.year}")
         else:
