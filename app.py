@@ -1703,7 +1703,8 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                 col_nav_md_26, col_main_md_26 = st.columns([1, 5])
                 with col_nav_md_26:
                     st.markdown("### 📊 Metric (2026)")
-                    md_view_26 = st.radio("Select View:", ["wRVU Productivity", "Office Visits"], key="md_radio_26_unique")
+                    # Added a unique key to ensure no duplication
+                    md_view_26 = st.radio("Select View:", ["wRVU Productivity", "Office Visits"], key="md_radio_2026_final")
             
                 with col_main_md_26:
                     df_mds_26 = df_mds[df_mds['Month_Clean'].dt.year == 2026].copy() if not df_mds.empty else pd.DataFrame()
@@ -1716,7 +1717,7 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                             with st.container(border=True):
                                 st.markdown("#### 📈 2026 Trend (RVU per FTE)")
                                 fig_trend = px.line(df_mds_26.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
-                                st.plotly_chart(style_high_end_chart(fig_trend), use_container_width=True, key="chart_trend_md_26")
+                                st.plotly_chart(style_high_end_chart(fig_trend), use_container_width=True, key="prod_trend_26")
                             
                             c1, c2 = st.columns(2)
                             with c1:
@@ -1726,19 +1727,20 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     sorted_months_md = df_mds_26.sort_values("Month_Clean")["Month_Label"].unique()
                                     piv = piv.reindex(columns=sorted_months_md).fillna(0)
                                     piv["Total"] = piv.sum(axis=1)
-                                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"), height=400, key="df_md_monthly_26")
+                                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"), height=400)
                             with c2:
                                 with st.container(border=True):
                                     st.markdown("#### 🏆 YTD Total RVUs")
                                     ytd_sum = df_mds_26.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
                                     fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
-                                    st.plotly_chart(style_high_end_chart(fig_ytd), use_container_width=True, key="chart_ytd_md_26")
+                                    st.plotly_chart(style_high_end_chart(fig_ytd), use_container_width=True, key="prod_ytd_26")
 
                     elif md_view_26 == "Office Visits":
                         df_visits_26 = df_visits[df_visits['Month_Clean'].dt.year == 2026].copy() if not df_visits.empty else pd.DataFrame()
                         if df_visits_26.empty:
                             st.warning("No Office Visit data found for 2026.")
                         else:
+                            st.info("ℹ️ **This includes all HOPD and freestanding sites (including LROC, TROC, and TOPC)**")
                             df_visits_agg = df_visits_26.groupby(['Name', 'Month_Clean'], as_index=False).agg({'Total Visits': 'sum', 'New Patients': 'sum'})
                             latest_v_date = df_visits_agg['Month_Clean'].max()
                             latest_v_df = df_visits_agg[df_visits_agg['Month_Clean'] == latest_v_date]
@@ -1749,25 +1751,14 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                 with st.container(border=True):
                                     st.markdown(f"#### 🏥 Total Office Visits ({latest_v_date.year} YTD)")
                                     fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), x='Total Visits', y='Name', orientation='h', text_auto=True, color='Total Visits', color_continuous_scale='Blues')
-                                    st.plotly_chart(style_high_end_chart(fig_ov), use_container_width=True, key="chart_ov_md_26")
+                                    st.plotly_chart(style_high_end_chart(fig_ov), use_container_width=True, key="visit_ov_26")
                             with c_ov2:
                                 with st.container(border=True):
                                     st.markdown(f"#### 🆕 New Patients ({latest_v_date.year} YTD)")
                                     fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), x='New Patients', y='Name', orientation='h', text_auto=True, color='New Patients', color_continuous_scale='Greens')
-                                    st.plotly_chart(style_high_end_chart(fig_np), use_container_width=True, key="chart_np_md_26")
+                                    st.plotly_chart(style_high_end_chart(fig_np), use_container_width=True, key="visit_np_26")
 
-                    # --- TX PLAN TABLE (Always visible at the bottom) ---
-                    st.markdown("---")
-                    df_md_consults_26 = df_md_consults[df_md_consults['Month_Clean'].dt.year == 2026].copy() if not df_md_consults.empty else pd.DataFrame()
-                    if not df_md_consults_26.empty:
-                        st.markdown("### 📝 MD Tx Plan Complex (CPT 77263)")
-                        sorted_m_cons = df_md_consults_26.sort_values("Month_Clean")["Month_Label"].unique()
-                        piv_md_cons = df_md_consults_26.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
-                        piv_md_cons = piv_md_cons.reindex(columns=sorted_m_cons).fillna(0)
-                        piv_md_cons["Total"] = piv_md_cons.sum(axis=1)
-                        st.dataframe(piv_md_cons.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"), height=500, use_container_width=True, key="df_77263_final_26")
-
-                    # --- TX PLAN TABLE (Moved outside radio logic so it always shows) ---
+                    # --- TX PLAN TABLE (Always visible at bottom) ---
                     st.markdown("---")
                     df_md_consults_26 = df_md_consults[df_md_consults['Month_Clean'].dt.year == 2026].copy() if not df_md_consults.empty else pd.DataFrame()
                     if not df_md_consults_26.empty:
@@ -1777,56 +1768,6 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                         piv_md_cons = piv_md_cons.reindex(columns=sorted_m_cons).fillna(0)
                         piv_md_cons["Total"] = piv_md_cons.sum(axis=1)
                         st.dataframe(piv_md_cons.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"), height=500, use_container_width=True)
-# --- END REPLACEMENT ---
-                    
-                    elif md_view_26 == "Office Visits":
-                        df_visits_26 = df_visits[df_visits['Month_Clean'].dt.year == 2026].copy() if not df_visits.empty else pd.DataFrame()
-                        st.info("ℹ️ **This includes all HOPD and freestanding sites (including LROC, TROC, and TOPC)**")
-                        if df_visits_26.empty:
-                            st.warning("No Office Visit data found for 2026.")
-                        else:
-                            df_visits_agg = df_visits_26.groupby(['Name', 'Month_Clean'], as_index=False).agg({'Total Visits': 'sum', 'New Patients': 'sum', 'Visits_Diff': 'sum', 'NP_Diff': 'sum'})
-                            latest_v_date = df_visits_agg['Month_Clean'].max()
-                            latest_v_df = df_visits_agg[df_visits_agg['Month_Clean'] == latest_v_date]
-                            latest_v_df = latest_v_df[~latest_v_df['Name'].isin(APP_LIST)]
-                            
-                            st.info(generate_narrative(df_visits_agg, "Physician", metric_col="Total Visits", unit="Visits", timeframe="Year-to-Date"))
-                            c_ov1, c_ov2 = st.columns(2)
-                            with c_ov1:
-                                with st.container(border=True):
-                                    st.markdown(f"#### 🏥 Total Office Visits ({latest_v_date.year} YTD)")
-                                    fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), x='Total Visits', y='Name', orientation='h', text_auto=True, color='Total Visits', color_continuous_scale='Blues')
-                                    st.plotly_chart(style_high_end_chart(fig_ov), use_container_width=True)
-                            with c_ov2:
-                                with st.container(border=True):
-                                    st.markdown(f"#### 🆕 New Patients ({latest_v_date.year} YTD)")
-                                    fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), x='New Patients', y='Name', orientation='h', text_auto=True, color='New Patients', color_continuous_scale='Greens')
-                                    st.plotly_chart(style_high_end_chart(fig_np), use_container_width=True)
-                            
-                            st.markdown("---")
-                            
-                            df_md_consults_26 = df_md_consults[df_md_consults['Month_Clean'].dt.year == 2026].copy() if not df_md_consults.empty else pd.DataFrame()
-                            if not df_md_consults_26.empty:
-                                st.markdown("### 📝 MD Tx Plan Complex (CPT 77263)")
-                                sorted_m_cons = df_md_consults_26.sort_values("Month_Clean")["Month_Label"].unique()
-                                piv_md_cons = df_md_consults_26.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
-                                piv_md_cons = piv_md_cons.reindex(columns=sorted_m_cons).fillna(0)
-                                piv_md_cons["Total"] = piv_md_cons.sum(axis=1)
-                                st.dataframe(piv_md_cons.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]), height=500)
-                                
-                                md_77263_ytd = df_md_consults_26.groupby('Name')['Count'].sum().reset_index()
-                                md_np_ytd = latest_v_df[['Name', 'New Patients']].copy()
-                                ratio_df = pd.merge(md_77263_ytd, md_np_ytd, on='Name', how='inner')
-                                ratio_df['Ratio'] = ratio_df.apply(lambda x: x['Count'] / x['New Patients'] if x['New Patients'] > 0 else 0, axis=1)
-                                ratio_df['Label'] = ratio_df.apply(lambda x: f"{x['Ratio']:.2f} ({int(x['Count'])}/{int(x['New Patients'])})", axis=1)
-                                ratio_df = ratio_df.sort_values('Ratio', ascending=True) 
-                                
-                                if not ratio_df.empty:
-                                    st.markdown("---")
-                                    st.markdown("### 📊 Ratio: Tx Plan (77263) / New Patients (YTD)")
-                                    fig_ratio = px.bar(ratio_df, x='Ratio', y='Name', orientation='h', text='Label', title="Ratio > 1.0 indicates more Tx Plans than New Patients")
-                                    fig_ratio.update_traces(textposition='outside')
-                                    st.plotly_chart(style_high_end_chart(fig_ratio), use_container_width=True)
 
             # ==========================================
             # MD ANALYTICS - 2025 TAB
