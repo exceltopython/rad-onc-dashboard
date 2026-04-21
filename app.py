@@ -1697,9 +1697,8 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
 
 
             # ==========================================
-            # MD ANALYTICS - 2026 TAB
+            # MD ANALYTICS - 2026 TAB (FIXED DISPLAY)
             # ==========================================
-            # --- START REPLACEMENT AT Line 1564 ---
             with tab_md_26:
                 col_nav_md_26, col_main_md_26 = st.columns([1, 5])
                 with col_nav_md_26:
@@ -1707,7 +1706,6 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                     md_view_26 = st.radio("Select View:", ["wRVU Productivity", "Office Visits"], key="md_radio_26")
             
                 with col_main_md_26:
-                    # Step 1: Filter Physician data for 2026
                     df_mds_26 = df_mds[df_mds['Month_Clean'].dt.year == 2026].copy() if not df_mds.empty else pd.DataFrame()
                     
                     if md_view_26 == "wRVU Productivity":
@@ -1715,15 +1713,12 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                             st.info("No Physician productivity data found for 2026.")
                         else:
                             st.info(generate_narrative(df_mds_26, "Physician"))
-                            
                             with st.container(border=True):
                                 st.markdown("#### 📈 2026 Trend (RVU per FTE)")
                                 fig_trend = px.line(df_mds_26.sort_values('Month_Clean'), x='Month_Clean', y='RVU per FTE', color='Name', markers=True)
                                 st.plotly_chart(style_high_end_chart(fig_trend), use_container_width=True)
-                            
                             with st.container(border=True):
                                 st.markdown("#### 🏆 Year-to-Date Total RVUs (2026)")
-                                # Aggregate by Name to handle duplicates across multiple files
                                 ytd_sum = df_mds_26.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
                                 fig_ytd = px.bar(ytd_sum, x='Name', y='Total RVUs', color='Total RVUs', color_continuous_scale='Viridis', text_auto='.2s')
                                 st.plotly_chart(style_high_end_chart(fig_ytd), use_container_width=True)
@@ -1736,13 +1731,46 @@ The group average was **{avg_vol:,.0f} {unit}** per {entity_type.lower()}.
                                     sorted_months_md = df_mds_26.sort_values("Month_Clean")["Month_Label"].unique()
                                     piv = piv.reindex(columns=sorted_months_md).fillna(0)
                                     piv["Total"] = piv.sum(axis=1)
-                                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                                    st.dataframe(piv.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"), height=400)
                             with c2:
                                 with st.container(border=True):
                                     st.markdown("#### 📆 Quarterly Data")
                                     piv_q = df_mds_26.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                                     piv_q["Total"] = piv_q.sum(axis=1)
-                                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples").set_table_styles([{'selector': 'th', 'props': [('color', 'black'), ('font-weight', 'bold')]}]))
+                                    st.dataframe(piv_q.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Purples"), height=400)
+
+                    elif md_view_26 == "Office Visits":
+                        df_visits_26 = df_visits[df_visits['Month_Clean'].dt.year == 2026].copy() if not df_visits.empty else pd.DataFrame()
+                        if df_visits_26.empty:
+                            st.warning("No Office Visit data found for 2026.")
+                        else:
+                            df_visits_agg = df_visits_26.groupby(['Name', 'Month_Clean'], as_index=False).agg({'Total Visits': 'sum', 'New Patients': 'sum'})
+                            latest_v_date = df_visits_agg['Month_Clean'].max()
+                            latest_v_df = df_visits_agg[df_visits_agg['Month_Clean'] == latest_v_date]
+                            latest_v_df = latest_v_df[~latest_v_df['Name'].isin(APP_LIST)]
+                            
+                            c_ov1, c_ov2 = st.columns(2)
+                            with c_ov1:
+                                with st.container(border=True):
+                                    st.markdown(f"#### 🏥 Total Office Visits ({latest_v_date.year} YTD)")
+                                    fig_ov = px.bar(latest_v_df.sort_values('Total Visits', ascending=True), x='Total Visits', y='Name', orientation='h', text_auto=True, color='Total Visits', color_continuous_scale='Blues')
+                                    st.plotly_chart(style_high_end_chart(fig_ov), use_container_width=True)
+                            with c_ov2:
+                                with st.container(border=True):
+                                    st.markdown(f"#### 🆕 New Patients ({latest_v_date.year} YTD)")
+                                    fig_np = px.bar(latest_v_df.sort_values('New Patients', ascending=True), x='New Patients', y='Name', orientation='h', text_auto=True, color='New Patients', color_continuous_scale='Greens')
+                                    st.plotly_chart(style_high_end_chart(fig_np), use_container_width=True)
+
+                    # --- TX PLAN TABLE (Moved outside radio logic so it always shows) ---
+                    st.markdown("---")
+                    df_md_consults_26 = df_md_consults[df_md_consults['Month_Clean'].dt.year == 2026].copy() if not df_md_consults.empty else pd.DataFrame()
+                    if not df_md_consults_26.empty:
+                        st.markdown("### 📝 MD Tx Plan Complex (CPT 77263)")
+                        sorted_m_cons = df_md_consults_26.sort_values("Month_Clean")["Month_Label"].unique()
+                        piv_md_cons = df_md_consults_26.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
+                        piv_md_cons = piv_md_cons.reindex(columns=sorted_m_cons).fillna(0)
+                        piv_md_cons["Total"] = piv_md_cons.sum(axis=1)
+                        st.dataframe(piv_md_cons.sort_values("Total", ascending=False).style.format("{:,.0f}").background_gradient(cmap="Blues"), height=500, use_container_width=True)
 # --- END REPLACEMENT ---
                     
                     elif md_view_26 == "Office Visits":
