@@ -176,6 +176,9 @@ if check_password():
     # Conversion factors for 77263 (wRVU value → procedure count)
     CONSULT_CONV = {2026: 3.06, "default": 3.14}
 
+    # 2026 PC wRVU value for 77470 (Special Treatment Procedure) → procedure count
+    CPT_77470_WRVU = 2.03
+
     POS_ROW_MAPPING = {
         "CENTENNIAL RAD":     "CENT",
         "DICKSON RAD":        "Dickson",
@@ -442,6 +445,44 @@ if check_password():
                     })
         except Exception as e:
             log.append(f"Error parsing 77263 for {sheet_name}: {e}")
+        return pd.DataFrame(records)
+
+    def parse_77470_data(df, sheet_name, log, target_year=None):
+        """Parse CPT 77470 from a provider sheet; divide raw wRVU by CPT_77470_WRVU to get count."""
+        records = []
+        try:
+            col0 = df.iloc[:, 0].astype(str).str.strip()
+            cpt_matches = df.index[col0.str.contains("77470", na=False)].tolist()
+            if not cpt_matches:
+                return pd.DataFrame()
+            cpt_row_pos = cpt_matches[0]
+
+            header_pos = 1
+            for r_idx in [0, 1]:
+                sample = df.iloc[r_idx, 4:10].astype(str).str.upper().tolist()
+                if any(re.search(r'[A-Z]{3}-\d{2}', v) for v in sample):
+                    header_pos = r_idx
+                    break
+
+            ncols = len(df.columns)
+            for col_pos in range(4, ncols):
+                header_val = str(df.iloc[header_pos, col_pos]).strip()
+                if not re.search(r'^[A-Za-z]{3}-\d{2}$', header_val):
+                    continue
+                dt_clean = standardize_date(header_val)
+                if pd.isna(dt_clean):
+                    continue
+                if target_year and dt_clean.year != target_year:
+                    continue
+                raw_val = clean_number(df.iloc[cpt_row_pos, col_pos])
+                if raw_val is not None and raw_val > 0:
+                    records.append({
+                        "Name":        sheet_name,
+                        "Month_Clean": dt_clean,
+                        "Count":       raw_val / CPT_77470_WRVU,
+                    })
+        except Exception as e:
+            log.append(f"Error parsing 77470 for {sheet_name}: {e}")
         return pd.DataFrame(records)
 
     def parse_detailed_prov_sheet(df, filename_date, clinic_id, log, target_year=None):
@@ -809,7 +850,7 @@ if check_password():
 
         clinic_data = []; provider_data = []; visit_data = []
         financial_data = []; pos_trend_data = []; consult_data = []
-        app_cpt_data = []; md_cpt_data = []; md_consult_data = []
+        app_cpt_data = []; md_cpt_data = []; md_consult_data = []; md_77470_data = []
         debug_log = []; consult_log = []; prov_log = []
 
         for file_obj in all_files_to_process:
@@ -906,6 +947,8 @@ if check_password():
                         if not res_cpt.empty: md_cpt_data.append(res_cpt)
                         res_77263 = parse_consults_data(df, match_prov, consult_log, target_year)
                         if not res_77263.empty: md_consult_data.append(res_77263)
+                        res_77470 = parse_77470_data(df, match_prov, consult_log, target_year)
+                        if not res_77470.empty: md_77470_data.append(res_77470)
 
                 # Clinic-level detail sheets (e.g. "Centennial Prov")
                 if s_lower.endswith(" prov"):
@@ -1019,6 +1062,7 @@ if check_password():
 
         df_consults     = dedup_consults(consult_data)
         df_md_consults  = dedup_consults(md_consult_data)
+        df_md_77470     = dedup_consults(md_77470_data)
         df_app_cpt      = safe_dedup_and_format(app_cpt_data, ['Name', 'Month_Clean', 'CPT Code'])
         df_md_cpt       = safe_dedup_and_format(md_cpt_data,  ['Name', 'Month_Clean', 'CPT Code'])
 
@@ -1049,7 +1093,7 @@ if check_password():
             df_provider_global.sort_values('Month_Clean', inplace=True)
 
         return (df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial,
-                df_pos_trend, df_consults, df_app_cpt, df_md_cpt, df_md_consults,
+                df_pos_trend, df_consults, df_app_cpt, df_md_cpt, df_md_consults, df_md_77470,
                 debug_log, consult_log, prov_log)
 
     # ==========================================
@@ -1562,11 +1606,11 @@ if check_password():
     # ==========================================
     # MD TAB RENDERER  (shared for 2025 & 2026)
     # ==========================================
-    def render_md_tab(year, df_mds, df_visits, df_md_consults, tab_key_suffix):
+    def render_md_tab(year, df_mds, df_visits, df_md_consults, df_md_77470, tab_key_suffix):
         col_nav, col_main = st.columns([1, 5])
         with col_nav:
             st.markdown(f"### 📊 Metric ({year})")
-            md_view = st.radio("Select View:", ["wRVU Productivity", "Office Visits"],
+            md_view = st.radio("Select View:", ["wRVU Productivity", "Office Visits", "77470 Special Procedures"],
                                key=f"md_radio_{tab_key_suffix}")
         with col_main:
             df_mds_yr = df_mds[df_mds['Month_Clean'].dt.year == year].copy() if not df_mds.empty else pd.DataFrame()
@@ -1629,6 +1673,53 @@ if check_password():
                                             color='New Patients', color_continuous_scale='Greens')
                             st.plotly_chart(style_high_end_chart(fig_np), use_container_width=True,
                                             key=f"vis_np_{tab_key_suffix}")
+
+            elif md_view == "77470 Special Procedures":
+                df_77470_yr = df_md_77470[df_md_77470['Month_Clean'].dt.year == year].copy() if not df_md_77470.empty else pd.DataFrame()
+                st.markdown(f"### 🔬 CPT 77470 — Special Treatment Procedure ({year})")
+                st.info(f"Estimated procedure counts derived from wRVU amounts ÷ {CPT_77470_WRVU} (2026 PC wRVU value for 77470).")
+                if df_77470_yr.empty:
+                    st.warning(f"No CPT 77470 data found for {year}.")
+                else:
+                    sorted_m = df_77470_yr.sort_values("Month_Clean")["Month_Label"].unique()
+
+                    with st.container(border=True):
+                        st.markdown("#### 📅 Monthly Trend")
+                        fig_t = px.line(
+                            df_77470_yr.sort_values("Month_Clean"),
+                            x="Month_Clean", y="Count", color="Name", markers=True,
+                            labels={"Count": "Estimated Procedures", "Month_Clean": "Month"},
+                        )
+                        st.plotly_chart(style_high_end_chart(fig_t), use_container_width=True,
+                                        key=f"md_77470_trend_{tab_key_suffix}")
+
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        with st.container(border=True):
+                            st.markdown("#### 🔢 Monthly Count by Provider")
+                            piv_77470 = df_77470_yr.pivot_table(
+                                index="Name", columns="Month_Label", values="Count", aggfunc="sum"
+                            ).fillna(0)
+                            piv_77470 = piv_77470.reindex(columns=sorted_m).fillna(0)
+                            piv_77470["Total"] = piv_77470.sum(axis=1)
+                            st.dataframe(
+                                piv_77470.sort_values("Total", ascending=False).style
+                                .format("{:,.1f}").background_gradient(cmap="Purples"),
+                                height=450, use_container_width=True,
+                                key=f"md_77470_tbl_{tab_key_suffix}",
+                            )
+                    with c2:
+                        with st.container(border=True):
+                            st.markdown(f"#### 🏆 {year} YTD Total")
+                            ytd_77470 = df_77470_yr.groupby("Name")["Count"].sum().reset_index()
+                            ytd_77470 = ytd_77470.sort_values("Count", ascending=False)
+                            fig_ytd = px.bar(
+                                ytd_77470, x="Name", y="Count", text_auto=".1f",
+                                color="Count", color_continuous_scale="Purples",
+                                labels={"Count": "Estimated Procedures"},
+                            )
+                            st.plotly_chart(style_high_end_chart(fig_ytd), use_container_width=True,
+                                            key=f"md_77470_ytd_{tab_key_suffix}")
 
             # 77263 table — always shown at the bottom of the MD tab
             st.markdown("---")
@@ -1694,7 +1785,7 @@ if check_password():
     if all_files:
         with st.spinner("Analyzing files..."):
             (df_clinic, df_md_global, df_provider_raw, df_visits, df_financial,
-             df_pos_trend, df_consults, df_app_cpt, df_md_cpt, df_md_consults,
+             df_pos_trend, df_consults, df_app_cpt, df_md_cpt, df_md_consults, df_md_77470,
              debug_log, consult_log, prov_log) = process_files(all_files)
 
         if df_clinic.empty and df_md_global.empty:
@@ -1724,10 +1815,10 @@ if check_password():
                 render_clinic_tab(2025, df_clinic, df_provider_raw, df_pos_trend, df_consults, "25")
 
             with tab_md26:
-                render_md_tab(2026, df_mds, df_visits, df_md_consults, "26")
+                render_md_tab(2026, df_mds, df_visits, df_md_consults, df_md_77470, "26")
 
             with tab_md25:
-                render_md_tab(2025, df_mds, df_visits, df_md_consults, "25")
+                render_md_tab(2025, df_mds, df_visits, df_md_consults, df_md_77470, "25")
 
             with tab_app:
                 if df_apps.empty:
