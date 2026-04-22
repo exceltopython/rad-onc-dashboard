@@ -542,11 +542,19 @@ if check_password():
                     })
 
         for i in range(len(df)):
-            if i == header_row:
-                continue   # skip the date header row itself
-
             row       = df.iloc[i].values
             row_label = str(row[0]).upper().strip()
+
+            if i == header_row:
+                # The date-header row often doubles as the first "E&M OFFICE CODES"
+                # label for the first provider.  Count the label so the subtotal row
+                # (the second occurrence) is captured correctly; don't extract values.
+                if current_provider is not None:
+                    for term in TARGET_TERMS:
+                        if term in row_label:
+                            term_counts[term] += 1
+                            break
+                continue
 
             # ── Provider name detection: check cols 0-4 ──────────────────────
             potential_name = None
@@ -1425,8 +1433,11 @@ if check_password():
                         continue
                     st.markdown(f"### 🏥 {c_name}")
                     pie_ytd = cpdf.groupby('Name')[['Total RVUs']].sum().reset_index()
+                    pie_ytd = pie_ytd[pie_ytd['Total RVUs'] > 0]
                     latest_q = get_most_recent_quarter(cpdf)
                     pie_q    = cpdf[cpdf['Quarter'] == latest_q].groupby('Name')[['Total RVUs']].sum().reset_index() if latest_q else pd.DataFrame()
+                    if not pie_q.empty:
+                        pie_q = pie_q[pie_q['Total RVUs'] > 0]
                     if not pie_ytd.empty:
                         with st.container(border=True):
                             st.markdown(f"#### 🍰 {c_name}: Work Breakdown")
@@ -1481,8 +1492,11 @@ if check_password():
                 if not pie_src.empty:
                     try:
                         pie_ytd = pie_src.groupby('Name')[['Total RVUs']].sum().reset_index()
+                        pie_ytd = pie_ytd[pie_ytd['Total RVUs'] > 0]
                         latest_q = get_most_recent_quarter(pie_src)
                         pie_q    = pie_src[pie_src['Quarter'] == latest_q].groupby('Name')[['Total RVUs']].sum().reset_index() if latest_q else pd.DataFrame()
+                        if not pie_q.empty:
+                            pie_q = pie_q[pie_q['Total RVUs'] > 0]
                         if not pie_ytd.empty:
                             with st.container(border=True):
                                 st.markdown("#### 🍰 Work Breakdown: Who performed the work?")
