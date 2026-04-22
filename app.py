@@ -959,7 +959,7 @@ if check_password():
                     s_upper = sheet_name.upper()
                     if "PROV" in s_upper: continue
                     if any(ign in s_upper for ign in IGNORED_SHEETS): continue
-                    if "PROTON POS" in s_upper or "PRODUCTIVITY TREND" in s_upper: continue
+                    if "PROTON POS" in s_upper or "TREND" in s_upper: continue
                     cn = sheet_name.strip()
                     if cn.upper() == "FRIEDMEN": cn = "Friedman"
                     res = parse_rvu_sheet(df, cn, 'provider', clinic_tag="TOPC", target_year=target_year)
