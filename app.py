@@ -447,18 +447,34 @@ if check_password():
     def parse_detailed_prov_sheet(df, filename_date, clinic_id, log, target_year=None):
         """
         Parse a '*Prov' clinic sheet that lists individual provider sub-sections.
-        FIX #1: positional column indexing for date map.
+
+        Sheet structure (repeated per provider):
+            Row: <Provider Name>
+            Row: E&M OFFICE CODES          [col4=Jan val, col5=Feb val, ...]
+            Row: E&M OFFICE CODES          [col4=Jan YTD, col5=Feb YTD, ...]  ← SKIP (YTD/cumulative)
+            Row: RADIATION CODES           [monthly values]
+            Row: RADIATION CODES           [YTD cumulative]                    ← SKIP
+            Row: SPECIAL PROCEDURES        [monthly values]
+            Row: SPECIAL PROCEDURES        [YTD cumulative]                    ← SKIP
+
+        Strategy:
+          - Build date_map from the header row (col_pos → month Timestamp)
+          - For each provider section, collect the FIRST occurrence of each
+            category label (monthly actuals), sum across the three categories
+            per column, and emit one record per month column.
+          - The second occurrence of each label is the YTD cumulative — skip it.
         """
         records = []
-        target_terms  = list({"E&M OFFICE CODES": 0.0, "RADIATION CODES": 0.0, "SPECIAL PROCEDURES": 0.0}.keys())
+        TARGET_TERMS = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
 
-        # Build date map: col_pos → Timestamp
+        # ── Step 1: Build date_map col_pos → Timestamp ──────────────────────
         date_map = {}
         for r in range(min(15, len(df))):
             row = df.iloc[r].values
             for c_pos in range(len(row)):
                 val = str(row[c_pos]).strip()
-                if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}', val, re.IGNORECASE):
+                if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}',
+                            val, re.IGNORECASE):
                     dt_clean = standardize_date(val)
                     if pd.notna(dt_clean):
                         if target_year and dt_clean.year != target_year:
@@ -467,63 +483,86 @@ if check_password():
             if date_map:
                 break
 
+        if not date_map:
+            # No date header found — fall back to filename date for a single-column read
+            file_dt = standardize_date(filename_date)
+            if target_year and pd.notna(file_dt) and file_dt.year != target_year:
+                return pd.DataFrame()
+            date_map = {19: file_dt}   # column 19 is the historical fallback column
+
+        # ── Step 2: Walk rows, collect per-provider monthly totals ───────────
         current_provider = None
-        term_counts      = {k: 0 for k in target_terms}
+        # term_seen tracks which terms we've already seen ONCE for this provider
+        # (first occurrence = monthly, second = cumulative YTD → skip)
+        term_seen = {t: False for t in TARGET_TERMS}
+        # monthly_accum: col_pos → running wRVU sum for current provider
+        monthly_accum = {c: 0.0 for c in date_map}
+
+        def flush_provider():
+            """Emit records for current_provider from monthly_accum."""
+            if current_provider is None:
+                return
+            for col_pos, dt in date_map.items():
+                total = monthly_accum.get(col_pos, 0.0)
+                if total != 0.0:
+                    records.append({
+                        "Type":        "provider",
+                        "ID":          clinic_id,
+                        "Name":        current_provider,
+                        "FTE":         1.0,
+                        "Month_Clean": dt,
+                        "Total RVUs":  total,
+                        "RVU per FTE": total,
+                        "Clinic_Tag":  clinic_id,
+                        "source_type": "detail",
+                    })
 
         for i in range(len(df)):
             row = df.iloc[i].values
-            # Check if this row names a provider
+            row_label = str(row[0]).upper().strip()
+
+            # ── Detect a provider name row ───────────────────────────────────
             potential_name = None
             for c in range(min(5, len(row))):
                 m = match_provider(str(row[c]).strip())
                 if m:
                     potential_name = m
                     break
+
             if potential_name:
+                # Flush previous provider before starting a new one
+                flush_provider()
                 current_provider = potential_name
-                term_counts = {k: 0 for k in target_terms}
+                term_seen    = {t: False for t in TARGET_TERMS}
+                monthly_accum = {c: 0.0 for c in date_map}
                 continue
 
-            if current_provider:
-                row_label = str(row[0]).upper()
-                for term in target_terms:
-                    if term in row_label:
-                        term_counts[term] += 1
-                        if term_counts[term] == 2:
-                            if date_map:
-                                for col_pos, dt in date_map.items():
-                                    if col_pos < len(row):
-                                        val = clean_number(row[col_pos])
-                                        if val and val != 0:
-                                            records.append({
-                                                "Type":       "provider",
-                                                "ID":         clinic_id,
-                                                "Name":       current_provider,
-                                                "FTE":        1.0,
-                                                "Month_Clean": dt,
-                                                "Total RVUs": val,
-                                                "RVU per FTE": val,
-                                                "Clinic_Tag": clinic_id,
-                                                "source_type": "detail",
-                                            })
-                            else:
-                                if len(row) > 19:
-                                    val = clean_number(row[19])
-                                    if val:
-                                        file_dt = standardize_date(filename_date)
-                                        if target_year and pd.notna(file_dt) and file_dt.year != target_year:
-                                            continue
-                                        records.append({
-                                            "Type":       "provider",
-                                            "ID":         clinic_id,
-                                            "Name":       current_provider,
-                                            "FTE":        1.0,
-                                            "Month_Clean": file_dt,
-                                            "Total RVUs": val,
-                                            "RVU per FTE": val,
-                                            "Clinic_Tag": clinic_id,
-                                            "source_type": "detail",
-                                        })
+            if current_provider is None:
+                continue
+
+            # ── Check if this row is one of our three target categories ──────
+            matched_term = None
+            for term in TARGET_TERMS:
+                if term in row_label:
+                    matched_term = term
+                    break
+
+            if matched_term is None:
+                continue
+
+            if not term_seen[matched_term]:
+                # FIRST occurrence → monthly actuals → accumulate
+                term_seen[matched_term] = True
+                for col_pos in date_map:
+                    if col_pos < len(row):
+                        val = clean_number(row[col_pos])
+                        if val is not None:
+                            monthly_accum[col_pos] += val
+            # SECOND (or later) occurrence → YTD cumulative → skip
+
+        # Flush the last provider
+        flush_provider()
+
         return pd.DataFrame(records)
 
     def parse_visits_sheet(df, filename_date, clinic_tag="General", target_year=None):
@@ -907,11 +946,32 @@ if check_password():
                     clinic_data.append(pd.DataFrame(topc_records))
 
         # --- DEDUPLICATION ---
-        df_clinic       = safe_dedup_and_format(clinic_data,    ['Name', 'Month_Clean', 'ID'])
-        df_provider_raw = safe_dedup_and_format(provider_data,  ['Name', 'Month_Clean', 'Type', 'Clinic_Tag'])
-        df_visits       = safe_dedup_and_format(visit_data,     ['Name', 'Month_Clean', 'Clinic_Tag'])
-        df_financial    = safe_dedup_and_format(financial_data, ['Name', 'Month_Clean', 'Mode'])
-        df_pos_trend    = safe_dedup_and_format(pos_trend_data, ['Clinic_Tag', 'Month_Clean'])
+        df_clinic    = safe_dedup_and_format(clinic_data,    ['Name', 'Month_Clean', 'ID'])
+        df_visits    = safe_dedup_and_format(visit_data,     ['Name', 'Month_Clean', 'Clinic_Tag'])
+        df_financial = safe_dedup_and_format(financial_data, ['Name', 'Month_Clean', 'Mode'])
+        df_pos_trend = safe_dedup_and_format(pos_trend_data, ['Clinic_Tag', 'Month_Clean'])
+
+        # Provider dedup: detail records (from *Prov sheets) contain per-month
+        # values extracted from the date header, so each month is a separate row.
+        # We keep the LAST-written value per Name+Month+Clinic_Tag+source_type
+        # (ascending sort means later files overwrite earlier ones for the same month).
+        if provider_data:
+            all_prov = pd.concat(provider_data, ignore_index=True)
+            all_prov['Month_Clean'] = all_prov['Month_Clean'].apply(standardize_date)
+            all_prov = all_prov.dropna(subset=['Month_Clean'])
+            all_prov['Month_Label'] = all_prov['Month_Clean'].dt.strftime('%b-%y')
+            if 'Quarter' not in all_prov.columns:
+                all_prov['Quarter'] = all_prov['Month_Clean'].apply(
+                    lambda x: f"Q{x.quarter} {x.year}")
+            if 'source_type' not in all_prov.columns:
+                all_prov['source_type'] = 'standard'
+            # Sort ascending so later files (e.g. MAR26) come last and win
+            all_prov = all_prov.sort_values('Month_Clean', ascending=True)
+            all_prov = all_prov.drop_duplicates(
+                subset=['Name', 'Month_Clean', 'Clinic_Tag', 'source_type'], keep='last')
+            df_provider_raw = all_prov
+        else:
+            df_provider_raw = pd.DataFrame()
 
         # 77263: keep last record per Name+Month to prevent multi-file double-counting
         def dedup_consults(data_list):
