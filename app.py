@@ -446,60 +446,84 @@ if check_password():
 
     def parse_detailed_prov_sheet(df, filename_date, clinic_id, log, target_year=None):
         """
-        Parse a '*Prov' clinic sheet that lists individual provider sub-sections.
+        Parse a '*Prov' clinic sheet.
 
-        Sheet structure (repeated per provider):
-            Row: <Provider Name>
-            Row: E&M OFFICE CODES          [col4=Jan val, col5=Feb val, ...]
-            Row: E&M OFFICE CODES          [col4=Jan YTD, col5=Feb YTD, ...]  ← SKIP (YTD/cumulative)
-            Row: RADIATION CODES           [monthly values]
-            Row: RADIATION CODES           [YTD cumulative]                    ← SKIP
-            Row: SPECIAL PROCEDURES        [monthly values]
-            Row: SPECIAL PROCEDURES        [YTD cumulative]                    ← SKIP
+        Confirmed sheet structure (from TNONC_MAR26_ME_RAD_POS_Work_RVUS.xls):
+          Row 1 : Clinic name (e.g. "Dickson Rad") in col A — SKIP
+          Row 2 : blank
+          Row 3 : Provider name (e.g. "Cohen MD, Brad R") in col C;
+                  date headers start at col B:
+                  [Mar-25 | 2025 YTD | Apr-25 | May-25 | ... | Mar-26 | 12 Month | % | AVG | 2026 YTD]
+          Row 4 : "E&M OFFICE CODES"  ← section HEADER (no values) — SKIP
+          Rows 5-6: individual CPT lines
+          Row 7 : "E&M OFFICE CODES"  ← SUBTOTAL row  ← USE THIS
+          Row 8 : "RADIATION CODES"   ← section HEADER — SKIP
+          Rows 9-21: individual CPT lines
+          Row 22: "RADIATION CODES"   ← SUBTOTAL row  ← USE THIS
+          Row 23: "SPECIAL PROCEDURES" header — SKIP  (may be absent for some providers)
+          ...
+          Row N : "SPECIAL PROCEDURES" SUBTOTAL ← USE THIS (if present)
+          Row N+1: blank / next provider header
 
         Strategy:
-          - Build date_map from the header row (col_pos → month Timestamp)
-          - For each provider section, collect the FIRST occurrence of each
-            category label (monthly actuals), sum across the three categories
-            per column, and emit one record per month column.
-          - The second occurrence of each label is the YTD cumulative — skip it.
+          1. Scan first ~5 rows for the date header row (contains "Mar-25", "Apr-25" etc).
+             Build date_map: col_pos → Timestamp, skipping YTD/cumulative columns
+             (identified by containing "YTD", "12 Month", "%", "AVG" in their header cell).
+          2. Walk all rows:
+             - Provider name detected in any of cols 0-4 → start new provider section.
+             - Category label row seen for the SECOND time for this provider
+               → this is the SUBTOTAL row → accumulate its values into monthly_accum.
+             - First occurrence of category label → section header, skip.
+          3. When a new provider starts (or EOF), flush accumulated monthly totals
+             as individual records (one per month column with non-zero value).
         """
         records = []
         TARGET_TERMS = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
 
-        # ── Step 1: Build date_map col_pos → Timestamp ──────────────────────
-        date_map = {}
-        for r in range(min(15, len(df))):
+        # ── Step 1: Find the date header row and build date_map ──────────────
+        # Columns to SKIP even if they parse as dates (cumulative / summary cols)
+        SKIP_KEYWORDS = ["YTD", "12 MONTH", "12M", "AVG", "AVERAGE"]
+
+        date_map    = {}   # col_pos → Timestamp  (monthly actuals only)
+        header_row  = -1
+
+        for r in range(min(10, len(df))):
             row = df.iloc[r].values
+            tmp = {}
             for c_pos in range(len(row)):
-                val = str(row[c_pos]).strip()
-                if re.match(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}',
-                            val, re.IGNORECASE):
-                    dt_clean = standardize_date(val)
-                    if pd.notna(dt_clean):
-                        if target_year and dt_clean.year != target_year:
+                cell = str(row[c_pos]).strip()
+                # Skip blank / NaN
+                if not cell or cell.upper() == "NAN":
+                    continue
+                # Skip summary columns by keyword
+                if any(kw in cell.upper() for kw in SKIP_KEYWORDS):
+                    continue
+                # Check for Mon-YY pattern
+                if re.match(r'^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}$',
+                            cell, re.IGNORECASE):
+                    dt = standardize_date(cell)
+                    if pd.notna(dt):
+                        if target_year and dt.year != target_year:
                             continue
-                        date_map[c_pos] = dt_clean
-            if date_map:
+                        tmp[c_pos] = dt
+            if len(tmp) >= 2:          # need at least 2 month columns to be confident
+                date_map   = tmp
+                header_row = r
                 break
 
         if not date_map:
-            # No date header found — fall back to filename date for a single-column read
+            # Fallback: use filename date and column 19
             file_dt = standardize_date(filename_date)
             if target_year and pd.notna(file_dt) and file_dt.year != target_year:
                 return pd.DataFrame()
-            date_map = {19: file_dt}   # column 19 is the historical fallback column
+            date_map = {19: file_dt}
 
-        # ── Step 2: Walk rows, collect per-provider monthly totals ───────────
+        # ── Step 2: Walk rows ────────────────────────────────────────────────
         current_provider = None
-        # term_seen tracks which terms we've already seen ONCE for this provider
-        # (first occurrence = monthly, second = cumulative YTD → skip)
-        term_seen = {t: False for t in TARGET_TERMS}
-        # monthly_accum: col_pos → running wRVU sum for current provider
+        term_counts  = {t: 0 for t in TARGET_TERMS}   # how many times each label seen
         monthly_accum = {c: 0.0 for c in date_map}
 
         def flush_provider():
-            """Emit records for current_provider from monthly_accum."""
             if current_provider is None:
                 return
             for col_pos, dt in date_map.items():
@@ -518,10 +542,13 @@ if check_password():
                     })
 
         for i in range(len(df)):
-            row = df.iloc[i].values
+            if i == header_row:
+                continue   # skip the date header row itself
+
+            row       = df.iloc[i].values
             row_label = str(row[0]).upper().strip()
 
-            # ── Detect a provider name row ───────────────────────────────────
+            # ── Provider name detection: check cols 0-4 ──────────────────────
             potential_name = None
             for c in range(min(5, len(row))):
                 m = match_provider(str(row[c]).strip())
@@ -530,17 +557,16 @@ if check_password():
                     break
 
             if potential_name:
-                # Flush previous provider before starting a new one
                 flush_provider()
                 current_provider = potential_name
-                term_seen    = {t: False for t in TARGET_TERMS}
+                term_counts   = {t: 0 for t in TARGET_TERMS}
                 monthly_accum = {c: 0.0 for c in date_map}
                 continue
 
             if current_provider is None:
                 continue
 
-            # ── Check if this row is one of our three target categories ──────
+            # ── Category label detection ──────────────────────────────────────
             matched_term = None
             for term in TARGET_TERMS:
                 if term in row_label:
@@ -550,19 +576,19 @@ if check_password():
             if matched_term is None:
                 continue
 
-            if not term_seen[matched_term]:
-                # FIRST occurrence → monthly actuals → accumulate
-                term_seen[matched_term] = True
+            term_counts[matched_term] += 1
+
+            if term_counts[matched_term] == 2:
+                # SECOND occurrence = SUBTOTAL row → these are the monthly actuals
                 for col_pos in date_map:
                     if col_pos < len(row):
                         val = clean_number(row[col_pos])
                         if val is not None:
                             monthly_accum[col_pos] += val
-            # SECOND (or later) occurrence → YTD cumulative → skip
+            # FIRST occurrence = section header row (no values) → skip
+            # 3rd+ occurrence = shouldn't happen but skip anyway
 
-        # Flush the last provider
         flush_provider()
-
         return pd.DataFrame(records)
 
     def parse_visits_sheet(df, filename_date, clinic_tag="General", target_year=None):
