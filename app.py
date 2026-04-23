@@ -31,8 +31,11 @@ def inject_custom_css():
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] { background-color: #1E3A8A !important; color: #FFFFFF !important; border-color: #1E3A8A; }
         .stTabs [data-baseweb="tab-highlight"] { background-color: transparent !important; }
 
-        div[data-testid="stDataFrame"] div[role="columnheader"] { color: #000000 !important; font-weight: 900 !important; font-size: 14px !important; }
-        [data-testid="stDataFrame"] th { color: #000000 !important; font-weight: 900 !important; }
+        div[data-testid="stDataFrame"] div[role="columnheader"] { color: #000000 !important; font-weight: 900 !important; font-size: 21px !important; }
+        div[data-testid="stDataFrame"] div[role="gridcell"]     { font-size: 21px !important; }
+        div[data-testid="stDataFrame"] div[role="rowheader"]    { font-size: 21px !important; font-weight: 600 !important; }
+        [data-testid="stDataFrame"] th { color: #000000 !important; font-weight: 900 !important; font-size: 21px !important; }
+        [data-testid="stDataFrame"] td { font-size: 21px !important; }
         </style>
     """, unsafe_allow_html=True)
 
