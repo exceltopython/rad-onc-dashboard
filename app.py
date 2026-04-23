@@ -31,15 +31,24 @@ def inject_custom_css():
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] { background-color: #1E3A8A !important; color: #FFFFFF !important; border-color: #1E3A8A; }
         .stTabs [data-baseweb="tab-highlight"] { background-color: transparent !important; }
 
-        div[data-testid="stDataFrame"] div[role="columnheader"] { color: #000000 !important; font-weight: 900 !important; font-size: 21px !important; }
-        div[data-testid="stDataFrame"] div[role="gridcell"]     { font-size: 21px !important; }
-        div[data-testid="stDataFrame"] div[role="rowheader"]    { font-size: 21px !important; font-weight: 600 !important; }
-        [data-testid="stDataFrame"] th { color: #000000 !important; font-weight: 900 !important; font-size: 21px !important; }
-        [data-testid="stDataFrame"] td { font-size: 21px !important; }
+        div.rtable table { border-collapse: collapse; width: 100%; font-family: Inter, sans-serif; }
+        div.rtable th { background-color: #f1f5f9 !important; font-weight: 700 !important; color: #0f172a !important; font-size: 21px !important; padding: 8px 14px !important; border: 1px solid #cbd5e1 !important; text-align: left !important; }
+        div.rtable td { border: 1px solid #e2e8f0 !important; }
+        div.rtable tr:hover td { filter: brightness(0.96); }
         </style>
     """, unsafe_allow_html=True)
 
 inject_custom_css()
+
+def render_table(styled_df, height=None):
+    # Bake font-size directly into every <td> inline style — CSS inheritance
+    # from an outer div is unreliable in Streamlit's markdown container.
+    html = styled_df.set_properties(**{'font-size': '21px', 'padding': '8px 14px'}).to_html()
+    h_style = f"max-height:{height}px; overflow-y:auto; " if height else ""
+    st.markdown(
+        f'<div class="rtable" style="{h_style}overflow-x:auto;">{html}</div>',
+        unsafe_allow_html=True,
+    )
 
 def style_high_end_chart(fig):
     fig.update_layout(
@@ -177,6 +186,8 @@ if check_password():
     TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
     IGNORED_SHEETS   = ["RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
     SERVER_DIR       = "Reports"
+    # Approximate MGMA Radiation Oncology physician benchmarks (annual wRVUs)
+    MGMA_BENCHMARKS  = {"25th": 6500, "50th": 9000, "75th": 11500}
 
     # CPT conversion rates for follow-up visit counting
     APP_CPT_RATES = {"99212": 0.7, "99213": 1.3, "99214": 1.92, "99215": 2.8}
@@ -1026,14 +1037,16 @@ if check_password():
                 if proton_prov_temp:
                     comb = pd.concat(proton_prov_temp)
                     comb['Month_Clean'] = pd.to_datetime(comb['Month_Clean'], errors='coerce')
-                    grp = comb.groupby('Month_Clean', as_index=False)[['Total RVUs', 'FTE']].sum()
+                    grp = comb.groupby('Month_Clean', as_index=False)[['Total RVUs']].sum()
+                    # Use the configured clinic FTE (2.5), not the sum of individual provider FTEs.
+                    topc_fte = CLINIC_CONFIG.get("TOPC", {}).get("fte", 2.5)
                     topc_records = []
                     for _, row in grp.iterrows():
                         topc_records.append({
                             "Type": "clinic", "ID": "TOPC", "Name": "TN Proton Center",
-                            "FTE": row['FTE'], "Month_Clean": row['Month_Clean'],
+                            "FTE": topc_fte, "Month_Clean": row['Month_Clean'],
                             "Total RVUs": row['Total RVUs'],
-                            "RVU per FTE": row['Total RVUs'] / row['FTE'] if row['FTE'] > 0 else 0,
+                            "RVU per FTE": row['Total RVUs'] / topc_fte,
                             "Clinic_Tag": "TOPC", "source_type": "standard",
                         })
                     clinic_data.append(pd.DataFrame(topc_records))
@@ -1126,6 +1139,10 @@ if check_password():
             df_clinic = df_clinic.groupby(
                 ['Name', 'ID', 'Month_Clean', 'Month_Label', 'Quarter'], as_index=False
             ).agg({'Total RVUs': 'sum', 'FTE': 'max', 'Clinic_Tag': 'first'})
+            # Always use the canonical configured FTE — overrides any summed/wrong values
+            # that may have come from individual provider roll-ups (e.g. TOPC).
+            clinic_fte_map = {cid: cfg['fte'] for cid, cfg in CLINIC_CONFIG.items()}
+            df_clinic['FTE'] = df_clinic['ID'].map(clinic_fte_map).fillna(df_clinic['FTE'])
             df_clinic['RVU per FTE'] = df_clinic.apply(
                 lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
             df_clinic.sort_values('Month_Clean', inplace=True)
@@ -1206,7 +1223,7 @@ if check_password():
         final   = pd.concat([h_trend, curr_df], ignore_index=True)
         final['Year'] = final['Year'].astype(int).astype(str)
         table   = final.groupby('Year').sum().T
-        st.dataframe(table.style.format("{:,.0f}"), use_container_width=True)
+        render_table(table.style.format("{:,.0f}"))
 
     def render_long_term_history(clinic_filter, current_year, df_view_current, view_title,
                                   target_ids_tristar, target_ids_ascension, clinic_filter_id_map):
@@ -1235,7 +1252,7 @@ if check_password():
         if clinic_filter not in ["TriStar", "Ascension", "All"]:
             ht = hist_trend.copy()
             ht['Year'] = ht['Year'].astype(int).astype(str)
-            st.dataframe(ht.set_index('Year').T.style.format("{:,.0f}"), use_container_width=True)
+            render_table(ht.set_index('Year').T.style.format("{:,.0f}"))
 
         if clinic_filter in ["TriStar", "Ascension"]:
             st.markdown("---"); st.markdown("##### 🏥 Individual Clinic History")
@@ -1252,6 +1269,153 @@ if check_password():
                     fig_c = px.bar(c_hist, x='Year', y='Total RVUs', text_auto='.2s', title=c_name)
                     with cols[idx % 2]:
                         st.plotly_chart(style_high_end_chart(fig_c), use_container_width=True)
+
+    # ==========================================
+    # EXECUTIVE SUMMARY RENDERER
+    # ==========================================
+    def render_executive_summary(year, df_clinic_all, df_mds_all, df_visits_all, df_financial):
+        prior_year = year - 1
+        df_cur  = df_clinic_all[df_clinic_all['Month_Clean'].dt.year == year].copy()  if not df_clinic_all.empty else pd.DataFrame()
+        df_pri  = df_clinic_all[df_clinic_all['Month_Clean'].dt.year == prior_year].copy() if not df_clinic_all.empty else pd.DataFrame()
+        df_mc   = df_mds_all[df_mds_all['Month_Clean'].dt.year == year].copy()        if not df_mds_all.empty   else pd.DataFrame()
+        df_mp   = df_mds_all[df_mds_all['Month_Clean'].dt.year == prior_year].copy()  if not df_mds_all.empty   else pd.DataFrame()
+        df_vc   = df_visits_all[df_visits_all['Month_Clean'].dt.year == year].copy()  if not df_visits_all.empty else pd.DataFrame()
+
+        cur_months = set(df_cur['Month_Clean'].dt.month.unique()) if not df_cur.empty else set()
+        df_pri_cmp = df_pri[df_pri['Month_Clean'].dt.month.isin(cur_months)] if not df_pri.empty else pd.DataFrame()
+        df_mp_cmp  = df_mp[df_mp['Month_Clean'].dt.month.isin(cur_months)]   if not df_mp.empty  else pd.DataFrame()
+
+        ytd_rvu   = df_cur['Total RVUs'].sum() if not df_cur.empty else 0
+        pri_rvu   = df_pri_cmp['Total RVUs'].sum() if not df_pri_cmp.empty else 0
+        yoy_pct   = (ytd_rvu - pri_rvu) / pri_rvu * 100 if pri_rvu > 0 else 0
+        md_ytd    = df_mc['Total RVUs'].sum()  if not df_mc.empty else 0
+        md_pri    = df_mp_cmp['Total RVUs'].sum() if not df_mp_cmp.empty else 0
+        md_yoy    = (md_ytd - md_pri) / md_pri * 100 if md_pri > 0 else 0
+        np_ytd    = df_vc['New Patients'].sum() if not df_vc.empty else 0
+        n_months  = df_cur['Month_Clean'].dt.month.nunique() if not df_cur.empty else 0
+        projected = ytd_rvu / n_months * 12 if n_months > 0 else 0
+        n_mds     = df_mc['Name'].nunique()     if not df_mc.empty else 0
+        n_sites   = df_cur['Name'].nunique()    if not df_cur.empty else 0
+
+        st.markdown(f"## 🩺 Division Analytics — {year} Executive Summary")
+        latest_lbl = df_cur['Month_Clean'].max().strftime('%B %Y') if not df_cur.empty else ""
+        if latest_lbl:
+            st.caption(f"Data through {latest_lbl}  •  {n_months} months YTD")
+        st.markdown("---")
+
+        # ---- KPI Metrics ----
+        k1, k2, k3, k4, k5, k6 = st.columns(6)
+        with k1:
+            st.metric("Network wRVUs YTD", f"{ytd_rvu:,.0f}",
+                      delta=f"{yoy_pct:+.1f}% vs {prior_year}" if pri_rvu > 0 else None)
+        with k2:
+            st.metric(f"Projected {year} Annual", f"{projected:,.0f}",
+                      help=f"Linear extrapolation from {n_months}-month YTD pace")
+        with k3:
+            st.metric("MD wRVUs YTD", f"{md_ytd:,.0f}",
+                      delta=f"{md_yoy:+.1f}% vs {prior_year}" if md_pri > 0 else None)
+        with k4:
+            st.metric("New Patients YTD", f"{np_ytd:,.0f}")
+        with k5:
+            st.metric("Active Physicians", str(n_mds))
+        with k6:
+            st.metric("Active Sites", str(n_sites))
+
+        st.markdown("---")
+
+        # ---- YoY Monthly Volume Chart ----
+        if not df_cur.empty and not df_pri_cmp.empty:
+            with st.container(border=True):
+                st.markdown(f"#### 📈 Network wRVU Volume: {year} vs {prior_year}")
+                _MN = {1:'Jan',2:'Feb',3:'Mar',4:'Apr',5:'May',6:'Jun',
+                       7:'Jul',8:'Aug',9:'Sep',10:'Oct',11:'Nov',12:'Dec'}
+                nc = df_cur.groupby(df_cur['Month_Clean'].dt.month)['Total RVUs'].sum().reset_index()
+                nc.columns = ['m','Total RVUs']; nc['Year'] = str(year)
+                np2 = df_pri_cmp.groupby(df_pri_cmp['Month_Clean'].dt.month)['Total RVUs'].sum().reset_index()
+                np2.columns = ['m','Total RVUs']; np2['Year'] = str(prior_year)
+                yoy_df = pd.concat([nc, np2]).sort_values('m')
+                yoy_df['Month'] = yoy_df['m'].map(_MN)
+                fig_yoy = px.bar(yoy_df, x='Month', y='Total RVUs', color='Year', barmode='group',
+                                 text_auto='.2s',
+                                 color_discrete_map={str(year):'#1E3A8A', str(prior_year):'#94a3b8'},
+                                 labels={'Total RVUs':'wRVUs'})
+                st.plotly_chart(style_high_end_chart(fig_yoy), use_container_width=True,
+                                key=f"exec_yoy_{year}")
+
+        # ---- Clinic Performance Scorecard ----
+        if not df_cur.empty:
+            with st.container(border=True):
+                st.markdown("#### 🏆 Clinic Performance Scorecard")
+                fte_map = {cid: cfg['fte'] for cid, cfg in CLINIC_CONFIG.items()}
+                sc = df_cur.groupby(['ID','Name'])['Total RVUs'].sum().reset_index()
+                sc['FTE'] = sc['ID'].map(fte_map).fillna(1.0)
+                sc['wRVU/FTE'] = sc['Total RVUs'] / sc['FTE']
+                if not df_pri_cmp.empty:
+                    ps = df_pri_cmp.groupby('ID')['Total RVUs'].sum().reset_index().rename(columns={'Total RVUs':'Prior RVUs'})
+                    sc = sc.merge(ps, on='ID', how='left').fillna({'Prior RVUs': 0})
+                    sc['YoY Δ']  = sc.apply(lambda r: (r['Total RVUs']-r['Prior RVUs'])/r['Prior RVUs'] if r['Prior RVUs']>0 else 0, axis=1)
+                    sc['Trend']  = sc['YoY Δ'].apply(lambda x: '▲' if x>0.02 else ('▼' if x<-0.02 else '→'))
+                    disp_cols = ['Name','Total RVUs','FTE','wRVU/FTE','Prior RVUs','YoY Δ','Trend']
+                    fmt_sc = {'Total RVUs':'{:,.0f}','FTE':'{:.1f}','wRVU/FTE':'{:,.0f}',
+                              'Prior RVUs':'{:,.0f}','YoY Δ':'{:+.1%}'}
+                else:
+                    disp_cols = ['Name','Total RVUs','FTE','wRVU/FTE']
+                    fmt_sc = {'Total RVUs':'{:,.0f}','FTE':'{:.1f}','wRVU/FTE':'{:,.0f}'}
+                sc = sc.sort_values('Total RVUs', ascending=False)
+                render_table(sc[disp_cols].style.format(fmt_sc)
+                             .background_gradient(subset=['Total RVUs','wRVU/FTE'], cmap='Blues'))
+
+        # ---- Physician Productivity Scorecard ----
+        if not df_mc.empty:
+            with st.container(border=True):
+                st.markdown("#### 👨‍⚕️ Physician Productivity Scorecard")
+                msc = df_mc.groupby('Name').agg({'Total RVUs':'sum','FTE':'max'}).reset_index()
+                msc['wRVU/FTE'] = msc['Total RVUs'] / msc['FTE']
+                mgma_50_ytd = MGMA_BENCHMARKS['50th'] / 12 * n_months if n_months > 0 else MGMA_BENCHMARKS['50th']
+                msc['vs MGMA 50th'] = msc['Total RVUs'] / mgma_50_ytd - 1
+                if not df_mp_cmp.empty:
+                    pm = df_mp_cmp.groupby('Name')['Total RVUs'].sum().reset_index().rename(columns={'Total RVUs':'Prior RVUs'})
+                    msc = msc.merge(pm, on='Name', how='left').fillna({'Prior RVUs':0})
+                    msc['YoY Δ'] = msc.apply(lambda r: (r['Total RVUs']-r['Prior RVUs'])/r['Prior RVUs'] if r['Prior RVUs']>0 else 0, axis=1)
+                    msc['Trend'] = msc['YoY Δ'].apply(lambda x: '▲' if x>0.02 else ('▼' if x<-0.02 else '→'))
+                    m_cols = ['Name','Total RVUs','wRVU/FTE','vs MGMA 50th','Prior RVUs','YoY Δ','Trend']
+                    fmt_m = {'Total RVUs':'{:,.0f}','wRVU/FTE':'{:,.0f}','vs MGMA 50th':'{:+.1%}',
+                             'Prior RVUs':'{:,.0f}','YoY Δ':'{:+.1%}'}
+                else:
+                    m_cols = ['Name','Total RVUs','wRVU/FTE','vs MGMA 50th']
+                    fmt_m = {'Total RVUs':'{:,.0f}','wRVU/FTE':'{:,.0f}','vs MGMA 50th':'{:+.1%}'}
+                msc = msc.sort_values('Total RVUs', ascending=False)
+                render_table(msc[m_cols].style.format(fmt_m)
+                             .background_gradient(subset=['vs MGMA 50th'], cmap='RdYlGn'))
+                st.caption(f"MGMA 50th = {MGMA_BENCHMARKS['50th']:,} annual wRVUs, scaled to {n_months}-month YTD ({mgma_50_ytd:,.0f}). Approximate Radiation Oncology benchmark.")
+
+        # ---- Year-End Projection by Clinic ----
+        if not df_cur.empty and 0 < n_months < 12:
+            with st.container(border=True):
+                st.markdown(f"#### 🎯 {year} Year-End Projection (Current Pace)")
+                fte_map2 = {cid: cfg['fte'] for cid, cfg in CLINIC_CONFIG.items()}
+                proj_rows = []
+                for (cid, cname), grp in df_cur.groupby(['ID','Name']):
+                    ytd_c  = grp['Total RVUs'].sum()
+                    proj_c = ytd_c / n_months * 12
+                    fte_c  = fte_map2.get(cid, 1.0)
+                    prior_full = df_pri[df_pri['ID']==cid]['Total RVUs'].sum() if not df_pri.empty else 0
+                    proj_rows.append({'Clinic':cname, 'YTD':ytd_c, 'Projected Annual':proj_c,
+                                      'Proj/FTE':proj_c/fte_c,
+                                      'Prior Year':prior_full,
+                                      'Δ vs Prior':( proj_c-prior_full)/prior_full if prior_full>0 else 0})
+                proj_df = pd.DataFrame(proj_rows).sort_values('Projected Annual', ascending=False)
+                fig_proj = px.bar(
+                    proj_df.melt(id_vars='Clinic', value_vars=['YTD','Projected Annual']),
+                    x='Clinic', y='value', color='variable', barmode='group', text_auto='.2s',
+                    color_discrete_sequence=['#1E3A8A','#93c5fd'],
+                    labels={'value':'wRVUs','variable':''})
+                st.plotly_chart(style_high_end_chart(fig_proj), use_container_width=True,
+                                key=f"exec_proj_{year}")
+                fmt_p = {'YTD':'{:,.0f}','Projected Annual':'{:,.0f}','Proj/FTE':'{:,.0f}',
+                         'Prior Year':'{:,.0f}','Δ vs Prior':'{:+.1%}'}
+                render_table(proj_df.style.format(fmt_p)
+                             .background_gradient(subset=['Projected Annual','Δ vs Prior'], cmap='Greens'))
 
     def get_most_recent_quarter(df):
         """Return the most recent quarter label present in df, or None."""
@@ -1400,7 +1564,7 @@ if check_password():
                             piv = df_cons_yr.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum")
                             piv = piv.reindex(columns=sorted_m).fillna(0)
                             piv["Total"] = piv.sum(axis=1)
-                            st.dataframe(piv.sort_values("Total", ascending=False).style
+                            render_table(piv.sort_values("Total", ascending=False).style
                                          .format("{:,.0f}").background_gradient(cmap="Blues"), height=500)
 
                     # Historical summary
@@ -1416,16 +1580,14 @@ if check_password():
                             sorted_m2 = df_view.sort_values("Month_Clean")["Month_Label"].unique()
                             piv_m = piv_m.reindex(columns=sorted_m2).fillna(0)
                             piv_m["Total"] = piv_m.sum(axis=1)
-                            st.dataframe(piv_m.sort_values("Total", ascending=False).style
-                                         .format("{:,.0f}").background_gradient(cmap="Reds"),
-                                         height=420, use_container_width=True)
+                            render_table(piv_m.sort_values("Total", ascending=False).style
+                                         .format("{:,.0f}").background_gradient(cmap="Reds"), height=420)
                         with st.container(border=True):
                             st.markdown("#### 📆 Quarterly Data")
                             piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                             piv_q["Total"] = piv_q.sum(axis=1)
-                            st.dataframe(piv_q.sort_values("Total", ascending=False).style
-                                         .format("{:,.0f}").background_gradient(cmap="Oranges"),
-                                         height=420, use_container_width=True)
+                            render_table(piv_q.sort_values("Total", ascending=False).style
+                                         .format("{:,.0f}").background_gradient(cmap="Oranges"), height=420)
 
             # --- Long-term history chart ---
             with st.container(border=True):
@@ -1452,7 +1614,7 @@ if check_password():
                     st.plotly_chart(style_high_end_chart(fig_np), use_container_width=True,
                                     key=f"np_net_{tab_key_suffix}")
                     piv_np = df_pos_yr.pivot_table(index="Display_Name", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
-                    st.dataframe(piv_np.style.format("{:,.0f}").background_gradient(cmap="Greens"))
+                    render_table(piv_np.style.format("{:,.0f}").background_gradient(cmap="Greens"))
 
             # --- wRVU/FTE efficiency (All view) ---
             if clinic_filter == "All" and not df_clinic_yr.empty:
@@ -1491,9 +1653,11 @@ if check_password():
                                             key=f"qvol_{tab_key_suffix}")
                         with st.container(border=True):
                             st.markdown(f"#### 🩺 Efficiency: wRVU per FTE: {target_q}")
-                            df_q_eff = df_q_data.groupby('Name').agg(
-                                {'Total RVUs': 'sum', 'FTE': 'max'}
+                            df_q_eff = df_q_data.groupby('ID').agg(
+                                {'Total RVUs': 'sum', 'Name': 'first'}
                             ).reset_index()
+                            _fte_map = {cid: cfg['fte'] for cid, cfg in CLINIC_CONFIG.items()}
+                            df_q_eff['FTE'] = df_q_eff['ID'].map(_fte_map).fillna(1.0)
                             df_q_eff['RVU per FTE'] = df_q_eff.apply(
                                 lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
                             fig_qe = px.bar(df_q_eff.sort_values('RVU per FTE', ascending=False),
@@ -1502,6 +1666,105 @@ if check_password():
                                             title=f"Quarterly wRVU per FTE ({target_q})")
                             st.plotly_chart(style_high_end_chart(fig_qe), use_container_width=True,
                                             key=f"qeff_{tab_key_suffix}")
+
+            # ==========================================
+            # ADVANCED ANALYTICS (multi-clinic views)
+            # ==========================================
+            if clinic_filter in ["All", "TriStar", "Ascension"] and not df_view.empty:
+                prior_year   = year - 1
+                df_pri_all   = df_clinic_all[df_clinic_all['Month_Clean'].dt.year == prior_year].copy() if not df_clinic_all.empty else pd.DataFrame()
+                if   clinic_filter == "TriStar":   df_vp = df_pri_all[df_pri_all['ID'].isin(TRISTAR_IDS)]
+                elif clinic_filter == "Ascension": df_vp = df_pri_all[df_pri_all['ID'].isin(ASCENSION_IDS)]
+                else:                              df_vp = df_pri_all.copy()
+                cur_m_set = set(df_view['Month_Clean'].dt.month.unique())
+                df_vp_cmp = df_vp[df_vp['Month_Clean'].dt.month.isin(cur_m_set)] if not df_vp.empty else pd.DataFrame()
+                n_m_adv   = df_view['Month_Clean'].dt.month.nunique()
+
+                st.markdown("---")
+                st.markdown("## 📐 Advanced Analytics")
+
+                # YoY monthly comparison ----------------------------------------
+                if not df_vp_cmp.empty:
+                    with st.container(border=True):
+                        st.markdown(f"#### 📅 Year-over-Year: {year} vs {prior_year}")
+                        _MN = {1:'Jan',2:'Feb',3:'Mar',4:'Apr',5:'May',6:'Jun',
+                               7:'Jul',8:'Aug',9:'Sep',10:'Oct',11:'Nov',12:'Dec'}
+                        nc2 = df_view.groupby(df_view['Month_Clean'].dt.month)['Total RVUs'].sum().reset_index()
+                        nc2.columns = ['m','Total RVUs']; nc2['Year'] = str(year)
+                        np3 = df_vp_cmp.groupby(df_vp_cmp['Month_Clean'].dt.month)['Total RVUs'].sum().reset_index()
+                        np3.columns = ['m','Total RVUs']; np3['Year'] = str(prior_year)
+                        yoy_c = pd.concat([nc2, np3]).sort_values('m')
+                        yoy_c['Month'] = yoy_c['m'].map(_MN)
+                        fig_yoyc = px.bar(yoy_c, x='Month', y='Total RVUs', color='Year', barmode='group',
+                                          text_auto='.2s',
+                                          color_discrete_map={str(year):'#1E3A8A', str(prior_year):'#94a3b8'},
+                                          labels={'Total RVUs':'wRVUs'})
+                        st.plotly_chart(style_high_end_chart(fig_yoyc), use_container_width=True,
+                                        key=f"adv_yoy_{tab_key_suffix}_{clinic_filter}")
+                        ytd_c2  = df_view.groupby(['ID','Name'])['Total RVUs'].sum().reset_index()
+                        ytd_p2  = df_vp_cmp.groupby('ID')['Total RVUs'].sum().reset_index().rename(columns={'Total RVUs':'Prior RVUs'})
+                        ytd_cmp = ytd_c2.merge(ytd_p2, on='ID', how='left').fillna({'Prior RVUs':0})
+                        ytd_cmp['YoY Δ'] = ytd_cmp.apply(lambda r: (r['Total RVUs']-r['Prior RVUs'])/r['Prior RVUs'] if r['Prior RVUs']>0 else 0, axis=1)
+                        ytd_cmp['Trend']  = ytd_cmp['YoY Δ'].apply(lambda x: '▲' if x>0.02 else ('▼' if x<-0.02 else '→'))
+                        ytd_cmp = ytd_cmp.sort_values('Total RVUs', ascending=False)
+                        render_table(ytd_cmp[['Name','Total RVUs','Prior RVUs','YoY Δ','Trend']]
+                                     .style.format({'Total RVUs':'{:,.0f}','Prior RVUs':'{:,.0f}','YoY Δ':'{:+.1%}'})
+                                     .background_gradient(subset=['YoY Δ'], cmap='RdYlGn'))
+
+                # Heatmap -------------------------------------------------------
+                with st.container(border=True):
+                    st.markdown(f"#### 🌡️ wRVU Heatmap: Clinic × Month ({year})")
+                    piv_h = df_view.pivot_table(index='Name', columns='Month_Label', values='Total RVUs', aggfunc='sum').fillna(0)
+                    piv_h = piv_h.reindex(columns=df_view.sort_values('Month_Clean')['Month_Label'].unique()).fillna(0)
+                    fig_heat = px.imshow(piv_h, text_auto='.0f', aspect='auto',
+                                         color_continuous_scale='RdYlGn',
+                                         labels=dict(x='Month', y='Clinic', color='wRVUs'))
+                    fig_heat.update_layout(height=max(320, len(piv_h)*60))
+                    st.plotly_chart(style_high_end_chart(fig_heat), use_container_width=True,
+                                    key=f"adv_heat_{tab_key_suffix}_{clinic_filter}")
+
+                # Statistical summary -------------------------------------------
+                with st.container(border=True):
+                    st.markdown("#### 📊 Statistical Summary by Clinic")
+                    grp_s = df_view.groupby('Name')['Total RVUs']
+                    stat_df = pd.DataFrame({
+                        'Monthly Mean': grp_s.mean(), 'Std Dev': grp_s.std().fillna(0),
+                        'Min Month': grp_s.min(), 'Max Month': grp_s.max(), 'YTD Total': grp_s.sum(),
+                    }).reset_index()
+                    stat_df['CV (%)'] = (stat_df['Std Dev'] / stat_df['Monthly Mean'] * 100).round(1).fillna(0)
+                    stat_df = stat_df.sort_values('YTD Total', ascending=False)
+                    fmt_s = {'Monthly Mean':'{:,.0f}','Std Dev':'{:,.0f}','Min Month':'{:,.0f}',
+                             'Max Month':'{:,.0f}','YTD Total':'{:,.0f}','CV (%)':'{:.1f}%'}
+                    render_table(stat_df.style.format(fmt_s)
+                                 .background_gradient(subset=['YTD Total'], cmap='Blues'))
+                    st.caption("CV = Coefficient of Variation (Std Dev ÷ Mean). Lower CV = more consistent monthly volume.")
+
+                # Year-end projection -------------------------------------------
+                if 0 < n_m_adv < 12:
+                    with st.container(border=True):
+                        st.markdown(f"#### 🎯 Year-End Projection ({year}, linear extrapolation from YTD)")
+                        pr2 = []
+                        for (cid, cname), grp in df_view.groupby(['ID','Name']):
+                            ytd_c = grp['Total RVUs'].sum()
+                            proj  = ytd_c / n_m_adv * 12
+                            fte_c = CLINIC_CONFIG.get(cid, {}).get('fte', 1.0)
+                            prior = df_vp[df_vp['ID']==cid]['Total RVUs'].sum() if not df_vp.empty else 0
+                            pr2.append({'Clinic':cname,'YTD wRVUs':ytd_c,'Projected Annual':proj,
+                                        'Proj wRVU/FTE':proj/fte_c,'Prior Year Total':prior,
+                                        'Δ vs Prior':( proj-prior)/prior if prior>0 else 0})
+                        if pr2:
+                            prj = pd.DataFrame(pr2).sort_values('Projected Annual', ascending=False)
+                            fig_prj = px.bar(
+                                prj.melt(id_vars='Clinic', value_vars=['YTD wRVUs','Projected Annual']),
+                                x='Clinic', y='value', color='variable', barmode='group', text_auto='.2s',
+                                color_discrete_sequence=['#1E3A8A','#93c5fd'],
+                                labels={'value':'wRVUs','variable':''})
+                            st.plotly_chart(style_high_end_chart(fig_prj), use_container_width=True,
+                                            key=f"adv_proj_{tab_key_suffix}_{clinic_filter}")
+                            fmt_pr = {'YTD wRVUs':'{:,.0f}','Projected Annual':'{:,.0f}',
+                                      'Proj wRVU/FTE':'{:,.0f}','Prior Year Total':'{:,.0f}','Δ vs Prior':'{:+.1%}'}
+                            render_table(prj.style.format(fmt_pr)
+                                         .background_gradient(subset=['Projected Annual','Δ vs Prior'], cmap='Greens'))
 
             # --- Detailed per-clinic breakdown (TriStar / Ascension) ---
             if clinic_filter in ["TriStar", "Ascension"]:
@@ -1550,7 +1813,7 @@ if check_password():
                         sorted_m = cpdf.sort_values("Month_Clean")["Month_Label"].unique()
                         piv_p = piv_p.reindex(columns=sorted_m).fillna(0)
                         piv_p["Total"] = piv_p.sum(axis=1)
-                        st.dataframe(piv_p.sort_values("Total", ascending=False).style
+                        render_table(piv_p.sort_values("Total", ascending=False).style
                                      .format("{:,.0f}").background_gradient(cmap="Blues"))
                     # POS trend for this clinic
                     if not df_pos_trend.empty:
@@ -1567,7 +1830,7 @@ if check_password():
                                 sorted_mp = pos_df.sort_values("Month_Clean")["Month_Label"].unique()
                                 pos_piv = pos_piv.reindex(columns=sorted_mp).fillna(0)
                                 pos_piv["Total"] = pos_piv.sum(axis=1)
-                                st.dataframe(pos_piv.style.format("{:,.0f}").background_gradient(cmap="Greens"))
+                                render_table(pos_piv.style.format("{:,.0f}").background_gradient(cmap="Greens"))
 
             # --- Single-clinic pie + provider table ---
             if target_tag and not df_provider_raw.empty:
@@ -1612,7 +1875,7 @@ if check_password():
                         sorted_m = pie_src.sort_values("Month_Clean")["Month_Label"].unique()
                         piv_p = piv_p.reindex(columns=sorted_m).fillna(0)
                         piv_p["Total"] = piv_p.sum(axis=1)
-                        st.dataframe(piv_p.sort_values("Total", ascending=False).style
+                        render_table(piv_p.sort_values("Total", ascending=False).style
                                      .format("{:,.0f}").background_gradient(cmap="Blues"))
 
             # --- Visits (LROC / TROC / TOPC) ---
@@ -1679,9 +1942,8 @@ if check_password():
                         sorted_m = df_mds_yr.sort_values("Month_Clean")["Month_Label"].unique()
                         piv = piv.reindex(columns=sorted_m).fillna(0)
                         piv["Total"] = piv.sum(axis=1)
-                        st.dataframe(piv.sort_values("Total", ascending=False).style
-                                     .format("{:,.0f}").background_gradient(cmap="Blues"),
-                                     height=420, use_container_width=True)
+                        render_table(piv.sort_values("Total", ascending=False).style
+                                     .format("{:,.0f}").background_gradient(cmap="Blues"), height=420)
                     with st.container(border=True):
                         st.markdown("#### 🏆 YTD Total RVUs")
                         ytd_s = df_mds_yr.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
@@ -1689,6 +1951,91 @@ if check_password():
                                          color_continuous_scale='Viridis', text_auto='.2s')
                         st.plotly_chart(style_high_end_chart(fig_ytd), use_container_width=True,
                                         key=f"md_ytd_{tab_key_suffix}")
+
+                    # MGMA benchmarking -----------------------------------------
+                    with st.container(border=True):
+                        st.markdown("#### 🎯 MGMA Benchmark Comparison")
+                        n_md_m   = df_mds_yr['Month_Clean'].dt.month.nunique()
+                        ytd_mgma = df_mds_yr.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
+                        ref_25   = MGMA_BENCHMARKS['25th'] / 12 * n_md_m
+                        ref_50   = MGMA_BENCHMARKS['50th'] / 12 * n_md_m
+                        ref_75   = MGMA_BENCHMARKS['75th'] / 12 * n_md_m
+                        fig_mgma = px.bar(ytd_mgma, x='Name', y='Total RVUs', color='Total RVUs',
+                                          color_continuous_scale='Blues', text_auto='.2s',
+                                          title=f"YTD wRVUs vs MGMA Benchmarks ({n_md_m}-month YTD)")
+                        fig_mgma.add_hline(y=ref_25, line_dash='dot',  line_color='#f97316',
+                                           annotation_text=f"MGMA 25th  {ref_25:,.0f}", annotation_position="top right")
+                        fig_mgma.add_hline(y=ref_50, line_dash='dash', line_color='#16a34a',
+                                           annotation_text=f"MGMA 50th  {ref_50:,.0f}", annotation_position="top right")
+                        fig_mgma.add_hline(y=ref_75, line_dash='dot',  line_color='#7c3aed',
+                                           annotation_text=f"MGMA 75th  {ref_75:,.0f}", annotation_position="top right")
+                        st.plotly_chart(style_high_end_chart(fig_mgma), use_container_width=True,
+                                        key=f"md_mgma_{tab_key_suffix}")
+                        ytd_mgma['vs 25th'] = ytd_mgma['Total RVUs'] / ref_25 - 1
+                        ytd_mgma['vs 50th'] = ytd_mgma['Total RVUs'] / ref_50 - 1
+                        ytd_mgma['vs 75th'] = ytd_mgma['Total RVUs'] / ref_75 - 1
+                        render_table(ytd_mgma[['Name','Total RVUs','vs 25th','vs 50th','vs 75th']]
+                                     .style.format({'Total RVUs':'{:,.0f}','vs 25th':'{:+.1%}',
+                                                    'vs 50th':'{:+.1%}','vs 75th':'{:+.1%}'})
+                                     .background_gradient(subset=['vs 50th'], cmap='RdYlGn'))
+                        st.caption(f"Benchmarks scaled to {n_md_m}-month YTD. Approximate MGMA Radiation Oncology physician values.")
+
+                    # Physician × Month heatmap ---------------------------------
+                    with st.container(border=True):
+                        st.markdown("#### 🌡️ Physician Productivity Heatmap")
+                        piv_mh = df_mds_yr.pivot_table(index='Name', columns='Month_Label', values='Total RVUs', aggfunc='sum').fillna(0)
+                        piv_mh = piv_mh.reindex(columns=df_mds_yr.sort_values('Month_Clean')['Month_Label'].unique()).fillna(0)
+                        fig_mheat = px.imshow(piv_mh, text_auto='.0f', aspect='auto',
+                                              color_continuous_scale='Blues',
+                                              labels=dict(x='Month', y='Physician', color='wRVUs'))
+                        fig_mheat.update_layout(height=max(320, len(piv_mh)*60))
+                        st.plotly_chart(style_high_end_chart(fig_mheat), use_container_width=True,
+                                        key=f"md_heat_{tab_key_suffix}")
+
+                    # Year-over-year physician comparison -----------------------
+                    _prior_y    = year - 1
+                    _df_mds_pri = df_mds[df_mds['Month_Clean'].dt.year == _prior_y].copy() if not df_mds.empty else pd.DataFrame()
+                    if not _df_mds_pri.empty:
+                        _cur_m = set(df_mds_yr['Month_Clean'].dt.month.unique())
+                        _df_mds_pri_cmp = _df_mds_pri[_df_mds_pri['Month_Clean'].dt.month.isin(_cur_m)]
+                        if not _df_mds_pri_cmp.empty:
+                            with st.container(border=True):
+                                st.markdown(f"#### 📅 Year-over-Year: Physician wRVUs ({year} vs {_prior_y})")
+                                yc = df_mds_yr.groupby('Name')['Total RVUs'].sum().reset_index(); yc['Year'] = str(year)
+                                yp = _df_mds_pri_cmp.groupby('Name')['Total RVUs'].sum().reset_index(); yp['Year'] = str(_prior_y)
+                                fig_yoym = px.bar(pd.concat([yc, yp]), x='Name', y='Total RVUs',
+                                                  color='Year', barmode='group', text_auto='.2s',
+                                                  color_discrete_map={str(year):'#1E3A8A', str(_prior_y):'#94a3b8'},
+                                                  labels={'Total RVUs':'wRVUs'})
+                                st.plotly_chart(style_high_end_chart(fig_yoym), use_container_width=True,
+                                                key=f"md_yoy_{tab_key_suffix}")
+
+                    # Monthly distribution box plot -----------------------------
+                    with st.container(border=True):
+                        st.markdown("#### 📦 Monthly wRVU Distribution by Physician")
+                        fig_box = px.box(df_mds_yr.sort_values('Name'), x='Name', y='Total RVUs',
+                                         color='Name', points='all',
+                                         labels={'Total RVUs':'Monthly wRVUs', 'Name':'Physician'})
+                        fig_box.update_layout(showlegend=False, height=480)
+                        st.plotly_chart(style_high_end_chart(fig_box), use_container_width=True,
+                                        key=f"md_box_{tab_key_suffix}")
+                        st.caption("Box spans Q1–Q3; center line = median; points = individual months. Narrow box = consistent production.")
+
+                    # Statistical summary table ---------------------------------
+                    with st.container(border=True):
+                        st.markdown("#### 📊 Physician Statistical Summary")
+                        md_grp  = df_mds_yr.groupby('Name')['Total RVUs']
+                        md_stat = pd.DataFrame({
+                            'Monthly Mean': md_grp.mean(), 'Std Dev': md_grp.std().fillna(0),
+                            'Min Month': md_grp.min(), 'Max Month': md_grp.max(), 'YTD Total': md_grp.sum(),
+                        }).reset_index()
+                        md_stat['CV (%)'] = (md_stat['Std Dev'] / md_stat['Monthly Mean'] * 100).round(1).fillna(0)
+                        md_stat = md_stat.sort_values('YTD Total', ascending=False)
+                        fmt_ms  = {'Monthly Mean':'{:,.0f}','Std Dev':'{:,.0f}','Min Month':'{:,.0f}',
+                                   'Max Month':'{:,.0f}','YTD Total':'{:,.0f}','CV (%)':'{:.1f}%'}
+                        render_table(md_stat.style.format(fmt_ms)
+                                     .background_gradient(subset=['YTD Total'], cmap='Purples'))
+                        st.caption("CV (Coefficient of Variation) = Std Dev ÷ Mean. Lower value = more consistent monthly production.")
 
             elif md_view == "Office Visits":
                 df_vis_yr = df_visits[df_visits['Month_Clean'].dt.year == year].copy() if not df_visits.empty else pd.DataFrame()
@@ -1748,11 +2095,10 @@ if check_password():
                         ).fillna(0)
                         piv_77470 = piv_77470.reindex(columns=sorted_m).fillna(0)
                         piv_77470["Total"] = piv_77470.sum(axis=1)
-                        st.dataframe(
+                        render_table(
                             piv_77470.sort_values("Total", ascending=False).style
                             .format("{:,.1f}").background_gradient(cmap="Purples"),
-                            height=420, use_container_width=True,
-                            key=f"md_77470_tbl_{tab_key_suffix}",
+                            height=420,
                         )
                     with st.container(border=True):
                         st.markdown(f"#### 🏆 {year} YTD Total")
@@ -1775,9 +2121,8 @@ if check_password():
                 piv_77 = df_77_yr.pivot_table(index="Name", columns="Month_Label", values="Count", aggfunc="sum").fillna(0)
                 piv_77 = piv_77.reindex(columns=sorted_m).fillna(0)
                 piv_77["Total"] = piv_77.sum(axis=1)
-                st.dataframe(piv_77.sort_values("Total", ascending=False).style
-                             .format("{:,.0f}").background_gradient(cmap="Blues"),
-                             height=500, use_container_width=True, key=f"md_77_{tab_key_suffix}")
+                render_table(piv_77.sort_values("Total", ascending=False).style
+                             .format("{:,.0f}").background_gradient(cmap="Blues"), height=500)
 
                 # 77263 / New Patients ratio (2025 only — needs visit data)
                 if year == 2025 and not df_visits.empty:
@@ -1844,7 +2189,8 @@ if check_password():
                 df_apps = pd.DataFrame()
                 df_mds  = pd.DataFrame()
 
-            tab_c26, tab_c25, tab_md26, tab_md25, tab_app, tab_fin = st.tabs([
+            tab_exec, tab_c26, tab_c25, tab_md26, tab_md25, tab_app, tab_fin = st.tabs([
+                "📊 Executive Summary",
                 "🏥 Clinic Analytics - 2026",
                 "🏥 Clinic Analytics - 2025",
                 "👨‍⚕️ MD Analytics - 2026",
@@ -1852,6 +2198,9 @@ if check_password():
                 "👩‍⚕️ APP Analytics",
                 "💰 Financials",
             ])
+
+            with tab_exec:
+                render_executive_summary(2026, df_clinic, df_mds, df_visits, df_financial)
 
             with tab_c26:
                 render_clinic_tab(2026, df_clinic, df_provider_raw, df_pos_trend, df_consults, "26")
@@ -1892,7 +2241,7 @@ if check_password():
                                     sorted_ma = sub.sort_values("Month_Clean")["Month_Label"].unique()
                                     piv_a = piv_a.reindex(columns=sorted_ma).fillna(0)
                                     piv_a["Total"] = piv_a.sum(axis=1)
-                                    st.dataframe(piv_a.style.format("{:,.0f}").background_gradient(cmap="Oranges"))
+                                    render_table(piv_a.style.format("{:,.0f}").background_gradient(cmap="Oranges"))
 
             with tab_fin:
                 if df_financial.empty:
@@ -1916,7 +2265,7 @@ if check_password():
                                                  orientation='h', title=f"Total Payments ({lfd.strftime('%b %Y')})", text_auto='$.2s')
                                 st.plotly_chart(style_high_end_chart(fig_pay), use_container_width=True)
                             fmt = {'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}
-                            st.dataframe(lp[['Name','Charges','Payments','% Payments/Charges']].sort_values('Charges', ascending=False).style
+                            render_table(lp[['Name','Charges','Payments','% Payments/Charges']].sort_values('Charges', ascending=False).style
                                          .format(fmt).background_gradient(cmap="Greens"))
                     elif fin_view == "CPA By Clinic":
                         cf = df_financial[df_financial['Mode'] == 'Clinic']
@@ -1930,14 +2279,102 @@ if check_password():
                             ytd_disp = pd.concat([ytd.sort_values('Charges', ascending=False), total_row], ignore_index=True)
                             fmt = {'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}
                             st.markdown("#### 📆 Year to Date Charges & Payments")
-                            st.dataframe(ytd_disp.style.format(fmt).background_gradient(cmap="Greens"), height=600)
+                            render_table(ytd_disp.style.format(fmt).background_gradient(cmap="Greens"), height=600)
                             st.markdown("---")
                             st.markdown("#### 📅 Monthly Data Breakdown")
                             md_disp = cf[['Name','Month_Label','Charges','Payments']].copy()
                             md_disp['% Payments/Charges'] = md_disp.apply(lambda x: x['Payments'] / x['Charges'] if x['Charges'] > 0 else 0, axis=1)
                             md_disp['Month_Sort'] = pd.to_datetime(md_disp['Month_Label'], format='%b-%y')
                             md_disp = md_disp.sort_values(['Month_Sort','Name'], ascending=[False, True]).drop(columns=['Month_Sort'])
-                            st.dataframe(md_disp.style.format(fmt).background_gradient(cmap="Blues"))
+                            render_table(md_disp.style.format(fmt).background_gradient(cmap="Blues"))
+
+                    # ---- Advanced Financial Analytics (both views) ----
+                    st.markdown("---")
+                    st.markdown("## 📐 Advanced Financial Analytics")
+
+                    # Collection rate trend
+                    cf_all = df_financial[df_financial['Mode'] == 'Clinic']
+                    if not cf_all.empty:
+                        with st.container(border=True):
+                            st.markdown("#### 📈 Payment Collection Rate Trend")
+                            cf_mo = cf_all.groupby('Month_Label')[['Charges','Payments']].sum().reset_index()
+                            cf_mo['Month_Sort'] = pd.to_datetime(cf_mo['Month_Label'], format='%b-%y', errors='coerce')
+                            cf_mo = cf_mo.dropna(subset=['Month_Sort']).sort_values('Month_Sort')
+                            cf_mo['Collection Rate'] = cf_mo['Payments'] / cf_mo['Charges']
+                            fig_cr = px.line(cf_mo, x='Month_Label', y='Collection Rate', markers=True,
+                                             title='Monthly Payment Collection Rate',
+                                             labels={'Month_Label':'Month','Collection Rate':'Collection Rate'})
+                            fig_cr.update_yaxes(tickformat='.1%')
+                            fig_cr.add_hline(y=cf_mo['Collection Rate'].mean(), line_dash='dash',
+                                             line_color='#64748b',
+                                             annotation_text=f"Avg {cf_mo['Collection Rate'].mean():.1%}",
+                                             annotation_position="right")
+                            st.plotly_chart(style_high_end_chart(fig_cr), use_container_width=True,
+                                            key="fin_coll_trend")
+
+                        # Charges vs Payments waterfall / grouped bar by clinic
+                        with st.container(border=True):
+                            st.markdown("#### 🏦 Charges vs Payments by Clinic (YTD)")
+                            ytd_cp = cf_all.groupby('Name')[['Charges','Payments']].sum().reset_index()
+                            ytd_cp = ytd_cp.sort_values('Charges', ascending=False)
+                            ytd_cp_melt = ytd_cp.melt(id_vars='Name', value_vars=['Charges','Payments'])
+                            fig_cpb = px.bar(ytd_cp_melt, x='Name', y='value', color='variable',
+                                             barmode='group', text_auto='$.2s',
+                                             color_discrete_map={'Charges':'#1E3A8A','Payments':'#22c55e'},
+                                             labels={'value':'Amount ($)','variable':''})
+                            st.plotly_chart(style_high_end_chart(fig_cpb), use_container_width=True,
+                                            key="fin_cpbar")
+
+                        # Collection rate heatmap: Clinic × Month
+                        with st.container(border=True):
+                            st.markdown("#### 🌡️ Collection Rate Heatmap: Clinic × Month")
+                            try:
+                                cf_piv = cf_all.copy()
+                                cf_piv['Collection Rate'] = cf_piv['Payments'] / cf_piv['Charges']
+                                piv_cr = cf_piv.pivot_table(index='Name', columns='Month_Label',
+                                                             values='Collection Rate', aggfunc='mean').fillna(0)
+                                ms_cr = cf_piv.copy()
+                                ms_cr['Month_Sort'] = pd.to_datetime(ms_cr['Month_Label'], format='%b-%y', errors='coerce')
+                                sorted_cr_m = ms_cr.dropna(subset=['Month_Sort']).sort_values('Month_Sort')['Month_Label'].unique()
+                                piv_cr = piv_cr.reindex(columns=sorted_cr_m).fillna(0)
+                                fig_crh = px.imshow(piv_cr, text_auto='.1%', aspect='auto',
+                                                    color_continuous_scale='RdYlGn',
+                                                    zmin=0.2, zmax=1.0,
+                                                    labels=dict(x='Month', y='Clinic', color='Collection Rate'))
+                                fig_crh.update_layout(height=max(300, len(piv_cr)*55))
+                                st.plotly_chart(style_high_end_chart(fig_crh), use_container_width=True,
+                                                key="fin_crheat")
+                            except Exception:
+                                pass
+
+                    # Revenue efficiency: provider-level payments per wRVU
+                    prov_fin_adv = df_financial[(df_financial['Mode'] == 'Provider') & (df_financial['Name'] != "TN Proton Center")]
+                    if not prov_fin_adv.empty and not df_md_global.empty:
+                        with st.container(border=True):
+                            st.markdown("#### 💡 Revenue Efficiency: Payments per wRVU by Physician")
+                            try:
+                                fin_ytd = prov_fin_adv.groupby('Name')[['Charges','Payments']].sum().reset_index()
+                                rvu_ytd = df_md_global.groupby('Name')['Total RVUs'].sum().reset_index()
+                                rev_eff = fin_ytd.merge(rvu_ytd, on='Name', how='inner')
+                                rev_eff = rev_eff[rev_eff['Total RVUs'] > 0]
+                                rev_eff['$/wRVU (Charges)']  = rev_eff['Charges']  / rev_eff['Total RVUs']
+                                rev_eff['$/wRVU (Payments)'] = rev_eff['Payments'] / rev_eff['Total RVUs']
+                                rev_eff = rev_eff.sort_values('$/wRVU (Payments)', ascending=False)
+                                fig_eff = px.bar(rev_eff, x='Name', y=['$/wRVU (Charges)','$/wRVU (Payments)'],
+                                                 barmode='group', text_auto='$.0f',
+                                                 color_discrete_sequence=['#1E3A8A','#22c55e'],
+                                                 labels={'value':'$ per wRVU','variable':''})
+                                st.plotly_chart(style_high_end_chart(fig_eff), use_container_width=True,
+                                                key="fin_reveff")
+                                fmt_re = {'Charges':'${:,.0f}','Payments':'${:,.0f}','Total RVUs':'{:,.0f}',
+                                          '$/wRVU (Charges)':'${:,.2f}','$/wRVU (Payments)':'${:,.2f}'}
+                                render_table(rev_eff[['Name','Total RVUs','Charges','Payments',
+                                                       '$/wRVU (Charges)','$/wRVU (Payments)']]
+                                             .style.format(fmt_re)
+                                             .background_gradient(subset=['$/wRVU (Payments)'], cmap='Greens'))
+                                st.caption("Higher $/wRVU reflects better payer mix or contract rates for that physician's patient population.")
+                            except Exception:
+                                pass
 
     else:
         st.info("👋 Ready. Add files to the 'Reports' folder in GitHub to load data.")
