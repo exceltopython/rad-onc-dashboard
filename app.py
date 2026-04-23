@@ -1025,21 +1025,22 @@ if check_password():
         # --- DEDICATED 77470 SCAN ---
         # Explicitly walk every sheet in every file, scan column 0 for the
         # "77470" row, then read across for the relevant month columns.
-        # This mirrors parse_consults_data but targets CPT 77470 directly.
+        scan_77470_log = []
         for file_obj_77 in all_files_to_process:
             if isinstance(file_obj_77, LocalFile):
-                fn_77   = file_obj_77.name          # already uppercased in LocalFile
-                fp_77   = file_obj_77.path
-                yr_77   = get_target_year_from_text(fp_77)
+                fn_77 = file_obj_77.name
+                fp_77 = file_obj_77.path
+                yr_77 = get_target_year_from_text(fp_77)
             else:
-                fn_77   = file_obj_77.name.upper()
-                fp_77   = file_obj_77
-                yr_77   = get_target_year_from_text(fn_77)
+                fn_77 = file_obj_77.name.upper()
+                fp_77 = file_obj_77
+                yr_77 = get_target_year_from_text(fn_77)
             if ("CPA" in fn_77) or ("NEW" in fn_77 and ("PATIENT" in fn_77 or "PT" in fn_77)):
                 continue
             try:
                 xls_77 = pd.read_excel(fp_77, sheet_name=None, header=None)
-            except Exception:
+            except Exception as e_77:
+                scan_77470_log.append(f"READ_FAIL {fn_77}: {e_77}")
                 continue
             for sn_77, sdf_77 in xls_77.items():
                 su_77 = sn_77.upper()
@@ -1053,6 +1054,9 @@ if check_password():
                 r_77 = parse_77470_data(sdf_77, prov_77, consult_log, yr_77)
                 if not r_77.empty:
                     md_77470_data.append(r_77)
+                    scan_77470_log.append(f"OK {fn_77}|{sn_77}: {len(r_77)} records yr={yr_77}")
+                else:
+                    scan_77470_log.append(f"EMPTY {fn_77}|{sn_77} yr={yr_77}")
 
         # --- DEDUPLICATION ---
         df_clinic    = safe_dedup_and_format(clinic_data,    ['Name', 'Month_Clean', 'ID'])
@@ -1126,7 +1130,7 @@ if check_password():
 
         return (df_clinic, df_provider_global, df_provider_raw, df_visits, df_financial,
                 df_pos_trend, df_consults, df_app_cpt, df_md_cpt, df_md_consults, df_md_77470,
-                debug_log, consult_log, prov_log)
+                debug_log, consult_log, prov_log, scan_77470_log)
 
     # ==========================================
     # NARRATIVE GENERATOR
@@ -1638,7 +1642,7 @@ if check_password():
     # ==========================================
     # MD TAB RENDERER  (shared for 2025 & 2026)
     # ==========================================
-    def render_md_tab(year, df_mds, df_visits, df_md_consults, df_md_77470, tab_key_suffix):
+    def render_md_tab(year, df_mds, df_visits, df_md_consults, df_md_77470, tab_key_suffix, scan_77470_log=None):
         col_nav, col_main = st.columns([1, 5])
         with col_nav:
             st.markdown(f"### 📊 Metric ({year})")
@@ -1712,6 +1716,9 @@ if check_password():
                 st.info(f"Estimated procedure counts derived from wRVU amounts ÷ {CPT_77470_WRVU} (2026 PC wRVU value for 77470).")
                 if df_77470_yr.empty:
                     st.warning(f"No CPT 77470 data found for {year}. (Total records in dataset: {len(df_md_77470)})")
+                    if scan_77470_log:
+                        with st.expander("77470 Scan Debug Log"):
+                            st.code("\n".join(scan_77470_log[:80]))
                 else:
                     sorted_m = df_77470_yr.sort_values("Month_Clean")["Month_Label"].unique()
 
@@ -1818,7 +1825,7 @@ if check_password():
         with st.spinner("Analyzing files..."):
             (df_clinic, df_md_global, df_provider_raw, df_visits, df_financial,
              df_pos_trend, df_consults, df_app_cpt, df_md_cpt, df_md_consults, df_md_77470,
-             debug_log, consult_log, prov_log) = process_files(all_files)
+             debug_log, consult_log, prov_log, scan_77470_log) = process_files(all_files)
 
         if df_clinic.empty and df_md_global.empty:
             st.error("No valid data found. Check that your files are in the Reports folder.")
@@ -1847,10 +1854,10 @@ if check_password():
                 render_clinic_tab(2025, df_clinic, df_provider_raw, df_pos_trend, df_consults, "25")
 
             with tab_md26:
-                render_md_tab(2026, df_mds, df_visits, df_md_consults, df_md_77470, "26")
+                render_md_tab(2026, df_mds, df_visits, df_md_consults, df_md_77470, "26", scan_77470_log)
 
             with tab_md25:
-                render_md_tab(2025, df_mds, df_visits, df_md_consults, df_md_77470, "25")
+                render_md_tab(2025, df_mds, df_visits, df_md_consults, df_md_77470, "25", scan_77470_log)
 
             with tab_app:
                 if df_apps.empty:
