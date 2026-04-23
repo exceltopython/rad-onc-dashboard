@@ -449,6 +449,7 @@ if check_password():
 
     def parse_77470_data(df, sheet_name, log, target_year=None):
         """Parse CPT 77470 from a provider sheet; divide raw wRVU by CPT_77470_WRVU to get count."""
+        SKIP_KEYWORDS = ["YTD", "12 MONTH", "12M", "AVG", "AVERAGE"]
         records = []
         try:
             col0 = df.iloc[:, 0].astype(str).str.strip()
@@ -457,19 +458,26 @@ if check_password():
                 return pd.DataFrame()
             cpt_row_pos = cpt_matches[0]
 
+            # Detect date header row — handles both string ("Jan-26") and
+            # datetime objects (Excel date cells read as datetime by xlrd).
             header_pos = 1
             for r_idx in [0, 1]:
-                sample = df.iloc[r_idx, 4:10].astype(str).str.upper().tolist()
-                if any(re.search(r'[A-Z]{3}-\d{2}', v) for v in sample):
+                raw_row = df.iloc[r_idx, 2:14].tolist()
+                has_text_dt = any(re.search(r'[A-Za-z]{3}-\d{2}', str(v)) for v in raw_row)
+                has_obj_dt  = any(isinstance(v, (datetime, pd.Timestamp)) for v in raw_row)
+                if has_text_dt or has_obj_dt:
                     header_pos = r_idx
                     break
 
+            # Walk every column; use standardize_date to handle string OR
+            # datetime header values uniformly.
             ncols = len(df.columns)
-            for col_pos in range(4, ncols):
-                header_val = str(df.iloc[header_pos, col_pos]).strip()
-                if not re.search(r'^[A-Za-z]{3}-\d{2}$', header_val):
+            for col_pos in range(2, ncols):
+                raw_hdr = df.iloc[header_pos, col_pos]
+                hdr_str = str(raw_hdr).strip().upper()
+                if any(kw in hdr_str for kw in SKIP_KEYWORDS):
                     continue
-                dt_clean = standardize_date(header_val)
+                dt_clean = standardize_date(raw_hdr)
                 if pd.isna(dt_clean):
                     continue
                 if target_year and dt_clean.year != target_year:
@@ -1716,9 +1724,10 @@ if check_password():
                 st.info(f"Estimated procedure counts derived from wRVU amounts ÷ {CPT_77470_WRVU} (2026 PC wRVU value for 77470).")
                 if df_77470_yr.empty:
                     st.warning(f"No CPT 77470 data found for {year}. (Total records in dataset: {len(df_md_77470)})")
-                    if scan_77470_log:
-                        with st.expander("77470 Scan Debug Log"):
-                            st.code("\n".join(scan_77470_log[:80]))
+                    with st.expander("77470 Scan Debug Log"):
+                        errs = [e for e in consult_log if "77470" in e]
+                        lines = (scan_77470_log or []) + errs
+                        st.code("\n".join(lines[:100]) if lines else "(no log entries)")
                 else:
                     sorted_m = df_77470_yr.sort_values("Month_Clean")["Month_Label"].unique()
 
