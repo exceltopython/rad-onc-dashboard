@@ -40,15 +40,20 @@ inject_custom_css()
 
 def style_high_end_chart(fig):
     fig.update_layout(
-        font={'family': "Inter, sans-serif", 'color': '#334155'},
-        title_font={'family': "Inter, sans-serif", 'size': 18, 'color': '#0f172a'},
+        font={'family': "Inter, sans-serif", 'color': '#334155', 'size': 15},
+        title_font={'family': "Inter, sans-serif", 'size': 20, 'color': '#0f172a'},
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        margin=dict(t=50, l=20, r=20, b=40),
-        xaxis=dict(showgrid=False, showline=True, linecolor='#cbd5e1', tickfont=dict(color='#64748b')),
-        yaxis=dict(showgrid=True, gridcolor='#f1f5f9', showline=False, tickfont=dict(color='#64748b')),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        hoverlabel=dict(bgcolor="white", font_size=12, font_family="Inter")
+        margin=dict(t=60, l=40, r=40, b=60),
+        xaxis=dict(showgrid=False, showline=True, linecolor='#cbd5e1',
+                   tickfont=dict(color='#64748b', size=13),
+                   title_font=dict(size=14)),
+        yaxis=dict(showgrid=True, gridcolor='#f1f5f9', showline=False,
+                   tickfont=dict(color='#64748b', size=13),
+                   title_font=dict(size=14)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+                    font=dict(size=13)),
+        hoverlabel=dict(bgcolor="white", font_size=14, font_family="Inter")
     )
     return fig
 
@@ -1402,23 +1407,22 @@ if check_password():
 
                     # Monthly & quarterly pivot tables
                     if not df_view.empty:
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            with st.container(border=True):
-                                st.markdown("#### 🔢 Monthly Data")
-                                piv_m = df_view.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                                sorted_m2 = df_view.sort_values("Month_Clean")["Month_Label"].unique()
-                                piv_m = piv_m.reindex(columns=sorted_m2).fillna(0)
-                                piv_m["Total"] = piv_m.sum(axis=1)
-                                st.dataframe(piv_m.sort_values("Total", ascending=False).style
-                                             .format("{:,.0f}").background_gradient(cmap="Reds"))
-                        with c2:
-                            with st.container(border=True):
-                                st.markdown("#### 📆 Quarterly Data")
-                                piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
-                                piv_q["Total"] = piv_q.sum(axis=1)
-                                st.dataframe(piv_q.sort_values("Total", ascending=False).style
-                                             .format("{:,.0f}").background_gradient(cmap="Oranges"))
+                        with st.container(border=True):
+                            st.markdown("#### 🔢 Monthly Data")
+                            piv_m = df_view.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                            sorted_m2 = df_view.sort_values("Month_Clean")["Month_Label"].unique()
+                            piv_m = piv_m.reindex(columns=sorted_m2).fillna(0)
+                            piv_m["Total"] = piv_m.sum(axis=1)
+                            st.dataframe(piv_m.sort_values("Total", ascending=False).style
+                                         .format("{:,.0f}").background_gradient(cmap="Reds"),
+                                         height=420, use_container_width=True)
+                        with st.container(border=True):
+                            st.markdown("#### 📆 Quarterly Data")
+                            piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
+                            piv_q["Total"] = piv_q.sum(axis=1)
+                            st.dataframe(piv_q.sort_values("Total", ascending=False).style
+                                         .format("{:,.0f}").background_gradient(cmap="Oranges"),
+                                         height=420, use_container_width=True)
 
             # --- Long-term history chart ---
             with st.container(border=True):
@@ -1471,34 +1475,30 @@ if check_password():
                     df_q_data = df_clinic_yr[df_clinic_yr['Quarter'] == target_q].copy()
                     if not df_q_data.empty:
                         st.markdown("---")
-                        cq1, cq2 = st.columns(2)
-                        with cq1:
-                            with st.container(border=True):
-                                st.markdown(f"#### 📊 Total wRVU Volume: {target_q}")
-                                # FIX: no more hardcoded /2 hack — source_type filter handles TOPC dedup
-                                df_q_sum = df_q_data.groupby('ID').agg(
-                                    {'Total RVUs': 'sum', 'Name': 'first'}
-                                ).reset_index()
-                                fig_qv = px.bar(df_q_sum.sort_values('Total RVUs', ascending=False),
-                                                x='Name', y='Total RVUs', text_auto='.2s',
-                                                color='Total RVUs', color_continuous_scale='Blues',
-                                                title=f"Total Center Volume ({target_q})")
-                                st.plotly_chart(style_high_end_chart(fig_qv), use_container_width=True,
-                                                key=f"qvol_{tab_key_suffix}")
-                        with cq2:
-                            with st.container(border=True):
-                                st.markdown(f"#### 🩺 Efficiency: wRVU per FTE: {target_q}")
-                                df_q_eff = df_q_data.groupby('Name').agg(
-                                    {'Total RVUs': 'sum', 'FTE': 'max'}
-                                ).reset_index()
-                                df_q_eff['RVU per FTE'] = df_q_eff.apply(
-                                    lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
-                                fig_qe = px.bar(df_q_eff.sort_values('RVU per FTE', ascending=False),
-                                                x='Name', y='RVU per FTE', text_auto='.0f',
-                                                color='RVU per FTE', color_continuous_scale='Portland',
-                                                title=f"Quarterly wRVU per FTE ({target_q})")
-                                st.plotly_chart(style_high_end_chart(fig_qe), use_container_width=True,
-                                                key=f"qeff_{tab_key_suffix}")
+                        with st.container(border=True):
+                            st.markdown(f"#### 📊 Total wRVU Volume: {target_q}")
+                            df_q_sum = df_q_data.groupby('ID').agg(
+                                {'Total RVUs': 'sum', 'Name': 'first'}
+                            ).reset_index()
+                            fig_qv = px.bar(df_q_sum.sort_values('Total RVUs', ascending=False),
+                                            x='Name', y='Total RVUs', text_auto='.2s',
+                                            color='Total RVUs', color_continuous_scale='Blues',
+                                            title=f"Total Center Volume ({target_q})")
+                            st.plotly_chart(style_high_end_chart(fig_qv), use_container_width=True,
+                                            key=f"qvol_{tab_key_suffix}")
+                        with st.container(border=True):
+                            st.markdown(f"#### 🩺 Efficiency: wRVU per FTE: {target_q}")
+                            df_q_eff = df_q_data.groupby('Name').agg(
+                                {'Total RVUs': 'sum', 'FTE': 'max'}
+                            ).reset_index()
+                            df_q_eff['RVU per FTE'] = df_q_eff.apply(
+                                lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
+                            fig_qe = px.bar(df_q_eff.sort_values('RVU per FTE', ascending=False),
+                                            x='Name', y='RVU per FTE', text_auto='.0f',
+                                            color='RVU per FTE', color_continuous_scale='Portland',
+                                            title=f"Quarterly wRVU per FTE ({target_q})")
+                            st.plotly_chart(style_high_end_chart(fig_qe), use_container_width=True,
+                                            key=f"qeff_{tab_key_suffix}")
 
             # --- Detailed per-clinic breakdown (TriStar / Ascension) ---
             if clinic_filter in ["TriStar", "Ascension"]:
@@ -1670,24 +1670,22 @@ if check_password():
                                         y='RVU per FTE', color='Name', markers=True)
                         st.plotly_chart(style_high_end_chart(fig_t), use_container_width=True,
                                         key=f"md_trend_{tab_key_suffix}")
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        with st.container(border=True):
-                            st.markdown("#### 🔢 Monthly Data")
-                            piv = df_mds_yr.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
-                            sorted_m = df_mds_yr.sort_values("Month_Clean")["Month_Label"].unique()
-                            piv = piv.reindex(columns=sorted_m).fillna(0)
-                            piv["Total"] = piv.sum(axis=1)
-                            st.dataframe(piv.sort_values("Total", ascending=False).style
-                                         .format("{:,.0f}").background_gradient(cmap="Blues"), height=400)
-                    with c2:
-                        with st.container(border=True):
-                            st.markdown("#### 🏆 YTD Total RVUs")
-                            ytd_s = df_mds_yr.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
-                            fig_ytd = px.bar(ytd_s, x='Name', y='Total RVUs', color='Total RVUs',
-                                             color_continuous_scale='Viridis', text_auto='.2s')
-                            st.plotly_chart(style_high_end_chart(fig_ytd), use_container_width=True,
-                                            key=f"md_ytd_{tab_key_suffix}")
+                    with st.container(border=True):
+                        st.markdown("#### 🔢 Monthly Data")
+                        piv = df_mds_yr.pivot_table(index="Name", columns="Month_Label", values="Total RVUs", aggfunc="sum").fillna(0)
+                        sorted_m = df_mds_yr.sort_values("Month_Clean")["Month_Label"].unique()
+                        piv = piv.reindex(columns=sorted_m).fillna(0)
+                        piv["Total"] = piv.sum(axis=1)
+                        st.dataframe(piv.sort_values("Total", ascending=False).style
+                                     .format("{:,.0f}").background_gradient(cmap="Blues"),
+                                     height=420, use_container_width=True)
+                    with st.container(border=True):
+                        st.markdown("#### 🏆 YTD Total RVUs")
+                        ytd_s = df_mds_yr.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
+                        fig_ytd = px.bar(ytd_s, x='Name', y='Total RVUs', color='Total RVUs',
+                                         color_continuous_scale='Viridis', text_auto='.2s')
+                        st.plotly_chart(style_high_end_chart(fig_ytd), use_container_width=True,
+                                        key=f"md_ytd_{tab_key_suffix}")
 
             elif md_view == "Office Visits":
                 df_vis_yr = df_visits[df_visits['Month_Clean'].dt.year == year].copy() if not df_visits.empty else pd.DataFrame()
@@ -1700,23 +1698,22 @@ if check_password():
                     lv = df_vis_agg['Month_Clean'].max()
                     lv_df = df_vis_agg[df_vis_agg['Month_Clean'] == lv]
                     lv_df = lv_df[~lv_df['Name'].isin(APP_LIST)]
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        with st.container(border=True):
-                            st.markdown(f"#### 🏥 Total Office Visits ({year} YTD)")
-                            fig_ov = px.bar(lv_df.sort_values('Total Visits', ascending=True),
-                                            x='Total Visits', y='Name', orientation='h', text_auto=True,
-                                            color='Total Visits', color_continuous_scale='Blues')
-                            st.plotly_chart(style_high_end_chart(fig_ov), use_container_width=True,
-                                            key=f"vis_ov_{tab_key_suffix}")
-                    with c2:
-                        with st.container(border=True):
-                            st.markdown(f"#### 🆕 New Patients ({year} YTD)")
-                            fig_np = px.bar(lv_df.sort_values('New Patients', ascending=True),
-                                            x='New Patients', y='Name', orientation='h', text_auto=True,
-                                            color='New Patients', color_continuous_scale='Greens')
-                            st.plotly_chart(style_high_end_chart(fig_np), use_container_width=True,
-                                            key=f"vis_np_{tab_key_suffix}")
+                    with st.container(border=True):
+                        st.markdown(f"#### 🏥 Total Office Visits ({year} YTD)")
+                        fig_ov = px.bar(lv_df.sort_values('Total Visits', ascending=True),
+                                        x='Total Visits', y='Name', orientation='h', text_auto=True,
+                                        color='Total Visits', color_continuous_scale='Blues')
+                        fig_ov.update_layout(height=500)
+                        st.plotly_chart(style_high_end_chart(fig_ov), use_container_width=True,
+                                        key=f"vis_ov_{tab_key_suffix}")
+                    with st.container(border=True):
+                        st.markdown(f"#### 🆕 New Patients ({year} YTD)")
+                        fig_np = px.bar(lv_df.sort_values('New Patients', ascending=True),
+                                        x='New Patients', y='Name', orientation='h', text_auto=True,
+                                        color='New Patients', color_continuous_scale='Greens')
+                        fig_np.update_layout(height=500)
+                        st.plotly_chart(style_high_end_chart(fig_np), use_container_width=True,
+                                        key=f"vis_np_{tab_key_suffix}")
 
             elif md_view == "77470 Special Procedures":
                 df_77470_yr = df_md_77470[df_md_77470['Month_Clean'].dt.year == year].copy() if not df_md_77470.empty else pd.DataFrame()
@@ -1741,33 +1738,30 @@ if check_password():
                         st.plotly_chart(style_high_end_chart(fig_t), use_container_width=True,
                                         key=f"md_77470_trend_{tab_key_suffix}")
 
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        with st.container(border=True):
-                            st.markdown("#### 🔢 Monthly Count by Provider")
-                            piv_77470 = df_77470_yr.pivot_table(
-                                index="Name", columns="Month_Label", values="Count", aggfunc="sum"
-                            ).fillna(0)
-                            piv_77470 = piv_77470.reindex(columns=sorted_m).fillna(0)
-                            piv_77470["Total"] = piv_77470.sum(axis=1)
-                            st.dataframe(
-                                piv_77470.sort_values("Total", ascending=False).style
-                                .format("{:,.1f}").background_gradient(cmap="Purples"),
-                                height=450, use_container_width=True,
-                                key=f"md_77470_tbl_{tab_key_suffix}",
-                            )
-                    with c2:
-                        with st.container(border=True):
-                            st.markdown(f"#### 🏆 {year} YTD Total")
-                            ytd_77470 = df_77470_yr.groupby("Name")["Count"].sum().reset_index()
-                            ytd_77470 = ytd_77470.sort_values("Count", ascending=False)
-                            fig_ytd = px.bar(
-                                ytd_77470, x="Name", y="Count", text_auto=".1f",
-                                color="Count", color_continuous_scale="Purples",
-                                labels={"Count": "Estimated Procedures"},
-                            )
-                            st.plotly_chart(style_high_end_chart(fig_ytd), use_container_width=True,
-                                            key=f"md_77470_ytd_{tab_key_suffix}")
+                    with st.container(border=True):
+                        st.markdown("#### 🔢 Monthly Count by Provider")
+                        piv_77470 = df_77470_yr.pivot_table(
+                            index="Name", columns="Month_Label", values="Count", aggfunc="sum"
+                        ).fillna(0)
+                        piv_77470 = piv_77470.reindex(columns=sorted_m).fillna(0)
+                        piv_77470["Total"] = piv_77470.sum(axis=1)
+                        st.dataframe(
+                            piv_77470.sort_values("Total", ascending=False).style
+                            .format("{:,.1f}").background_gradient(cmap="Purples"),
+                            height=420, use_container_width=True,
+                            key=f"md_77470_tbl_{tab_key_suffix}",
+                        )
+                    with st.container(border=True):
+                        st.markdown(f"#### 🏆 {year} YTD Total")
+                        ytd_77470 = df_77470_yr.groupby("Name")["Count"].sum().reset_index()
+                        ytd_77470 = ytd_77470.sort_values("Count", ascending=False)
+                        fig_ytd = px.bar(
+                            ytd_77470, x="Name", y="Count", text_auto=".1f",
+                            color="Count", color_continuous_scale="Purples",
+                            labels={"Count": "Estimated Procedures"},
+                        )
+                        st.plotly_chart(style_high_end_chart(fig_ytd), use_container_width=True,
+                                        key=f"md_77470_ytd_{tab_key_suffix}")
 
             # 77263 table — always shown at the bottom of the MD tab
             st.markdown("---")
