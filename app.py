@@ -1022,6 +1022,38 @@ if check_password():
                         })
                     clinic_data.append(pd.DataFrame(topc_records))
 
+        # --- DEDICATED 77470 SCAN ---
+        # Explicitly walk every sheet in every file, scan column 0 for the
+        # "77470" row, then read across for the relevant month columns.
+        # This mirrors parse_consults_data but targets CPT 77470 directly.
+        for file_obj_77 in all_files_to_process:
+            if isinstance(file_obj_77, LocalFile):
+                fn_77   = file_obj_77.name          # already uppercased in LocalFile
+                fp_77   = file_obj_77.path
+                yr_77   = get_target_year_from_text(fp_77)
+            else:
+                fn_77   = file_obj_77.name.upper()
+                fp_77   = file_obj_77
+                yr_77   = get_target_year_from_text(fn_77)
+            if ("CPA" in fn_77) or ("NEW" in fn_77 and ("PATIENT" in fn_77 or "PT" in fn_77)):
+                continue
+            try:
+                xls_77 = pd.read_excel(fp_77, sheet_name=None, header=None)
+            except Exception:
+                continue
+            for sn_77, sdf_77 in xls_77.items():
+                su_77 = sn_77.upper()
+                if "TREND" in su_77 and "PRODUCTIVITY TREND" not in su_77:
+                    continue
+                if any(ign in su_77 for ign in IGNORED_SHEETS):
+                    continue
+                prov_77 = match_provider(sn_77.strip())
+                if not prov_77 or prov_77 in APP_LIST:
+                    continue
+                r_77 = parse_77470_data(sdf_77, prov_77, consult_log, yr_77)
+                if not r_77.empty:
+                    md_77470_data.append(r_77)
+
         # --- DEDUPLICATION ---
         df_clinic    = safe_dedup_and_format(clinic_data,    ['Name', 'Month_Clean', 'ID'])
         df_visits    = safe_dedup_and_format(visit_data,     ['Name', 'Month_Clean', 'Clinic_Tag'])
@@ -1679,7 +1711,7 @@ if check_password():
                 st.markdown(f"### 🔬 CPT 77470 — Special Treatment Procedure ({year})")
                 st.info(f"Estimated procedure counts derived from wRVU amounts ÷ {CPT_77470_WRVU} (2026 PC wRVU value for 77470).")
                 if df_77470_yr.empty:
-                    st.warning(f"No CPT 77470 data found for {year}.")
+                    st.warning(f"No CPT 77470 data found for {year}. (Total records in dataset: {len(df_md_77470)})")
                 else:
                     sorted_m = df_77470_yr.sort_values("Month_Clean")["Month_Label"].unique()
 
