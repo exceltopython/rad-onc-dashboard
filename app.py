@@ -2197,9 +2197,9 @@ if check_password():
 
                     # MGMA benchmarking -----------------------------------------
                     with st.container(border=True):
-                        render_section_header("MGMA Benchmark Comparison",
-                                              f"Individual physician wRVUs vs national Radiation Oncology MGMA percentile norms ({n_md_m if 'n_md_m' not in dir() else df_mds_yr['Month_Clean'].dt.month.nunique()}-month YTD)", "🎯")
                         n_md_m   = df_mds_yr['Month_Clean'].dt.month.nunique()
+                        render_section_header("MGMA Benchmark Comparison",
+                                              f"Individual physician wRVUs vs national Radiation Oncology MGMA percentile norms ({n_md_m}-month YTD)", "🎯")
                         ytd_mgma = df_mds_yr.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
                         ref_25   = MGMA_BENCHMARKS['25th'] / 12 * n_md_m
                         ref_50   = MGMA_BENCHMARKS['50th'] / 12 * n_md_m
