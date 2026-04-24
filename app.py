@@ -184,7 +184,9 @@ if check_password():
     APP_LIST = ["Burke", "Ellis", "Lewis", "Lydon"]
 
     TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
-    IGNORED_SHEETS   = ["RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS"]
+    IGNORED_SHEETS   = ["RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS",
+                        "LROC PHYSICIAN WORK RVUS", "TROC PHYSICIAN WORK RVUS",
+                        "LROC POS WORK RVUS", "TROC POS WORK RVUS"]
     SERVER_DIR       = "Reports"
     # Approximate MGMA Radiation Oncology physician benchmarks (annual wRVUs)
     MGMA_BENCHMARKS  = {"25th": 6500, "50th": 9000, "75th": 11500}
@@ -960,8 +962,10 @@ if check_password():
                 clean_name = sheet_name.strip()
 
                 # Skip trend sheets that aren't productivity trends
+                # Exception: bare "Trend" sheet in LROC/TROC 2026 files is the productivity data
                 if "TREND" in s_upper and "PRODUCTIVITY TREND" not in s_upper:
-                    continue
+                    if not (s_upper == "TREND" and file_tag in ["LROC", "TROC"]):
+                        continue
 
                 # Check if the sheet name is itself a provider name
                 match_prov = match_provider(clean_name)
@@ -1000,7 +1004,7 @@ if check_password():
                     if not res_consult.empty: consult_data.append(res_consult)
                     # Fall through to also extract any provider rows below
 
-                if "PRODUCTIVITY TREND" in s_upper:
+                if "PRODUCTIVITY TREND" in s_upper or (s_upper == "TREND" and file_tag in ["LROC", "TROC"]):
                     if file_tag in ["LROC", "TROC"]:
                         res = parse_rvu_sheet(df, file_tag, 'clinic', clinic_tag=file_tag, target_year=target_year)
                         if not res.empty: clinic_data.append(res)
