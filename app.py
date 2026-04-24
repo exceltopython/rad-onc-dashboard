@@ -1439,7 +1439,6 @@ if check_password():
                 insight_lines.append(f"Network volume is <b>{yoy_pct:.1f}% below {prior_year}</b> on a same-period basis — projected annual run rate of {projected:,.0f} wRVUs warrants monitoring.")
             else:
                 insight_lines.append(f"Network volume is <b>approximately flat vs {prior_year}</b> ({yoy_pct:+.1f}%), with a projected annual run rate of {projected:,.0f} wRVUs.")
-            insight_lines.append(f"Physician (MD) production represents <b>{md_pct:.1f}%</b> of total network wRVUs; APP contribution is <b>{app_pct:.1f}%</b> ({app_ytd:,.0f} wRVUs YTD).")
             if top_clinic != "—":
                 insight_lines.append(f"Highest absolute volume: <b>{top_clinic}</b>. Highest efficiency (wRVU/FTE): <b>{top_fte_site}</b>.")
             render_insight_box("Key Network Insights", " &nbsp;·&nbsp; ".join(insight_lines))
@@ -1465,35 +1464,6 @@ if check_password():
                                  labels={'Total RVUs':'wRVUs'})
                 st.plotly_chart(style_high_end_chart(fig_yoy), use_container_width=True,
                                 key=f"exec_yoy_{year}")
-
-        # ---- MD vs APP Volume Composition ----
-        if ytd_rvu > 0 and (md_ytd > 0 or app_ytd > 0):
-            with st.container(border=True):
-                render_section_header("Volume Composition: MD vs APP",
-                                      "Share of total network wRVUs by provider type", "🧩")
-                comp_cols = st.columns(2)
-                with comp_cols[0]:
-                    comp_df = pd.DataFrame({
-                        'Type': ['Physician (MD)', 'APP', 'Other/Unattributed'],
-                        'wRVUs': [md_ytd, app_ytd, max(0, ytd_rvu - md_ytd - app_ytd)]
-                    })
-                    comp_df = comp_df[comp_df['wRVUs'] > 0]
-                    fig_comp = px.pie(comp_df, values='wRVUs', names='Type', hole=0.45,
-                                     color_discrete_sequence=['#1E3A8A','#3b82f6','#94a3b8'],
-                                     title="YTD wRVU Share by Provider Type")
-                    fig_comp.update_traces(textposition='inside', textinfo='percent+label')
-                    st.plotly_chart(style_high_end_chart(fig_comp), use_container_width=True,
-                                   key=f"exec_comp_{year}")
-                with comp_cols[1]:
-                    # Per-physician productivity distribution
-                    if not df_mc.empty:
-                        md_dist = df_mc.groupby('Name')['Total RVUs'].sum().reset_index().sort_values('Total RVUs', ascending=True)
-                        fig_dist = px.bar(md_dist, x='Total RVUs', y='Name', orientation='h',
-                                          color='Total RVUs', color_continuous_scale='Blues',
-                                          text_auto='.2s', title="Physician YTD wRVU Distribution")
-                        fig_dist.update_layout(showlegend=False, height=max(300, len(md_dist)*38))
-                        st.plotly_chart(style_high_end_chart(fig_dist), use_container_width=True,
-                                       key=f"exec_mddist_{year}")
 
         # ---- Multi-Year Trend (CAGR) ----
         with st.container(border=True):
