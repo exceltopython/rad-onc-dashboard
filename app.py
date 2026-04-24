@@ -32,7 +32,7 @@ def inject_custom_css():
         .stTabs [data-baseweb="tab-highlight"] { background-color: transparent !important; }
 
         div.rtable table { border-collapse: collapse; width: 100%; font-family: Inter, sans-serif; }
-        div.rtable th { background-color: #f1f5f9 !important; font-weight: 700 !important; color: #0f172a !important; font-size: 21px !important; padding: 8px 14px !important; border: 1px solid #cbd5e1 !important; text-align: left !important; }
+        div.rtable th { background-color: #f1f5f9 !important; font-weight: 700 !important; color: #0f172a !important; font-size: 15px !important; padding: 8px 14px !important; border: 1px solid #cbd5e1 !important; text-align: left !important; }
         div.rtable td { border: 1px solid #e2e8f0 !important; }
         div.rtable tr:hover td { filter: brightness(0.96); }
         </style>
@@ -43,7 +43,7 @@ inject_custom_css()
 def render_table(styled_df, height=None):
     # Bake font-size directly into every <td> inline style — CSS inheritance
     # from an outer div is unreliable in Streamlit's markdown container.
-    html = styled_df.set_properties(**{'font-size': '21px', 'padding': '8px 14px'}).to_html()
+    html = styled_df.set_properties(**{'font-size': '15px', 'padding': '8px 14px'}).to_html()
     h_style = f"max-height:{height}px; overflow-y:auto; " if height else ""
     st.markdown(
         f'<div class="rtable" style="{h_style}overflow-x:auto;">{html}</div>',
