@@ -1567,7 +1567,9 @@ if check_password():
                               else 'color: #94a3b8'),
                         subset=['Trend'],
                     )
-                st.dataframe(sc_styled, hide_index=True, use_container_width=True, column_config=col_cfg)
+                sc_height = (len(sc_disp) + 1) * 36 + 4  # header row + data rows + border
+                st.dataframe(sc_styled, hide_index=True, use_container_width=True,
+                             height=sc_height, column_config=col_cfg)
                 st.caption("Click any column header to sort. wRVU/FTE = efficiency metric; higher values indicate greater productivity intensity relative to physician effort.")
 
         # ---- Physician Productivity Scorecard ----
