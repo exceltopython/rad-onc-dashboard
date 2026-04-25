@@ -53,9 +53,9 @@ def inject_custom_css():
             border: 1px solid #1e40af !important; text-align: left !important;
             letter-spacing: 0.25px;
         }
-        div.rtable td { border: 1px solid #e2e8f0 !important; }
+        div.rtable td { border: 1px solid #e2e8f0 !important; color: #1e293b; }
         div.rtable tr:hover td { background-color: #eff6ff !important; }
-        div.rtable tr:nth-child(even) td { background-color: #f8fafc; }
+        div.rtable tr:nth-child(even) td { background-color: #f8fafc !important; }
 
         /* --- Section header accent bar --- */
         .sec-hdr {
