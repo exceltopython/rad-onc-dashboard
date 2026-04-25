@@ -119,7 +119,16 @@ inject_custom_css()
 def render_table(styled_df, height=None):
     # color: #1e293b overrides any grey text pandas chose for gradient cells;
     # safe because _LC colormaps never produce backgrounds dark enough to need white text.
-    html = styled_df.set_properties(**{'font-size': '15px', 'padding': '5px 14px', 'color': '#1e293b'}).to_html()
+    s = styled_df.set_properties(**{'font-size': '15px', 'padding': '5px 14px', 'color': '#1e293b'})
+    # Apply trend-arrow colours after the baseline so they win the cascade.
+    if 'Trend' in styled_df.data.columns:
+        s = s.map(
+            lambda v: ('color: #16a34a; font-weight: 700' if v == '▲'
+                  else 'color: #dc2626; font-weight: 700' if v == '▼'
+                  else 'color: #64748b'),
+            subset=['Trend'],
+        )
+    html = s.to_html()
     h_style = f"max-height:{height}px; overflow-y:auto; " if height else ""
     st.markdown(
         f'<div class="rtable" style="{h_style}overflow-x:auto;">{html}</div>',
