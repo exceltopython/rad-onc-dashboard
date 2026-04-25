@@ -5,6 +5,25 @@ import plotly.graph_objects as go
 from datetime import datetime
 import os
 import re
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+
+def _lc(name, lo=0.05, hi=0.45):
+    """Truncate a colormap to the light portion so backgrounds never get dark enough to need white text."""
+    return mcolors.LinearSegmentedColormap.from_list(
+        f'{name}_light', plt.get_cmap(name)(np.linspace(lo, hi, 256)))
+
+# Light colormap palette — used in all background_gradient calls
+_LC = {
+    'Blues':    _lc('Blues',    0.05, 0.45),
+    'Greens':   _lc('Greens',   0.05, 0.45),
+    'Reds':     _lc('Reds',     0.05, 0.45),
+    'Oranges':  _lc('Oranges',  0.05, 0.45),
+    'Purples':  _lc('Purples',  0.05, 0.45),
+    'RdYlGn':   _lc('RdYlGn',   0.12, 0.88),
+    'RdYlGn_r': _lc('RdYlGn_r', 0.12, 0.88),
+}
 
 # --- TRY IMPORTING FPDF ---
 try:
@@ -98,7 +117,9 @@ def inject_custom_css():
 inject_custom_css()
 
 def render_table(styled_df, height=None):
-    html = styled_df.set_properties(**{'font-size': '15px', 'padding': '8px 14px'}).to_html()
+    # color: #1e293b overrides any grey text pandas chose for gradient cells;
+    # safe because _LC colormaps never produce backgrounds dark enough to need white text.
+    html = styled_df.set_properties(**{'font-size': '15px', 'padding': '8px 14px', 'color': '#1e293b'}).to_html()
     h_style = f"max-height:{height}px; overflow-y:auto; " if height else ""
     st.markdown(
         f'<div class="rtable" style="{h_style}overflow-x:auto;">{html}</div>',
@@ -1516,7 +1537,7 @@ if check_password():
                     fmt_sc = {'Total RVUs':'{:,.0f}','% of Network':'{:.1%}','FTE':'{:.1f}','wRVU/FTE':'{:,.0f}'}
                 sc = sc.sort_values('Total RVUs', ascending=False)
                 render_table(sc[disp_cols].style.format(fmt_sc)
-                             .background_gradient(subset=['Total RVUs','wRVU/FTE'], cmap='Blues'))
+                             .background_gradient(subset=['Total RVUs','wRVU/FTE'], cmap=_LC['Blues']))
                 st.caption("wRVU/FTE = efficiency metric; higher values indicate greater productivity intensity relative to physician effort.")
 
         # ---- Physician Productivity Scorecard ----
@@ -1548,7 +1569,7 @@ if check_password():
                     fmt_m = {'Total RVUs':'{:,.0f}','wRVU/FTE':'{:,.0f}','vs MGMA 50th':'{:+.1%}'}
                 msc = msc.sort_values('Total RVUs', ascending=False)
                 render_table(msc[m_cols].style.format(fmt_m)
-                             .background_gradient(subset=['vs MGMA 50th'], cmap='RdYlGn'))
+                             .background_gradient(subset=['vs MGMA 50th'], cmap=_LC['RdYlGn']))
                 elite_n = (msc['Total RVUs'] > mgma_75_ytd).sum()
                 above_n = ((msc['Total RVUs'] > mgma_50_ytd) & (msc['Total RVUs'] <= mgma_75_ytd)).sum()
                 st.caption(
@@ -1584,7 +1605,7 @@ if check_password():
                 fmt_p = {'YTD':'{:,.0f}','Projected Annual':'{:,.0f}','Proj/FTE':'{:,.0f}',
                          'Prior Year':'{:,.0f}','Δ vs Prior':'{:+.1%}'}
                 render_table(proj_df.style.format(fmt_p)
-                             .background_gradient(subset=['Projected Annual','Δ vs Prior'], cmap='Greens'))
+                             .background_gradient(subset=['Projected Annual','Δ vs Prior'], cmap=_LC['Greens']))
                 st.caption("Δ vs Prior compares projected annual pace against the full prior calendar year — positive values indicate growth trajectory.")
 
     def get_most_recent_quarter(df):
@@ -1735,7 +1756,7 @@ if check_password():
                             piv = piv.reindex(columns=sorted_m).fillna(0)
                             piv["Total"] = piv.sum(axis=1)
                             render_table(piv.sort_values("Total", ascending=False).style
-                                         .format("{:,.0f}").background_gradient(cmap="Blues"), height=500)
+                                         .format("{:,.0f}").background_gradient(cmap=_LC['Blues']), height=500)
 
                     # Historical summary
                     with st.container(border=True):
@@ -1751,13 +1772,13 @@ if check_password():
                             piv_m = piv_m.reindex(columns=sorted_m2).fillna(0)
                             piv_m["Total"] = piv_m.sum(axis=1)
                             render_table(piv_m.sort_values("Total", ascending=False).style
-                                         .format("{:,.0f}").background_gradient(cmap="Reds"), height=420)
+                                         .format("{:,.0f}").background_gradient(cmap=_LC['Reds']), height=420)
                         with st.container(border=True):
                             st.markdown("#### 📆 Quarterly Data")
                             piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                             piv_q["Total"] = piv_q.sum(axis=1)
                             render_table(piv_q.sort_values("Total", ascending=False).style
-                                         .format("{:,.0f}").background_gradient(cmap="Oranges"), height=420)
+                                         .format("{:,.0f}").background_gradient(cmap=_LC['Oranges']), height=420)
 
             # --- Long-term history chart ---
             with st.container(border=True):
@@ -1784,7 +1805,7 @@ if check_password():
                     st.plotly_chart(style_high_end_chart(fig_np), use_container_width=True,
                                     key=f"np_net_{tab_key_suffix}")
                     piv_np = df_pos_yr.pivot_table(index="Display_Name", columns="Month_Label", values="New Patients", aggfunc="sum").fillna(0)
-                    render_table(piv_np.style.format("{:,.0f}").background_gradient(cmap="Greens"))
+                    render_table(piv_np.style.format("{:,.0f}").background_gradient(cmap=_LC['Greens']))
 
             # --- wRVU/FTE efficiency (All view) ---
             if clinic_filter == "All" and not df_clinic_yr.empty:
@@ -1913,7 +1934,7 @@ if check_password():
                         ytd_cmp = ytd_cmp.sort_values('Total RVUs', ascending=False)
                         render_table(ytd_cmp[['Name','Total RVUs','Prior RVUs','YoY Δ','Trend']]
                                      .style.format({'Total RVUs':'{:,.0f}','Prior RVUs':'{:,.0f}','YoY Δ':'{:+.1%}'})
-                                     .background_gradient(subset=['YoY Δ'], cmap='RdYlGn'))
+                                     .background_gradient(subset=['YoY Δ'], cmap=_LC['RdYlGn']))
 
                 # Heatmap -------------------------------------------------------
                 with st.container(border=True):
@@ -1945,8 +1966,8 @@ if check_password():
                              'Max Month':'{:,.0f}','YTD Total':'{:,.0f}','CV (%)':'{:.1f}%',
                              'Peak/Trough Ratio':'{:.2f}'}
                     render_table(stat_df.style.format(fmt_s)
-                                 .background_gradient(subset=['YTD Total'], cmap='Blues')
-                                 .background_gradient(subset=['CV (%)'], cmap='RdYlGn_r'))
+                                 .background_gradient(subset=['YTD Total'], cmap=_LC['Blues'])
+                                 .background_gradient(subset=['CV (%)'], cmap=_LC['RdYlGn_r']))
                     st.caption(
                         "**CV** (Coefficient of Variation) = Std Dev ÷ Mean — lower CV indicates more consistent monthly volume. "
                         "**Peak/Trough Ratio** = best month ÷ worst month — values near 1.0 indicate stable year-round demand."
@@ -1977,7 +1998,7 @@ if check_password():
                             fmt_pr = {'YTD wRVUs':'{:,.0f}','Projected Annual':'{:,.0f}',
                                       'Proj wRVU/FTE':'{:,.0f}','Prior Year Total':'{:,.0f}','Δ vs Prior':'{:+.1%}'}
                             render_table(prj.style.format(fmt_pr)
-                                         .background_gradient(subset=['Projected Annual','Δ vs Prior'], cmap='Greens'))
+                                         .background_gradient(subset=['Projected Annual','Δ vs Prior'], cmap=_LC['Greens']))
 
             # --- Detailed per-clinic breakdown (TriStar / Ascension) ---
             if clinic_filter in ["TriStar", "Ascension"]:
@@ -2027,7 +2048,7 @@ if check_password():
                         piv_p = piv_p.reindex(columns=sorted_m).fillna(0)
                         piv_p["Total"] = piv_p.sum(axis=1)
                         render_table(piv_p.sort_values("Total", ascending=False).style
-                                     .format("{:,.0f}").background_gradient(cmap="Blues"))
+                                     .format("{:,.0f}").background_gradient(cmap=_LC['Blues']))
                     # POS trend for this clinic
                     if not df_pos_trend.empty:
                         df_pos_yr2 = df_pos_trend[df_pos_trend['Month_Clean'].dt.year == year]
@@ -2043,7 +2064,7 @@ if check_password():
                                 sorted_mp = pos_df.sort_values("Month_Clean")["Month_Label"].unique()
                                 pos_piv = pos_piv.reindex(columns=sorted_mp).fillna(0)
                                 pos_piv["Total"] = pos_piv.sum(axis=1)
-                                render_table(pos_piv.style.format("{:,.0f}").background_gradient(cmap="Greens"))
+                                render_table(pos_piv.style.format("{:,.0f}").background_gradient(cmap=_LC['Greens']))
 
             # --- Single-clinic pie + provider table ---
             if target_tag and not df_provider_raw.empty:
@@ -2089,7 +2110,7 @@ if check_password():
                         piv_p = piv_p.reindex(columns=sorted_m).fillna(0)
                         piv_p["Total"] = piv_p.sum(axis=1)
                         render_table(piv_p.sort_values("Total", ascending=False).style
-                                     .format("{:,.0f}").background_gradient(cmap="Blues"))
+                                     .format("{:,.0f}").background_gradient(cmap=_LC['Blues']))
 
             # --- Visits (LROC / TROC / TOPC) ---
             if target_tag in ["LROC", "TROC", "TOPC"] and not df_visits.empty:
@@ -2156,7 +2177,7 @@ if check_password():
                         piv = piv.reindex(columns=sorted_m).fillna(0)
                         piv["Total"] = piv.sum(axis=1)
                         render_table(piv.sort_values("Total", ascending=False).style
-                                     .format("{:,.0f}").background_gradient(cmap="Blues"), height=420)
+                                     .format("{:,.0f}").background_gradient(cmap=_LC['Blues']), height=420)
                     with st.container(border=True):
                         st.markdown("#### 🏆 YTD Total RVUs")
                         ytd_s = df_mds_yr.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
@@ -2196,7 +2217,7 @@ if check_password():
                         render_table(ytd_mgma[['Name','Total RVUs','vs 25th','vs 50th','vs 75th','Productivity Tier']]
                                      .style.format({'Total RVUs':'{:,.0f}','vs 25th':'{:+.1%}',
                                                     'vs 50th':'{:+.1%}','vs 75th':'{:+.1%}'})
-                                     .background_gradient(subset=['vs 50th'], cmap='RdYlGn'))
+                                     .background_gradient(subset=['vs 50th'], cmap=_LC['RdYlGn']))
                         elite_md  = (ytd_mgma['Total RVUs'] > ref_75).sum()
                         below_md  = (ytd_mgma['Total RVUs'] < ref_25).sum()
                         st.caption(
@@ -2269,8 +2290,8 @@ if check_password():
                                    'Max Month':'{:,.0f}','YTD Total':'{:,.0f}','CV (%)':'{:.1f}%',
                                    'Peak/Trough':'{:.2f}'}
                         render_table(md_stat.style.format(fmt_ms)
-                                     .background_gradient(subset=['YTD Total'], cmap='Purples')
-                                     .background_gradient(subset=['CV (%)'], cmap='RdYlGn_r'))
+                                     .background_gradient(subset=['YTD Total'], cmap=_LC['Purples'])
+                                     .background_gradient(subset=['CV (%)'], cmap=_LC['RdYlGn_r']))
                         st.caption(
                             "**CV** = Std Dev ÷ Mean × 100 — lower values indicate more predictable monthly output. "
                             "**Peak/Trough** = best month ÷ worst month — values near 1.0 indicate stable scheduling year-round."
@@ -2336,7 +2357,7 @@ if check_password():
                         piv_77470["Total"] = piv_77470.sum(axis=1)
                         render_table(
                             piv_77470.sort_values("Total", ascending=False).style
-                            .format("{:,.1f}").background_gradient(cmap="Purples"),
+                            .format("{:,.1f}").background_gradient(cmap=_LC['Purples']),
                             height=420,
                         )
                     with st.container(border=True):
@@ -2361,7 +2382,7 @@ if check_password():
                 piv_77 = piv_77.reindex(columns=sorted_m).fillna(0)
                 piv_77["Total"] = piv_77.sum(axis=1)
                 render_table(piv_77.sort_values("Total", ascending=False).style
-                             .format("{:,.0f}").background_gradient(cmap="Blues"), height=500)
+                             .format("{:,.0f}").background_gradient(cmap=_LC['Blues']), height=500)
 
                 # 77263 / New Patients ratio (2025 only — needs visit data)
                 if year == 2025 and not df_visits.empty:
@@ -2573,7 +2594,7 @@ if check_password():
                                     sorted_ma = sub.sort_values("Month_Clean")["Month_Label"].unique()
                                     piv_a = piv_a.reindex(columns=sorted_ma).fillna(0)
                                     piv_a["Total"] = piv_a.sum(axis=1)
-                                    render_table(piv_a.style.format("{:,.0f}").background_gradient(cmap="Oranges"))
+                                    render_table(piv_a.style.format("{:,.0f}").background_gradient(cmap=_LC['Oranges']))
 
             with tab_fin:
                 if df_financial.empty:
@@ -2598,7 +2619,7 @@ if check_password():
                                 st.plotly_chart(style_high_end_chart(fig_pay), use_container_width=True)
                             fmt = {'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}
                             render_table(lp[['Name','Charges','Payments','% Payments/Charges']].sort_values('Charges', ascending=False).style
-                                         .format(fmt).background_gradient(cmap="Greens"))
+                                         .format(fmt).background_gradient(cmap=_LC['Greens']))
                     elif fin_view == "CPA By Clinic":
                         cf = df_financial[df_financial['Mode'] == 'Clinic']
                         if not cf.empty:
@@ -2611,14 +2632,14 @@ if check_password():
                             ytd_disp = pd.concat([ytd.sort_values('Charges', ascending=False), total_row], ignore_index=True)
                             fmt = {'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}
                             st.markdown("#### 📆 Year to Date Charges & Payments")
-                            render_table(ytd_disp.style.format(fmt).background_gradient(cmap="Greens"), height=600)
+                            render_table(ytd_disp.style.format(fmt).background_gradient(cmap=_LC['Greens']), height=600)
                             st.markdown("---")
                             st.markdown("#### 📅 Monthly Data Breakdown")
                             md_disp = cf[['Name','Month_Label','Charges','Payments']].copy()
                             md_disp['% Payments/Charges'] = md_disp.apply(lambda x: x['Payments'] / x['Charges'] if x['Charges'] > 0 else 0, axis=1)
                             md_disp['Month_Sort'] = pd.to_datetime(md_disp['Month_Label'], format='%b-%y')
                             md_disp = md_disp.sort_values(['Month_Sort','Name'], ascending=[False, True]).drop(columns=['Month_Sort'])
-                            render_table(md_disp.style.format(fmt).background_gradient(cmap="Blues"))
+                            render_table(md_disp.style.format(fmt).background_gradient(cmap=_LC['Blues']))
 
                     # ---- Advanced Financial Analytics (both views) ----
                     st.markdown("---")
@@ -2708,7 +2729,7 @@ if check_password():
                                 render_table(rev_eff[['Name','Total RVUs','Charges','Payments',
                                                        '$/wRVU (Charges)','$/wRVU (Payments)']]
                                              .style.format(fmt_re)
-                                             .background_gradient(subset=['$/wRVU (Payments)'], cmap='Greens'))
+                                             .background_gradient(subset=['$/wRVU (Payments)'], cmap=_LC['Greens']))
                                 st.caption("Higher $/wRVU reflects better payer mix or contract rates for that physician's patient population.")
                             except Exception:
                                 pass
