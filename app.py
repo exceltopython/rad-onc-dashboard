@@ -128,7 +128,9 @@ def render_table(styled_df, height=None):
                   else 'color: #64748b'),
             subset=['Trend'],
         )
-    html = s.to_html()
+    # Hide index when it's just 0,1,2… (meaningless); keep named index (pivot table labels)
+    show_idx = not isinstance(styled_df.data.index, pd.RangeIndex)
+    html = s.to_html(index=show_idx)
     h_style = f"max-height:{height}px; overflow-y:auto; " if height else ""
     st.markdown(
         f'<div class="rtable" style="{h_style}overflow-x:auto;">{html}</div>',
@@ -1545,9 +1547,20 @@ if check_password():
                     disp_cols = ['Name','Total RVUs','% of Network','FTE','wRVU/FTE']
                     fmt_sc = {'Total RVUs':'{:,.0f}','% of Network':'{:.1%}','FTE':'{:.1f}','wRVU/FTE':'{:,.0f}'}
                 sc = sc.sort_values('Total RVUs', ascending=False)
-                render_table(sc[disp_cols].style.format(fmt_sc)
-                             .background_gradient(subset=['Total RVUs','wRVU/FTE'], cmap=_LC['Blues']))
-                st.caption("wRVU/FTE = efficiency metric; higher values indicate greater productivity intensity relative to physician effort.")
+                sc_disp = sc[disp_cols].copy()
+                sc_disp['% of Network'] = (sc_disp['% of Network'] * 100).round(1)
+                if 'YoY Δ' in sc_disp.columns:
+                    sc_disp['YoY Δ'] = (sc_disp['YoY Δ'] * 100).round(1)
+                col_cfg = {
+                    "Total RVUs":    st.column_config.NumberColumn("Total RVUs",    format="%,.0f"),
+                    "% of Network":  st.column_config.NumberColumn("% of Network",  format="%.1f %%"),
+                    "FTE":           st.column_config.NumberColumn("FTE",           format="%.1f"),
+                    "wRVU/FTE":      st.column_config.NumberColumn("wRVU/FTE",      format="%,.0f"),
+                    "Prior RVUs":    st.column_config.NumberColumn("Prior RVUs",    format="%,.0f"),
+                    "YoY Δ":         st.column_config.NumberColumn("YoY Δ",         format="%+.1f %%"),
+                }
+                st.dataframe(sc_disp, hide_index=True, use_container_width=True, column_config=col_cfg)
+                st.caption("Click any column header to sort. wRVU/FTE = efficiency metric; higher values indicate greater productivity intensity relative to physician effort.")
 
         # ---- Physician Productivity Scorecard ----
         if not df_mc.empty:
