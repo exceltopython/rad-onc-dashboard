@@ -274,11 +274,11 @@ if check_password():
     ASCENSION_IDS = ["STW", "Midtown", "MURF"]
 
     PROVIDER_CONFIG = {
-        "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0, "Collie": 1.0,
+        "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0,
         "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedman": 1.0,
         "Gray": 1.0, "Jones": 1.0, "Lee": 1.0, "Lewis": 1.0, "Lipscomb": 0.6,
         "Lydon": 1.0, "Mayo": 1.0, "Mondschein": 1.0, "Nguyen": 1.0,
-        "Osborne": 1.0, "Phillips": 1.0, "Sidrys": 1.0, "Sittig": 1.0,
+        "Osborne": 1.0, "Phillips": 1.0, "Sittig": 1.0,
         "Strickler": 1.0, "Wakefield": 1.0, "Wendt": 1.0, "Whitaker": 1.0,
     }
     PROVIDER_KEYS_UPPER = {k.upper(): k for k in PROVIDER_CONFIG.keys()}
