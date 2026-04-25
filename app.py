@@ -68,7 +68,7 @@ def inject_custom_css():
         div.rtable th {
             background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%) !important;
             font-weight: 700 !important; color: #ffffff !important;
-            font-size: 15px !important; padding: 10px 14px !important;
+            font-size: 15px !important; padding: 7px 14px !important;
             border: 1px solid #1e40af !important; text-align: left !important;
             letter-spacing: 0.25px;
         }
@@ -119,7 +119,7 @@ inject_custom_css()
 def render_table(styled_df, height=None):
     # color: #1e293b overrides any grey text pandas chose for gradient cells;
     # safe because _LC colormaps never produce backgrounds dark enough to need white text.
-    html = styled_df.set_properties(**{'font-size': '15px', 'padding': '8px 14px', 'color': '#1e293b'}).to_html()
+    html = styled_df.set_properties(**{'font-size': '15px', 'padding': '6px 14px', 'color': '#1e293b'}).to_html()
     h_style = f"max-height:{height}px; overflow-y:auto; " if height else ""
     st.markdown(
         f'<div class="rtable" style="{h_style}overflow-x:auto;">{html}</div>',
