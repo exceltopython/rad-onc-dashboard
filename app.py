@@ -1559,7 +1559,15 @@ if check_password():
                     "Prior RVUs":    st.column_config.NumberColumn("Prior RVUs",    format="%,.0f"),
                     "YoY Δ":         st.column_config.NumberColumn("YoY Δ",         format="%+.1f %%"),
                 }
-                st.dataframe(sc_disp, hide_index=True, use_container_width=True, column_config=col_cfg)
+                sc_styled = sc_disp.style
+                if 'Trend' in sc_disp.columns:
+                    sc_styled = sc_styled.map(
+                        lambda v: ('color: #16a34a; font-weight: bold' if v == '▲'
+                              else 'color: #dc2626; font-weight: bold' if v == '▼'
+                              else 'color: #94a3b8'),
+                        subset=['Trend'],
+                    )
+                st.dataframe(sc_styled, hide_index=True, use_container_width=True, column_config=col_cfg)
                 st.caption("Click any column header to sort. wRVU/FTE = efficiency metric; higher values indicate greater productivity intensity relative to physician effort.")
 
         # ---- Physician Productivity Scorecard ----
