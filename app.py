@@ -153,23 +153,33 @@ def render_insight_box(title, body):
         unsafe_allow_html=True,
     )
 
+# Brand color sequence used consistently across all charts
+PALETTE = ['#1E3A8A','#0ea5e9','#f97316','#16a34a','#7c3aed','#ec4899','#14b8a6','#f59e0b','#6366f1','#84cc16']
+
 def style_high_end_chart(fig):
     fig.update_layout(
-        font={'family': "Inter, sans-serif", 'color': '#334155', 'size': 15},
-        title_font={'family': "Inter, sans-serif", 'size': 19, 'color': '#0f172a'},
+        font={'family': "Inter, sans-serif", 'color': '#334155', 'size': 13},
+        title_font={'family': "Inter, sans-serif", 'size': 17, 'color': '#0f172a'},
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        margin=dict(t=60, l=40, r=40, b=60),
-        xaxis=dict(showgrid=False, showline=True, linecolor='#cbd5e1',
-                   tickfont=dict(color='#64748b', size=13),
-                   title_font=dict(size=14)),
-        yaxis=dict(showgrid=True, gridcolor='#f1f5f9', showline=False,
-                   tickfont=dict(color='#64748b', size=13),
-                   title_font=dict(size=14)),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-                    font=dict(size=13)),
-        hoverlabel=dict(bgcolor="white", font_size=14, font_family="Inter"),
+        margin=dict(t=64, l=48, r=36, b=56),
+        xaxis=dict(showgrid=False, showline=True, linecolor='#e2e8f0', linewidth=1.5,
+                   tickfont=dict(color='#64748b', size=12),
+                   title_font=dict(size=13, color='#475569')),
+        yaxis=dict(showgrid=True, gridcolor='#f1f5f9', gridwidth=1, showline=False,
+                   tickfont=dict(color='#64748b', size=12),
+                   title_font=dict(size=13, color='#475569')),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+            font=dict(size=12), bgcolor='rgba(255,255,255,0.9)',
+            bordercolor='#e2e8f0', borderwidth=1,
+        ),
+        hoverlabel=dict(bgcolor="white", font_size=13, font_family="Inter",
+                        bordercolor='#cbd5e1'),
+        colorway=PALETTE,
     )
+    fig.update_xaxes(zeroline=False)
+    fig.update_yaxes(zeroline=False)
     return fig
 
 # --- PDF GENERATOR ---
@@ -1788,7 +1798,7 @@ if check_password():
                             piv = piv.reindex(columns=sorted_m).fillna(0)
                             piv["Total"] = piv.sum(axis=1)
                             render_table(piv.sort_values("Total", ascending=False).style
-                                         .format("{:,.0f}").background_gradient(cmap=_LC['Blues']), height=500)
+                                         .format("{:,.0f}").background_gradient(cmap=_LC['Blues']))
 
                     # Historical summary
                     with st.container(border=True):
@@ -1804,13 +1814,13 @@ if check_password():
                             piv_m = piv_m.reindex(columns=sorted_m2).fillna(0)
                             piv_m["Total"] = piv_m.sum(axis=1)
                             render_table(piv_m.sort_values("Total", ascending=False).style
-                                         .format("{:,.0f}").background_gradient(cmap=_LC['Reds']), height=420)
+                                         .format("{:,.0f}").background_gradient(cmap=_LC['Reds']))
                         with st.container(border=True):
                             st.markdown("#### 📆 Quarterly Data")
                             piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                             piv_q["Total"] = piv_q.sum(axis=1)
                             render_table(piv_q.sort_values("Total", ascending=False).style
-                                         .format("{:,.0f}").background_gradient(cmap=_LC['Oranges']), height=420)
+                                         .format("{:,.0f}").background_gradient(cmap=_LC['Oranges']))
 
             # --- Long-term history chart ---
             with st.container(border=True):
@@ -1849,8 +1859,9 @@ if check_password():
                     if not df_fte_latest.empty:
                         fig_fte = px.bar(df_fte_latest.sort_values('RVU per FTE', ascending=False),
                                          x='Name', y='RVU per FTE', text_auto='.0f',
-                                         color='RVU per FTE', color_continuous_scale='Portland',
+                                         color='RVU per FTE', color_continuous_scale=[[0,'#bfdbfe'],[1,'#1E3A8A']],
                                          title=f"wRVU per FTE: {max_dt_fte.strftime('%B %Y')}")
+                        fig_fte.update_layout(coloraxis_showscale=False)
                         st.plotly_chart(style_high_end_chart(fig_fte), use_container_width=True,
                                         key=f"fte_{tab_key_suffix}")
                         div_avg = df_fte_latest['Total RVUs'].sum() / df_fte_latest['FTE'].sum() if df_fte_latest['FTE'].sum() > 0 else 0
@@ -1870,8 +1881,9 @@ if check_password():
                             ).reset_index()
                             fig_qv = px.bar(df_q_sum.sort_values('Total RVUs', ascending=False),
                                             x='Name', y='Total RVUs', text_auto='.2s',
-                                            color='Total RVUs', color_continuous_scale='Blues',
+                                            color='Total RVUs', color_continuous_scale=[[0,'#bfdbfe'],[1,'#1E3A8A']],
                                             title=f"Total Center Volume ({target_q})")
+                            fig_qv.update_layout(coloraxis_showscale=False)
                             st.plotly_chart(style_high_end_chart(fig_qv), use_container_width=True,
                                             key=f"qvol_{tab_key_suffix}")
                         with st.container(border=True):
@@ -1885,8 +1897,9 @@ if check_password():
                                 lambda x: x['Total RVUs'] / x['FTE'] if x['FTE'] > 0 else 0, axis=1)
                             fig_qe = px.bar(df_q_eff.sort_values('RVU per FTE', ascending=False),
                                             x='Name', y='RVU per FTE', text_auto='.0f',
-                                            color='RVU per FTE', color_continuous_scale='Portland',
+                                            color='RVU per FTE', color_continuous_scale=[[0,'#bfdbfe'],[1,'#1E3A8A']],
                                             title=f"Quarterly wRVU per FTE ({target_q})")
+                            fig_qe.update_layout(coloraxis_showscale=False)
                             st.plotly_chart(style_high_end_chart(fig_qe), use_container_width=True,
                                             key=f"qeff_{tab_key_suffix}")
 
@@ -2197,9 +2210,30 @@ if check_password():
                 else:
                     st.info(generate_narrative(df_mds_yr, "Physician"))
                     with st.container(border=True):
-                        st.markdown(f"#### 📈 {year} Trend (RVU per FTE)")
-                        fig_t = px.line(df_mds_yr.sort_values('Month_Clean'), x='Month_Clean',
-                                        y='RVU per FTE', color='Name', markers=True)
+                        render_section_header(f"{year} Physician Productivity Trend",
+                                              "Monthly wRVU/FTE with 3-month rolling average (dashed) — smooths short-term variability to reveal the underlying trend", "📈")
+                        fig_t = go.Figure()
+                        color_cycle = PALETTE
+                        for i, (name, grp) in enumerate(df_mds_yr.sort_values('Month_Clean').groupby('Name')):
+                            grp = grp.sort_values('Month_Clean')
+                            col = color_cycle[i % len(color_cycle)]
+                            fig_t.add_trace(go.Scatter(
+                                x=grp['Month_Clean'], y=grp['RVU per FTE'],
+                                mode='lines+markers', name=name,
+                                line=dict(color=col, width=2.5),
+                                marker=dict(size=7, color=col),
+                                hovertemplate=f'<b>{name}</b><br>%{{x|%b %Y}}: %{{y:,.0f}} wRVU/FTE<extra></extra>',
+                            ))
+                            if len(grp) >= 3:
+                                rolling = grp['RVU per FTE'].rolling(3, min_periods=2).mean()
+                                fig_t.add_trace(go.Scatter(
+                                    x=grp['Month_Clean'], y=rolling,
+                                    mode='lines', name=f'{name} trend',
+                                    line=dict(color=col, width=1.5, dash='dot'),
+                                    showlegend=False, opacity=0.55,
+                                    hovertemplate=f'<b>{name} (3mo avg)</b><br>%{{x|%b %Y}}: %{{y:,.0f}}<extra></extra>',
+                                ))
+                        fig_t.update_layout(title=f"Monthly wRVU/FTE by Physician — {year}")
                         st.plotly_chart(style_high_end_chart(fig_t), use_container_width=True,
                                         key=f"md_trend_{tab_key_suffix}")
                     with st.container(border=True):
@@ -2209,12 +2243,16 @@ if check_password():
                         piv = piv.reindex(columns=sorted_m).fillna(0)
                         piv["Total"] = piv.sum(axis=1)
                         render_table(piv.sort_values("Total", ascending=False).style
-                                     .format("{:,.0f}").background_gradient(cmap=_LC['Blues']), height=420)
+                                     .format("{:,.0f}").background_gradient(cmap=_LC['Blues']))
                     with st.container(border=True):
                         st.markdown("#### 🏆 YTD Total RVUs")
                         ytd_s = df_mds_yr.groupby('Name')[['Total RVUs']].sum().reset_index().sort_values('Total RVUs', ascending=False)
                         fig_ytd = px.bar(ytd_s, x='Name', y='Total RVUs', color='Total RVUs',
-                                         color_continuous_scale='Viridis', text_auto='.2s')
+                                         color_continuous_scale=[[0,'#bfdbfe'],[1,'#1E3A8A']],
+                                         text_auto='.2s',
+                                         title=f"YTD wRVU Production by Physician — {year}")
+                        fig_ytd.update_layout(coloraxis_showscale=False)
+                        fig_ytd.update_traces(textfont_size=12, textposition='outside', cliponaxis=False)
                         st.plotly_chart(style_high_end_chart(fig_ytd), use_container_width=True,
                                         key=f"md_ytd_{tab_key_suffix}")
 
@@ -2227,15 +2265,31 @@ if check_password():
                         ref_25   = MGMA_BENCHMARKS['25th'] / 12 * n_md_m
                         ref_50   = MGMA_BENCHMARKS['50th'] / 12 * n_md_m
                         ref_75   = MGMA_BENCHMARKS['75th'] / 12 * n_md_m
-                        fig_mgma = px.bar(ytd_mgma, x='Name', y='Total RVUs', color='Total RVUs',
-                                          color_continuous_scale='Blues', text_auto='.2s',
-                                          title=f"YTD wRVUs vs MGMA Benchmarks ({n_md_m}-month YTD)")
-                        fig_mgma.add_hline(y=ref_25, line_dash='dot',  line_color='#f97316',
-                                           annotation_text=f"MGMA 25th  {ref_25:,.0f}", annotation_position="top right")
-                        fig_mgma.add_hline(y=ref_50, line_dash='dash', line_color='#16a34a',
-                                           annotation_text=f"MGMA 50th  {ref_50:,.0f}", annotation_position="top right")
-                        fig_mgma.add_hline(y=ref_75, line_dash='dot',  line_color='#7c3aed',
-                                           annotation_text=f"MGMA 75th  {ref_75:,.0f}", annotation_position="top right")
+                        ytd_mgma['pct_vs_50'] = (ytd_mgma['Total RVUs'] / ref_50 - 1) * 100
+                        div_df = ytd_mgma.sort_values('pct_vs_50')
+                        bar_colors = ['#16a34a' if v >= 0 else '#dc2626' for v in div_df['pct_vs_50']]
+                        fig_mgma = go.Figure(go.Bar(
+                            x=div_df['pct_vs_50'],
+                            y=div_df['Name'],
+                            orientation='h',
+                            marker_color=bar_colors,
+                            text=[f"{v:+.1f}%" for v in div_df['pct_vs_50']],
+                            textposition='outside',
+                            cliponaxis=False,
+                            customdata=div_df['Total RVUs'].values,
+                            hovertemplate='<b>%{y}</b><br>vs MGMA 50th: %{x:+.1f}%<br>wRVUs: %{customdata:,.0f}<extra></extra>',
+                        ))
+                        fig_mgma.add_vline(x=0, line_color='#334155', line_width=2)
+                        fig_mgma.add_vline(x=(ref_75/ref_50-1)*100, line_dash='dot', line_color='#7c3aed',
+                                           annotation_text="75th pct", annotation_position="top")
+                        fig_mgma.add_vline(x=(ref_25/ref_50-1)*100, line_dash='dot', line_color='#f97316',
+                                           annotation_text="25th pct", annotation_position="top")
+                        fig_mgma.update_layout(
+                            title=f"Physician wRVU Performance vs MGMA 50th Percentile ({n_md_m}-mo YTD)",
+                            xaxis_title="% Above / Below MGMA 50th Percentile",
+                            yaxis_title="",
+                            height=max(340, len(div_df) * 42 + 90),
+                        )
                         st.plotly_chart(style_high_end_chart(fig_mgma), use_container_width=True,
                                         key=f"md_mgma_{tab_key_suffix}")
                         ytd_mgma['vs 25th'] = ytd_mgma['Total RVUs'] / ref_25 - 1
@@ -2389,8 +2443,7 @@ if check_password():
                         piv_77470["Total"] = piv_77470.sum(axis=1)
                         render_table(
                             piv_77470.sort_values("Total", ascending=False).style
-                            .format("{:,.1f}").background_gradient(cmap=_LC['Purples']),
-                            height=420,
+                            .format("{:,.1f}").background_gradient(cmap=_LC['Purples'])
                         )
                     with st.container(border=True):
                         st.markdown(f"#### 🏆 {year} YTD Total")
@@ -2414,7 +2467,7 @@ if check_password():
                 piv_77 = piv_77.reindex(columns=sorted_m).fillna(0)
                 piv_77["Total"] = piv_77.sum(axis=1)
                 render_table(piv_77.sort_values("Total", ascending=False).style
-                             .format("{:,.0f}").background_gradient(cmap=_LC['Blues']), height=500)
+                             .format("{:,.0f}").background_gradient(cmap=_LC['Blues']))
 
                 # 77263 / New Patients ratio (2025 only — needs visit data)
                 if year == 2025 and not df_visits.empty:
@@ -2664,7 +2717,7 @@ if check_password():
                             ytd_disp = pd.concat([ytd.sort_values('Charges', ascending=False), total_row], ignore_index=True)
                             fmt = {'Charges': '${:,.2f}', 'Payments': '${:,.2f}', '% Payments/Charges': '{:.1%}'}
                             st.markdown("#### 📆 Year to Date Charges & Payments")
-                            render_table(ytd_disp.style.format(fmt).background_gradient(cmap=_LC['Greens']), height=600)
+                            render_table(ytd_disp.style.format(fmt).background_gradient(cmap=_LC['Greens']))
                             st.markdown("---")
                             st.markdown("#### 📅 Monthly Data Breakdown")
                             md_disp = cf[['Name','Month_Label','Charges','Payments']].copy()
