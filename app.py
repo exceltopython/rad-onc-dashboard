@@ -235,7 +235,7 @@ if FPDF:
         return pdf.output(dest='S').encode('latin-1')
 
 # --- PASSWORD ---
-APP_PASSWORD = "RadOnc2026rj"
+APP_PASSWORD = "test2026"
 
 def check_password():
     def password_entered():
