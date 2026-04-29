@@ -1783,6 +1783,122 @@ if check_password():
                     st.plotly_chart(style_high_end_chart(fig_q), use_container_width=True,
                                     key=f"qbar_{tab_key_suffix}_{clinic_filter}")
 
+            # --- Network peer comparison (LROC / TROC / TOPC) ---
+            if clinic_filter in ["LROC", "TROC", "TOPC"] and not df_clinic_yr.empty:
+                st.markdown("---")
+                with st.container(border=True):
+                    render_section_header(
+                        f"{view_title}: Network Peer Comparison",
+                        f"How {view_title} ranks against all network centers on productivity and patient volume — YTD {year}",
+                        "🔍"
+                    )
+                    _fte_map = {cid: cfg['fte'] for cid, cfg in CLINIC_CONFIG.items()}
+                    net_ytd = (df_clinic_yr.groupby('ID')
+                               .agg(Total_RVUs=('Total RVUs', 'sum'), Name=('Name', 'first'))
+                               .reset_index())
+                    net_ytd['FTE']      = net_ytd['ID'].map(_fte_map).fillna(1.0)
+                    net_ytd['wRVU_FTE'] = net_ytd['Total_RVUs'] / net_ytd['FTE']
+                    net_avg_fte = net_ytd['Total_RVUs'].sum() / net_ytd['FTE'].sum()
+
+                    tgt_row     = net_ytd[net_ytd['ID'] == clinic_filter].iloc[0]
+                    fte_rank    = int(net_ytd['wRVU_FTE'].rank(ascending=False)[net_ytd['ID'] == clinic_filter].iloc[0])
+                    vol_rank    = int(net_ytd['Total_RVUs'].rank(ascending=False)[net_ytd['ID'] == clinic_filter].iloc[0])
+                    n_ctr       = len(net_ytd)
+                    pct_vs_avg  = (tgt_row['wRVU_FTE'] / net_avg_fte - 1) * 100
+
+                    mc1, mc2, mc3 = st.columns(3)
+                    with mc1:
+                        st.metric("wRVU/FTE Rank", f"#{fte_rank} of {n_ctr} Centers")
+                    with mc2:
+                        st.metric("Total wRVU Rank", f"#{vol_rank} of {n_ctr} Centers",
+                                  f"{tgt_row['Total_RVUs']:,.0f} wRVUs YTD")
+                    with mc3:
+                        st.metric("vs. Network Avg wRVU/FTE",
+                                  f"{tgt_row['wRVU_FTE']:,.0f}",
+                                  f"{pct_vs_avg:+.1f}% (avg: {net_avg_fte:,.0f})")
+
+                    # wRVU/FTE horizontal bar — target in brand blue, others muted
+                    net_plot   = net_ytd.sort_values('wRVU_FTE', ascending=True)
+                    bar_colors = ['#1E3A8A' if i == clinic_filter else '#cbd5e1' for i in net_plot['ID']]
+                    fig_fte_cmp = go.Figure(go.Bar(
+                        x=net_plot['wRVU_FTE'], y=net_plot['Name'],
+                        orientation='h', marker_color=bar_colors,
+                        text=[f"{v:,.0f}" for v in net_plot['wRVU_FTE']],
+                        textposition='outside', cliponaxis=False,
+                        hovertemplate='<b>%{y}</b><br>wRVU/FTE: %{x:,.0f}<extra></extra>',
+                    ))
+                    fig_fte_cmp.add_vline(x=net_avg_fte, line_dash='dash', line_color='#f97316', line_width=2,
+                                          annotation_text=f"Network Avg  {net_avg_fte:,.0f}",
+                                          annotation_position="top right")
+                    fig_fte_cmp.update_layout(
+                        title=f"YTD wRVU/FTE — {view_title} vs. All Centers ({year})",
+                        xaxis_title="wRVU per FTE (YTD)", yaxis_title="",
+                        height=max(320, len(net_plot) * 36 + 80),
+                    )
+                    st.plotly_chart(style_high_end_chart(fig_fte_cmp), use_container_width=True,
+                                    key=f"net_fte_{tab_key_suffix}")
+
+                    # New patients/FTE comparison (if visit data available)
+                    if not df_pos_trend.empty:
+                        df_pos_cmp = df_pos_trend[df_pos_trend['Month_Clean'].dt.year == year].copy()
+                        if not df_pos_cmp.empty:
+                            np_ytd = (df_pos_cmp.groupby('Clinic_Tag')
+                                      .agg(New_Patients=('New Patients', 'sum'))
+                                      .reset_index())
+                            np_ytd['Name'] = np_ytd['Clinic_Tag'].apply(
+                                lambda x: CLINIC_CONFIG.get(x, {}).get('name', x))
+                            np_ytd['FTE']       = np_ytd['Clinic_Tag'].map(_fte_map).fillna(1.0)
+                            np_ytd['NP_per_FTE'] = np_ytd['New_Patients'] / np_ytd['FTE']
+                            np_avg  = np_ytd['New_Patients'].sum() / np_ytd['FTE'].sum()
+                            np_plot = np_ytd.sort_values('NP_per_FTE', ascending=True)
+                            np_colors = ['#16a34a' if i == clinic_filter else '#cbd5e1'
+                                         for i in np_plot['Clinic_Tag']]
+
+                            fig_np_cmp = go.Figure(go.Bar(
+                                x=np_plot['NP_per_FTE'], y=np_plot['Name'],
+                                orientation='h', marker_color=np_colors,
+                                text=[f"{v:.1f}" for v in np_plot['NP_per_FTE']],
+                                textposition='outside', cliponaxis=False,
+                                hovertemplate='<b>%{y}</b><br>New Patients/FTE: %{x:.1f}<extra></extra>',
+                            ))
+                            fig_np_cmp.add_vline(x=np_avg, line_dash='dash', line_color='#f97316', line_width=2,
+                                                 annotation_text=f"Network Avg  {np_avg:.1f}",
+                                                 annotation_position="top right")
+                            fig_np_cmp.update_layout(
+                                title=f"YTD New Patients/FTE — {view_title} vs. All Centers ({year})",
+                                xaxis_title="New Patients per FTE (YTD)", yaxis_title="",
+                                height=max(320, len(np_plot) * 36 + 80),
+                            )
+                            st.plotly_chart(style_high_end_chart(fig_np_cmp), use_container_width=True,
+                                            key=f"net_np_{tab_key_suffix}")
+
+                            if clinic_filter in np_ytd['Clinic_Tag'].values:
+                                tgt_np     = np_ytd[np_ytd['Clinic_Tag'] == clinic_filter].iloc[0]
+                                np_rank    = int(np_ytd['NP_per_FTE'].rank(ascending=False)[np_ytd['Clinic_Tag'] == clinic_filter].iloc[0])
+                                pct_np_avg = (tgt_np['NP_per_FTE'] / np_avg - 1) * 100 if np_avg > 0 else 0
+                                nc1, nc2 = st.columns(2)
+                                with nc1:
+                                    st.metric("New Patient/FTE Rank", f"#{np_rank} of {len(np_ytd)} Centers")
+                                with nc2:
+                                    st.metric("vs. Network Avg New Patients/FTE",
+                                              f"{tgt_np['NP_per_FTE']:.1f}",
+                                              f"{pct_np_avg:+.1f}% (avg: {np_avg:.1f})")
+
+                    # Summary comparison table
+                    net_tbl = net_ytd[['Name','ID','Total_RVUs','FTE','wRVU_FTE']].copy()
+                    net_tbl['wRVU/FTE Rank'] = net_tbl['wRVU_FTE'].rank(ascending=False).astype(int)
+                    net_tbl['vs. Avg wRVU/FTE'] = net_tbl['wRVU_FTE'] / net_avg_fte - 1
+                    net_tbl = net_tbl.sort_values('wRVU_FTE', ascending=False)
+                    render_table(
+                        net_tbl[['Name','Total_RVUs','FTE','wRVU_FTE','vs. Avg wRVU/FTE','wRVU/FTE Rank']]
+                        .rename(columns={'Total_RVUs':'Total wRVUs','wRVU_FTE':'wRVU/FTE'})
+                        .style
+                        .format({'Total wRVUs':'{:,.0f}','FTE':'{:.1f}',
+                                 'wRVU/FTE':'{:,.0f}','vs. Avg wRVU/FTE':'{:+.1%}'})
+                        .background_gradient(subset=['wRVU/FTE'], cmap=_LC['Blues'])
+                        .background_gradient(subset=['vs. Avg wRVU/FTE'], cmap=_LC['RdYlGn'])
+                    )
+
             # --- Individual clinic trends + tables (TriStar/Ascension/All) ---
             if clinic_filter in ["TriStar", "Ascension", "All"]:
                 with st.container(border=True):
