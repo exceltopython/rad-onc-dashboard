@@ -110,7 +110,8 @@ def inject_custom_css():
         }
 
         /* --- Sidebar --- */
-        [data-testid="stSidebar"] { background-color: #f8fafc; }
+        [data-testid="stSidebar"] { background-color: #f8fafc; width: 220px !important; min-width: 220px !important; }
+        [data-testid="stSidebar"] > div:first-child { width: 220px !important; min-width: 220px !important; }
         </style>
     """, unsafe_allow_html=True)
 
