@@ -2270,7 +2270,7 @@ if check_password():
                                               f"Individual physician wRVUs vs national Radiation Oncology MGMA percentile norms ({n_md_m}-month YTD)", "🎯")
                         MGMA_EXCLUDE = {"Cohen"}
                         ytd_mgma = (df_mds_yr.groupby('Name')[['Total RVUs']].sum().reset_index()
-                                    .loc[lambda d: ~d['Name'].isin(MGMA_EXCLUDE)]
+                                    .loc[lambda d: ~d['Name'].isin(MGMA_EXCLUDE) & ~d['Name'].str.endswith('(Ret.)')]
                                     .sort_values('Total RVUs', ascending=False))
                         ref_25   = MGMA_BENCHMARKS['25th'] / 12 * n_md_m
                         ref_50   = MGMA_BENCHMARKS['50th'] / 12 * n_md_m
