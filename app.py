@@ -2321,7 +2321,7 @@ if check_password():
                         fig_mheat = px.imshow(piv_mh, text_auto='.0f', aspect='auto',
                                               color_continuous_scale='Blues',
                                               labels=dict(x='Month', y='Physician', color='wRVUs'))
-                        fig_mheat.update_layout(height=max(320, len(piv_mh)*60))
+                        fig_mheat.update_layout(height=max(200, len(piv_mh)*30))
                         st.plotly_chart(style_high_end_chart(fig_mheat), use_container_width=True,
                                         key=f"md_heat_{tab_key_suffix}")
 
