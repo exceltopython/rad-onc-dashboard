@@ -293,6 +293,9 @@ if check_password():
         "Osborne": 1.0, "Phillips": 1.0, "Sittig": 1.0,
         "Strickler": 1.0, "Wakefield": 1.0, "Wendt": 1.0, "Whitaker": 1.0,
     }
+    # Physicians who left mid-year: labeled "(Ret.)" in tables, excluded from
+    # trend/heatmap/distribution charts where partial data distorts the view.
+    RETIRED_PROVIDERS = {"Wendt"}
     PROVIDER_KEYS_UPPER = {k.upper(): k for k in PROVIDER_CONFIG.keys()}
     APP_LIST = ["Burke", "Ellis", "Lewis", "Lydon"]
 
@@ -2203,6 +2206,10 @@ if check_password():
                                key=f"md_radio_{tab_key_suffix}")
         with col_main:
             df_mds_yr = df_mds[df_mds['Month_Clean'].dt.year == year].copy() if not df_mds.empty else pd.DataFrame()
+            if not df_mds_yr.empty:
+                df_mds_yr['Name'] = df_mds_yr['Name'].apply(
+                    lambda n: f"{n} (Ret.)" if n in RETIRED_PROVIDERS else n)
+            df_mds_yr_active = df_mds_yr[~df_mds_yr['Name'].str.endswith('(Ret.)')].copy()
 
             if md_view == "wRVU Productivity":
                 if df_mds_yr.empty:
@@ -2214,7 +2221,7 @@ if check_password():
                                               "Monthly wRVU/FTE with 3-month rolling average (dashed) — smooths short-term variability to reveal the underlying trend", "📈")
                         fig_t = go.Figure()
                         color_cycle = PALETTE
-                        for i, (name, grp) in enumerate(df_mds_yr.sort_values('Month_Clean').groupby('Name')):
+                        for i, (name, grp) in enumerate(df_mds_yr_active.sort_values('Month_Clean').groupby('Name')):
                             grp = grp.sort_values('Month_Clean')
                             col = color_cycle[i % len(color_cycle)]
                             fig_t.add_trace(go.Scatter(
@@ -2316,8 +2323,8 @@ if check_password():
                     with st.container(border=True):
                         render_section_header("Physician Productivity Heatmap",
                                               "Monthly wRVU by physician — identifies seasonal dips, leave patterns, and outlier months", "🌡️")
-                        piv_mh = df_mds_yr.pivot_table(index='Name', columns='Month_Label', values='Total RVUs', aggfunc='sum').fillna(0)
-                        piv_mh = piv_mh.reindex(columns=df_mds_yr.sort_values('Month_Clean')['Month_Label'].unique()).fillna(0)
+                        piv_mh = df_mds_yr_active.pivot_table(index='Name', columns='Month_Label', values='Total RVUs', aggfunc='sum').fillna(0)
+                        piv_mh = piv_mh.reindex(columns=df_mds_yr_active.sort_values('Month_Clean')['Month_Label'].unique()).fillna(0)
                         fig_mheat = px.imshow(piv_mh, text_auto='.0f', aspect='auto',
                                               color_continuous_scale='Blues',
                                               labels=dict(x='Month', y='Physician', color='wRVUs'))
@@ -2347,7 +2354,7 @@ if check_password():
                     with st.container(border=True):
                         render_section_header("Monthly wRVU Distribution by Physician",
                                               "Box-and-whisker plot of monthly production — reveals variability and outliers at the individual level", "📦")
-                        fig_box = px.box(df_mds_yr.sort_values('Name'), x='Name', y='Total RVUs',
+                        fig_box = px.box(df_mds_yr_active.sort_values('Name'), x='Name', y='Total RVUs',
                                          color='Name', points='all',
                                          labels={'Total RVUs':'Monthly wRVUs', 'Name':'Physician'})
                         fig_box.update_layout(showlegend=False, height=480)
@@ -2363,7 +2370,7 @@ if check_password():
                     with st.container(border=True):
                         render_section_header("Physician Statistical Summary",
                                               "Descriptive statistics for monthly wRVU output — quantifies production consistency", "📊")
-                        md_grp  = df_mds_yr.groupby('Name')['Total RVUs']
+                        md_grp  = df_mds_yr_active.groupby('Name')['Total RVUs']
                         md_stat = pd.DataFrame({
                             'Monthly Mean': md_grp.mean(), 'Std Dev': md_grp.std().fillna(0),
                             'Min Month': md_grp.min(), 'Max Month': md_grp.max(), 'YTD Total': md_grp.sum(),
