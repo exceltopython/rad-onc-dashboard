@@ -159,7 +159,7 @@ PALETTE = ['#1E3A8A','#0ea5e9','#f97316','#16a34a','#7c3aed','#ec4899','#14b8a6'
 def style_high_end_chart(fig):
     fig.update_layout(
         font={'family': "Inter, sans-serif", 'color': '#334155', 'size': 13},
-        title_font={'family': "Inter, sans-serif", 'size': 17, 'color': '#0f172a'},
+        title=dict(text='', font=dict(family="Inter, sans-serif", size=17, color='#0f172a')),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
         margin=dict(t=64, l=48, r=36, b=56),
