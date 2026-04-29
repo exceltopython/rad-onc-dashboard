@@ -1940,22 +1940,25 @@ if check_password():
                     net_tbl['vs. Avg wRVU/FTE'] = (net_tbl['wRVU_FTE'] / net_avg_fte - 1) * 100
                     net_tbl['LINACs']           = net_tbl['ID'].map(LINAC_CONFIG)
                     net_tbl['wRVU/LINAC']       = net_tbl['Total_RVUs'] / net_tbl['LINACs']
+                    net_tbl['wRVU/LINAC Rank']  = net_tbl['wRVU/LINAC'].rank(ascending=False)
                     net_tbl = net_tbl.sort_values('wRVU_FTE', ascending=False)
                     net_tbl_disp = (net_tbl[['Name','Total_RVUs','FTE','wRVU_FTE',
-                                             'vs. Avg wRVU/FTE','LINACs','wRVU/LINAC','wRVU/FTE Rank']]
+                                             'vs. Avg wRVU/FTE','LINACs','wRVU/LINAC',
+                                             'wRVU/FTE Rank','wRVU/LINAC Rank']]
                                     .rename(columns={'Total_RVUs':'Total wRVUs','wRVU_FTE':'wRVU/FTE'}))
                     tbl_styled = (net_tbl_disp.style
                                   .background_gradient(subset=['wRVU/FTE'],          cmap=_LC['Blues'])
                                   .background_gradient(subset=['vs. Avg wRVU/FTE'],  cmap=_LC['RdYlGn'])
                                   .background_gradient(subset=['wRVU/LINAC'],        cmap=_LC['Purples']))
                     tbl_col_cfg = {
-                        "Total wRVUs":      st.column_config.NumberColumn("Total wRVUs",      format="%,.0f"),
-                        "FTE":              st.column_config.NumberColumn("FTE",              format="%.1f"),
-                        "wRVU/FTE":         st.column_config.NumberColumn("wRVU/FTE",         format="%,.0f"),
-                        "vs. Avg wRVU/FTE": st.column_config.NumberColumn("vs. Avg wRVU/FTE", format="%+.1f %%"),
-                        "LINACs":           st.column_config.NumberColumn("LINACs",           format="%.0f"),
-                        "wRVU/LINAC":       st.column_config.NumberColumn("wRVU/LINAC",       format="%,.0f"),
-                        "wRVU/FTE Rank":    st.column_config.NumberColumn("wRVU/FTE Rank",    format="%d"),
+                        "Total wRVUs":       st.column_config.NumberColumn("Total wRVUs",       format="%,.0f"),
+                        "FTE":               st.column_config.NumberColumn("FTE",               format="%.1f"),
+                        "wRVU/FTE":          st.column_config.NumberColumn("wRVU/FTE",          format="%,.0f"),
+                        "vs. Avg wRVU/FTE":  st.column_config.NumberColumn("vs. Avg wRVU/FTE",  format="%+.1f %%"),
+                        "LINACs":            st.column_config.NumberColumn("LINACs",            format="%.0f"),
+                        "wRVU/LINAC":        st.column_config.NumberColumn("wRVU/LINAC",        format="%,.0f"),
+                        "wRVU/FTE Rank":     st.column_config.NumberColumn("wRVU/FTE Rank",     format="%d"),
+                        "wRVU/LINAC Rank":   st.column_config.NumberColumn("wRVU/LINAC Rank",   format="%d"),
                     }
                     st.dataframe(tbl_styled, hide_index=True, use_container_width=True,
                                  height=(len(net_tbl_disp) + 1) * 36 + 4,
