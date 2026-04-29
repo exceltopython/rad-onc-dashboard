@@ -285,6 +285,13 @@ if check_password():
     }
     TRISTAR_IDS   = ["CENT", "Skyline", "Dickson", "Summit", "Stonecrest"]
     ASCENSION_IDS = ["STW", "Midtown", "MURF"]
+    # Number of linear accelerators (LINACs) per site — used for per-machine productivity benchmarks.
+    # TOPC is intentionally excluded (proton therapy, not LINAC-based).
+    LINAC_CONFIG = {
+        "CENT": 2, "Midtown": 2, "STW": 2, "MURF": 2,
+        "Sumner": 1, "Dickson": 1, "Skyline": 1, "Summit": 1,
+        "LROC": 1, "TROC": 1, "Stonecrest": 1,
+    }
 
     PROVIDER_CONFIG = {
         "Burke": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0,
@@ -1549,17 +1556,20 @@ if check_password():
                 sc['FTE'] = sc['ID'].map(fte_map).fillna(1.0)
                 sc['wRVU/FTE'] = sc['Total RVUs'] / sc['FTE']
                 sc['% of Network'] = sc['Total RVUs'] / sc['Total RVUs'].sum()
+                sc['LINACs'] = sc['ID'].map(LINAC_CONFIG)
+                sc['wRVU/LINAC'] = sc['Total RVUs'] / sc['LINACs']   # NaN for TOPC (proton, no LINAC)
                 if not df_pri_cmp.empty:
                     ps = df_pri_cmp.groupby('ID')['Total RVUs'].sum().reset_index().rename(columns={'Total RVUs':'Prior RVUs'})
                     sc = sc.merge(ps, on='ID', how='left').fillna({'Prior RVUs': 0})
                     sc['YoY Δ']  = sc.apply(lambda r: (r['Total RVUs']-r['Prior RVUs'])/r['Prior RVUs'] if r['Prior RVUs']>0 else 0, axis=1)
                     sc['Trend']  = sc['YoY Δ'].apply(lambda x: '▲' if x>0.02 else ('▼' if x<-0.02 else '→'))
-                    disp_cols = ['Name','Total RVUs','% of Network','FTE','wRVU/FTE','Prior RVUs','YoY Δ','Trend']
+                    disp_cols = ['Name','Total RVUs','% of Network','FTE','wRVU/FTE','wRVU/LINAC','Prior RVUs','YoY Δ','Trend']
                     fmt_sc = {'Total RVUs':'{:,.0f}','% of Network':'{:.1%}','FTE':'{:.1f}',
-                              'wRVU/FTE':'{:,.0f}','Prior RVUs':'{:,.0f}','YoY Δ':'{:+.1%}'}
+                              'wRVU/FTE':'{:,.0f}','wRVU/LINAC':'{:,.0f}','Prior RVUs':'{:,.0f}','YoY Δ':'{:+.1%}'}
                 else:
-                    disp_cols = ['Name','Total RVUs','% of Network','FTE','wRVU/FTE']
-                    fmt_sc = {'Total RVUs':'{:,.0f}','% of Network':'{:.1%}','FTE':'{:.1f}','wRVU/FTE':'{:,.0f}'}
+                    disp_cols = ['Name','Total RVUs','% of Network','FTE','wRVU/FTE','wRVU/LINAC']
+                    fmt_sc = {'Total RVUs':'{:,.0f}','% of Network':'{:.1%}','FTE':'{:.1f}',
+                              'wRVU/FTE':'{:,.0f}','wRVU/LINAC':'{:,.0f}'}
                 sc = sc.sort_values('Total RVUs', ascending=False)
                 sc_disp = sc[disp_cols].copy()
                 sc_disp['% of Network'] = (sc_disp['% of Network'] * 100).round(1)
@@ -1570,6 +1580,7 @@ if check_password():
                     "% of Network":  st.column_config.NumberColumn("% of Network",  format="%.1f %%"),
                     "FTE":           st.column_config.NumberColumn("FTE",           format="%.1f"),
                     "wRVU/FTE":      st.column_config.NumberColumn("wRVU/FTE",      format="%,.0f"),
+                    "wRVU/LINAC":    st.column_config.NumberColumn("wRVU/LINAC",    format="%,.0f"),
                     "Prior RVUs":    st.column_config.NumberColumn("Prior RVUs",    format="%,.0f"),
                     "YoY Δ":         st.column_config.NumberColumn("YoY Δ",         format="%+.1f %%"),
                 }
@@ -1884,19 +1895,61 @@ if check_password():
                                               f"{tgt_np['NP_per_FTE']:.1f}",
                                               f"{pct_np_avg:+.1f}% (avg: {np_avg:.1f})")
 
-                    # Summary comparison table
+                    # wRVU/LINAC comparison (LINAC centers only — excludes TOPC)
+                    linac_cmp = net_ytd[net_ytd['ID'].isin(LINAC_CONFIG)].copy()
+                    linac_cmp['LINACs']     = linac_cmp['ID'].map(LINAC_CONFIG)
+                    linac_cmp['wRVU_LINAC'] = linac_cmp['Total_RVUs'] / linac_cmp['LINACs']
+                    linac_avg = linac_cmp['Total_RVUs'].sum() / linac_cmp['LINACs'].sum()
+                    linac_plot = linac_cmp.sort_values('wRVU_LINAC', ascending=True)
+                    linac_colors = ['#7c3aed' if i == clinic_filter else '#cbd5e1'
+                                    for i in linac_plot['ID']]
+                    fig_linac = go.Figure(go.Bar(
+                        x=linac_plot['wRVU_LINAC'], y=linac_plot['Name'],
+                        orientation='h', marker_color=linac_colors,
+                        text=[f"{v:,.0f}" for v in linac_plot['wRVU_LINAC']],
+                        textposition='outside', cliponaxis=False,
+                        customdata=linac_plot['LINACs'].values,
+                        hovertemplate='<b>%{y}</b><br>wRVU/LINAC: %{x:,.0f}<br>LINACs: %{customdata}<extra></extra>',
+                    ))
+                    fig_linac.add_vline(x=linac_avg, line_dash='dash', line_color='#f97316', line_width=2,
+                                        annotation_text=f"LINAC Avg  {linac_avg:,.0f}",
+                                        annotation_position="top right")
+                    fig_linac.update_layout(
+                        title=f"YTD wRVU/LINAC — {view_title} vs. LINAC Centers ({year})",
+                        xaxis_title="wRVU per LINAC (YTD)", yaxis_title="",
+                        height=max(300, len(linac_plot) * 36 + 80),
+                    )
+                    st.plotly_chart(style_high_end_chart(fig_linac), use_container_width=True,
+                                    key=f"net_linac_{tab_key_suffix}")
+                    if clinic_filter in LINAC_CONFIG:
+                        tgt_linac = linac_cmp[linac_cmp['ID'] == clinic_filter].iloc[0]
+                        linac_rank = int(linac_cmp['wRVU_LINAC'].rank(ascending=False)[linac_cmp['ID'] == clinic_filter].iloc[0])
+                        pct_linac_avg = (tgt_linac['wRVU_LINAC'] / linac_avg - 1) * 100
+                        lc1, lc2, lc3 = st.columns(3)
+                        with lc1:
+                            st.metric("wRVU/LINAC Rank", f"#{linac_rank} of {len(linac_cmp)} LINAC Centers")
+                        with lc2:
+                            st.metric("wRVU/LINAC", f"{tgt_linac['wRVU_LINAC']:,.0f}",
+                                      f"{pct_linac_avg:+.1f}% vs avg ({linac_avg:,.0f})")
+                        with lc3:
+                            st.metric("LINACs at This Site", int(tgt_linac['LINACs']))
+
+                    # Summary comparison table (all centers + LINAC column where applicable)
                     net_tbl = net_ytd[['Name','ID','Total_RVUs','FTE','wRVU_FTE']].copy()
                     net_tbl['wRVU/FTE Rank'] = net_tbl['wRVU_FTE'].rank(ascending=False).astype(int)
                     net_tbl['vs. Avg wRVU/FTE'] = net_tbl['wRVU_FTE'] / net_avg_fte - 1
+                    net_tbl['LINACs'] = net_tbl['ID'].map(LINAC_CONFIG)
+                    net_tbl['wRVU/LINAC'] = net_tbl['Total_RVUs'] / net_tbl['LINACs']
                     net_tbl = net_tbl.sort_values('wRVU_FTE', ascending=False)
                     render_table(
-                        net_tbl[['Name','Total_RVUs','FTE','wRVU_FTE','vs. Avg wRVU/FTE','wRVU/FTE Rank']]
+                        net_tbl[['Name','Total_RVUs','FTE','wRVU_FTE','vs. Avg wRVU/FTE','LINACs','wRVU/LINAC','wRVU/FTE Rank']]
                         .rename(columns={'Total_RVUs':'Total wRVUs','wRVU_FTE':'wRVU/FTE'})
                         .style
-                        .format({'Total wRVUs':'{:,.0f}','FTE':'{:.1f}',
-                                 'wRVU/FTE':'{:,.0f}','vs. Avg wRVU/FTE':'{:+.1%}'})
+                        .format({'Total wRVUs':'{:,.0f}','FTE':'{:.1f}','wRVU/FTE':'{:,.0f}',
+                                 'vs. Avg wRVU/FTE':'{:+.1%}','LINACs':'{:.0f}','wRVU/LINAC':'{:,.0f}'})
                         .background_gradient(subset=['wRVU/FTE'], cmap=_LC['Blues'])
                         .background_gradient(subset=['vs. Avg wRVU/FTE'], cmap=_LC['RdYlGn'])
+                        .background_gradient(subset=['wRVU/LINAC'], cmap=_LC['Purples'])
                     )
 
             # --- Individual clinic trends + tables (TriStar/Ascension/All) ---
@@ -1986,6 +2039,32 @@ if check_password():
                                         key=f"fte_{tab_key_suffix}")
                         div_avg = df_fte_latest['Total RVUs'].sum() / df_fte_latest['FTE'].sum() if df_fte_latest['FTE'].sum() > 0 else 0
                         st.caption(f"**Division Average:** {div_avg:,.0f} wRVU/FTE")
+
+            # --- wRVU/LINAC efficiency (All view, LINAC centers only) ---
+            if clinic_filter == "All" and not df_clinic_yr.empty:
+                with st.container(border=True):
+                    render_section_header(f"LINAC Productivity: wRVU per Machine ({year})",
+                                          "YTD wRVU output normalized by number of linear accelerators — excludes TN Proton Center (proton therapy)", "⚙️")
+                    linac_ytd = (df_clinic_yr[df_clinic_yr['ID'].isin(LINAC_CONFIG)]
+                                 .groupby(['ID','Name'])['Total RVUs'].sum().reset_index())
+                    linac_ytd['LINACs']     = linac_ytd['ID'].map(LINAC_CONFIG)
+                    linac_ytd['wRVU/LINAC'] = linac_ytd['Total RVUs'] / linac_ytd['LINACs']
+                    linac_net_avg = linac_ytd['Total RVUs'].sum() / linac_ytd['LINACs'].sum()
+                    linac_ytd_plot = linac_ytd.sort_values('wRVU/LINAC', ascending=False)
+                    fig_linac_all = px.bar(linac_ytd_plot, x='Name', y='wRVU/LINAC',
+                                           text_auto='.2s',
+                                           color='wRVU/LINAC',
+                                           color_continuous_scale=[[0,'#ede9fe'],[1,'#7c3aed']],
+                                           title=f"YTD wRVU per LINAC by Center — {year}")
+                    fig_linac_all.add_hline(y=linac_net_avg, line_dash='dash', line_color='#f97316', line_width=2,
+                                            annotation_text=f"Network Avg  {linac_net_avg:,.0f}",
+                                            annotation_position="top right")
+                    fig_linac_all.update_layout(coloraxis_showscale=False)
+                    fig_linac_all.update_traces(textposition='outside', cliponaxis=False)
+                    st.plotly_chart(style_high_end_chart(fig_linac_all), use_container_width=True,
+                                    key=f"linac_all_{tab_key_suffix}")
+                    st.caption(f"**Network LINAC Average:** {linac_net_avg:,.0f} wRVU/LINAC YTD &nbsp;·&nbsp; "
+                               f"Centers with 2 LINACs: Centennial, ST Midtown, ST West, ST Rutherford")
 
             # --- FIX #4: Dynamic quarterly comparison (All view) ---
             if clinic_filter == "All" and not df_clinic_yr.empty:
