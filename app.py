@@ -2025,12 +2025,34 @@ if check_password():
                             piv_m["Total"] = piv_m.sum(axis=1)
                             render_table(piv_m.sort_values("Total", ascending=False).style
                                          .format("{:,.0f}").background_gradient(cmap=_LC['Reds']))
+                            _xl_m = io.BytesIO()
+                            with pd.ExcelWriter(_xl_m, engine='openpyxl') as _wr:
+                                piv_m.sort_values("Total", ascending=False).reset_index().to_excel(
+                                    _wr, index=False, sheet_name='Monthly Data')
+                            st.download_button(
+                                label="⬇ Download Excel",
+                                data=_xl_m.getvalue(),
+                                file_name=f"{clinic_filter}_monthly_data_{year}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=f"dl_monthly_{tab_key_suffix}_{clinic_filter}",
+                            )
                         with st.container(border=True):
                             st.markdown("#### 📆 Quarterly Data")
                             piv_q = df_view.pivot_table(index="Name", columns="Quarter", values="Total RVUs", aggfunc="sum").fillna(0)
                             piv_q["Total"] = piv_q.sum(axis=1)
                             render_table(piv_q.sort_values("Total", ascending=False).style
                                          .format("{:,.0f}").background_gradient(cmap=_LC['Oranges']))
+                            _xl_q = io.BytesIO()
+                            with pd.ExcelWriter(_xl_q, engine='openpyxl') as _wr:
+                                piv_q.sort_values("Total", ascending=False).reset_index().to_excel(
+                                    _wr, index=False, sheet_name='Quarterly Data')
+                            st.download_button(
+                                label="⬇ Download Excel",
+                                data=_xl_q.getvalue(),
+                                file_name=f"{clinic_filter}_quarterly_data_{year}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=f"dl_quarterly_{tab_key_suffix}_{clinic_filter}",
+                            )
 
             # --- Monthly wRVU: all available months across all years ---
             with st.container(border=True):
