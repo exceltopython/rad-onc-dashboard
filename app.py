@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+import io
 import os
 import re
 import numpy as np
@@ -158,12 +159,14 @@ def render_insight_box(title, body):
 PALETTE = ['#1E3A8A','#0ea5e9','#f97316','#16a34a','#7c3aed','#ec4899','#14b8a6','#f59e0b','#6366f1','#84cc16']
 
 def style_high_end_chart(fig):
+    existing_title = fig.layout.title.text or ''
+    top_margin = 84 if '<br>' in existing_title else 64
     fig.update_layout(
         font={'family': "Inter, sans-serif", 'color': '#334155', 'size': 13},
-        title=dict(text='', font=dict(family="Inter, sans-serif", size=17, color='#0f172a')),
+        title=dict(text=existing_title, font=dict(family="Inter, sans-serif", size=17, color='#0f172a')),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        margin=dict(t=64, l=48, r=36, b=56),
+        margin=dict(t=top_margin, l=48, r=36, b=56),
         xaxis=dict(showgrid=False, showline=True, linecolor='#e2e8f0', linewidth=1.5,
                    tickfont=dict(color='#64748b', size=12),
                    title_font=dict(size=13, color='#475569')),
@@ -239,7 +242,7 @@ APP_PASSWORD = "test2026"
 
 def check_password():
     def password_entered():
-        if st.session_state["password"] == APP_PASSWORD:
+        if st.session_state.get("password") == APP_PASSWORD:
             st.session_state["password_correct"] = True
             del st.session_state["password"]
         else:
@@ -1354,7 +1357,8 @@ if check_password():
         render_table(table.style.format("{:,.0f}"))
 
     def render_long_term_history(clinic_filter, current_year, df_view_current, view_title,
-                                  target_ids_tristar, target_ids_ascension, clinic_filter_id_map):
+                                  target_ids_tristar, target_ids_ascension, clinic_filter_id_map,
+                                  tab_key_suffix=""):
         """Render the long-term bar chart + per-clinic subcharts."""
         df_hist = get_historical_df()
         if clinic_filter == "TriStar":     df_hist_view = df_hist[df_hist['ID'].isin(target_ids_tristar)]
@@ -1375,7 +1379,8 @@ if check_password():
                 hist_trend = pd.concat([hist_trend, pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd]})], ignore_index=True)
 
         fig_long = px.bar(hist_trend, x='Year', y='Total RVUs', text_auto='.2s')
-        st.plotly_chart(style_high_end_chart(fig_long), use_container_width=True)
+        st.plotly_chart(style_high_end_chart(fig_long), use_container_width=True,
+                        key=f"fig_long_{tab_key_suffix}_{clinic_filter}")
 
         if clinic_filter not in ["TriStar", "Ascension", "All"]:
             ht = hist_trend.copy()
@@ -1394,9 +1399,28 @@ if check_password():
                     if ytd_c > 0:
                         c_hist = pd.concat([c_hist, pd.DataFrame({"Year": [current_year], "Total RVUs": [ytd_c]})], ignore_index=True)
                 if not c_hist.empty:
-                    fig_c = px.bar(c_hist, x='Year', y='Total RVUs', text_auto='.2s', title=c_name)
+                    fig_c = px.bar(
+                        c_hist, x='Year', y='Total RVUs', text_auto='.2s',
+                        title=f'{c_name}<br><sup style="color:#64748b;font-size:13px;">Annual wRVU Totals</sup>',
+                    )
                     with cols[idx % 2]:
-                        st.plotly_chart(style_high_end_chart(fig_c), use_container_width=True)
+                        st.markdown(f"**{c_name}**")
+                        st.plotly_chart(style_high_end_chart(fig_c), use_container_width=True,
+                                        key=f"fig_clinic_hist_{tab_key_suffix}_{c_id}")
+                        tbl = c_hist.copy()
+                        tbl['Year'] = tbl['Year'].astype(int).astype(str)
+                        tbl = tbl.rename(columns={'Total RVUs': 'Total wRVUs'})
+                        render_table(tbl.set_index('Year').T.style.format("{:,.0f}"))
+                        _xl_buf = io.BytesIO()
+                        with pd.ExcelWriter(_xl_buf, engine='openpyxl') as _writer:
+                            tbl.to_excel(_writer, index=False, sheet_name='Annual wRVUs')
+                        st.download_button(
+                            label="⬇ Download Excel",
+                            data=_xl_buf.getvalue(),
+                            file_name=f"{c_name.replace(' ', '_')}_annual_wRVUs.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key=f"dl_clinic_hist_{tab_key_suffix}_{c_id}",
+                        )
 
     # ==========================================
     # EXECUTIVE SUMMARY RENDERER
@@ -2008,13 +2032,47 @@ if check_password():
                             render_table(piv_q.sort_values("Total", ascending=False).style
                                          .format("{:,.0f}").background_gradient(cmap=_LC['Oranges']))
 
+            # --- Monthly wRVU: all available months across all years ---
+            with st.container(border=True):
+                st.markdown("#### 📅 Monthly wRVU — All Available Months")
+                if clinic_filter == "All":
+                    df_all_m = df_clinic_all.copy()
+                elif clinic_filter == "TriStar":
+                    df_all_m = df_clinic_all[df_clinic_all['ID'].isin(TRISTAR_IDS)].copy()
+                elif clinic_filter == "Ascension":
+                    df_all_m = df_clinic_all[df_clinic_all['ID'].isin(ASCENSION_IDS)].copy()
+                else:
+                    _fid = filter_id_map.get(clinic_filter, clinic_filter)
+                    df_all_m = df_clinic_all[df_clinic_all['ID'] == _fid].copy()
+                if not df_all_m.empty:
+                    _sorted_m = df_all_m.sort_values('Month_Clean')['Month_Label'].unique()
+                    piv_all_m = (df_all_m
+                                 .pivot_table(index='Name', columns='Month_Label',
+                                              values='Total RVUs', aggfunc='sum')
+                                 .reindex(columns=_sorted_m)
+                                 .fillna(0))
+                    piv_all_m['Total'] = piv_all_m.sum(axis=1)
+                    render_table(piv_all_m.sort_values('Total', ascending=False).style
+                                 .format('{:,.0f}').background_gradient(cmap=_LC['Blues']))
+                    _xl_am = io.BytesIO()
+                    with pd.ExcelWriter(_xl_am, engine='openpyxl') as _wr:
+                        piv_all_m.reset_index().to_excel(_wr, index=False, sheet_name='Monthly wRVUs')
+                    st.download_button(
+                        label='⬇ Download Excel',
+                        data=_xl_am.getvalue(),
+                        file_name=f"{clinic_filter.replace(' ', '_')}_monthly_wRVUs_all_years.xlsx",
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        key=f'dl_monthly_all_{tab_key_suffix}_{clinic_filter}',
+                    )
+
             # --- Long-term history chart ---
             with st.container(border=True):
                 st.markdown(f"#### 📈 Long-Term History ({view_title})")
                 render_long_term_history(
                     clinic_filter, year, df_view, view_title,
                     TRISTAR_IDS, ASCENSION_IDS,
-                    {"LROC": "LROC", "TOPC": "TOPC", "TROC": "TROC", "Sumner": "Sumner"}
+                    {"LROC": "LROC", "TOPC": "TOPC", "TROC": "TROC", "Sumner": "Sumner"},
+                    tab_key_suffix,
                 )
 
             # --- Network-wide new patients (All view) ---
