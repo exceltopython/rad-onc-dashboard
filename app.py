@@ -119,25 +119,27 @@ def inject_custom_css():
 inject_custom_css()
 
 def render_table(styled_df, height=None):
-    # color: #1e293b overrides any grey text pandas chose for gradient cells;
-    # safe because _LC colormaps never produce backgrounds dark enough to need white text.
-    s = styled_df.set_properties(**{'font-size': '15px', 'padding': '5px 14px', 'color': '#1e293b'})
-    # Apply trend-arrow colours after the baseline so they win the cascade.
-    if 'Trend' in styled_df.data.columns:
+    data = styled_df.data
+    show_idx = not isinstance(data.index, pd.RangeIndex)
+    s = styled_df
+    # Trend arrows: large, bold, coloured
+    if 'Trend' in data.columns:
         s = s.map(
-            lambda v: ('color: #16a34a; font-weight: 700' if v == '▲'
-                  else 'color: #dc2626; font-weight: 700' if v == '▼'
+            lambda v: ('color: #16a34a; font-weight: 700; font-size: 20px' if v == '▲'
+                  else 'color: #dc2626; font-weight: 700; font-size: 20px' if v == '▼'
                   else 'color: #64748b'),
             subset=['Trend'],
         )
-    # Hide index when it's just 0,1,2… (meaningless); keep named index (pivot table labels)
-    show_idx = not isinstance(styled_df.data.index, pd.RangeIndex)
-    html = s.to_html(index=show_idx)
-    h_style = f"max-height:{height}px; overflow-y:auto; " if height else ""
-    st.markdown(
-        f'<div class="rtable" style="{h_style}overflow-x:auto;">{html}</div>',
-        unsafe_allow_html=True,
-    )
+    # Bold row-label index when it carries meaningful names
+    if show_idx:
+        try:
+            s = s.apply_index(
+                lambda v: ['font-weight: bold; color: #0f172a'] * len(v), axis=0)
+        except Exception:
+            pass
+    n_rows = len(data)
+    h = height if height else ((n_rows + 1) * 36 + 4)
+    st.dataframe(s, hide_index=not show_idx, use_container_width=True, height=h)
 
 def render_section_header(title, subtitle=None, icon=""):
     sub_html = f'<p>{subtitle}</p>' if subtitle else ""
@@ -1611,8 +1613,8 @@ if check_password():
                 sc_styled = sc_disp.style
                 if 'Trend' in sc_disp.columns:
                     sc_styled = sc_styled.map(
-                        lambda v: ('color: #16a34a; font-weight: bold' if v == '▲'
-                              else 'color: #dc2626; font-weight: bold' if v == '▼'
+                        lambda v: ('color: #16a34a; font-weight: 700; font-size: 20px' if v == '▲'
+                              else 'color: #dc2626; font-weight: 700; font-size: 20px' if v == '▼'
                               else 'color: #94a3b8'),
                         subset=['Trend'],
                     )
