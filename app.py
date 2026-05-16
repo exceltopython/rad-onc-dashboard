@@ -1687,8 +1687,12 @@ if check_password():
                                 key=f"exec_proj_{year}")
                 fmt_p = {'YTD':'{:,.0f}','Projected Annual':'{:,.0f}','Proj/FTE':'{:,.0f}',
                          'Prior Year':'{:,.0f}','Δ vs Prior':'{:+.1%}'}
+                _rg = mcolors.LinearSegmentedColormap.from_list('rg_div', ['#dc2626', '#ffffff', '#16a34a'])
+                _delta_abs = proj_df['Δ vs Prior'].abs().max() or 0.01
                 render_table(proj_df.style.format(fmt_p)
-                             .background_gradient(subset=['Projected Annual','Δ vs Prior'], cmap=_LC['Greens']))
+                             .background_gradient(subset=['Projected Annual'], cmap=_LC['Greens'])
+                             .background_gradient(subset=['Δ vs Prior'], cmap=_rg,
+                                                  vmin=-_delta_abs, vmax=_delta_abs))
                 st.caption("Δ vs Prior compares projected annual pace against the full prior calendar year — positive values indicate growth trajectory.")
 
     def get_most_recent_quarter(df):
