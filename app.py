@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
-def _lc(name, lo=0.05, hi=0.45):
+def _lc(name, lo=0.05, hi=0.25):
     """Truncate a colormap to the light portion so backgrounds never get dark enough to need white text."""
     return mcolors.LinearSegmentedColormap.from_list(
         f'{name}_light', plt.get_cmap(name)(np.linspace(lo, hi, 256)))
