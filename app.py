@@ -390,6 +390,37 @@ def render_anomaly_cards(anomaly_df, group_col, unit_label="wRVUs"):
             unsafe_allow_html=True,
         )
 
+def build_quarterly_summary_table(df, group_col, value_col, year, date_col='Month_Clean', quarter_col='Quarter'):
+    """Builds a summary table for one year: one row per group_col, one column
+    per quarter present in that year, plus a 'Latest Month (...)' column and
+    a '{year} YTD Total' column. Returns an empty DataFrame if there's no
+    data for that year."""
+    if df is None or df.empty:
+        return pd.DataFrame()
+    d = df[df[date_col].dt.year == year].copy()
+    if d.empty:
+        return pd.DataFrame()
+    latest_month = d[date_col].max()
+
+    def _q_sort_key(q):
+        try:
+            parts = q.split()
+            return int(parts[1]) * 10 + int(parts[0][1])
+        except Exception:
+            return 0
+
+    quarters_sorted = sorted(d[quarter_col].unique(), key=_q_sort_key)
+    piv_q = d.pivot_table(index=group_col, columns=quarter_col, values=value_col, aggfunc='sum').fillna(0)
+    piv_q = piv_q.reindex(columns=quarters_sorted).fillna(0)
+
+    latest_col = f'Latest Month ({latest_month.strftime("%b %Y")})'
+    piv_q[latest_col] = (
+        d[d[date_col] == latest_month].groupby(group_col)[value_col].sum().reindex(piv_q.index).fillna(0)
+    )
+    ytd_col = f'{year} YTD Total'
+    piv_q[ytd_col] = d.groupby(group_col)[value_col].sum().reindex(piv_q.index).fillna(0)
+    return piv_q.sort_values(ytd_col, ascending=False)
+
 # --- PDF GENERATOR ---
 if FPDF:
     class PDFReport(FPDF):
@@ -1719,7 +1750,8 @@ if check_password():
     # ==========================================
     # EXECUTIVE SUMMARY RENDERER
     # ==========================================
-    def render_executive_summary(year, df_clinic_all, df_mds_all, df_visits_all, df_financial, df_apps_all=None):
+    def render_executive_summary(year, df_clinic_all, df_mds_all, df_visits_all, df_financial, df_apps_all=None,
+                                  df_pos_trend_all=None, df_app_cpt_all=None, df_md_cpt_all=None):
         prior_year = year - 1
         df_cur  = df_clinic_all[df_clinic_all['Month_Clean'].dt.year == year].copy()  if not df_clinic_all.empty else pd.DataFrame()
         df_pri  = df_clinic_all[df_clinic_all['Month_Clean'].dt.year == prior_year].copy() if not df_clinic_all.empty else pd.DataFrame()
@@ -1883,6 +1915,57 @@ if check_password():
                 "A flag means this period looks statistically unusual for that site or physician specifically — "
                 "it isn't automatically good or bad. Common causes: leave/PTO, a new hire ramping up, a coding or "
                 "data-entry issue, or a genuine volume shift worth a closer look."
+            )
+
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+
+        # ================= NEW PATIENT VOLUME =================
+        with st.container(border=True):
+            render_section_header("New Patient Volume",
+                                  f"Quarterly, most-recent-month, and {year} YTD new-patient counts — by center and by provider", "🆕")
+            st.caption(
+                "ℹ️ These counts come from the practice's own 'New Patient' reports (POS Trend by center, "
+                "PHYS YTD OV by provider) — they are not derived from CPT line items 9920X/9924X, which "
+                "aren't currently parsed anywhere in this app."
+            )
+
+            st.markdown("##### 🏥 By Center")
+            center_np_tbl = build_quarterly_summary_table(df_pos_trend_all, 'Display_Name', 'New Patients', year)
+            if center_np_tbl.empty:
+                st.info("No center-level New Patient data found for this year.")
+            else:
+                render_table(center_np_tbl.style.format('{:,.0f}').background_gradient(cmap=_LC['Greens']))
+
+            st.markdown("##### 🧑‍⚕️ By Provider")
+            if df_visits_all is not None and not df_visits_all.empty:
+                prov_np_src = df_visits_all[~df_visits_all['Name'].isin(APP_LIST)].copy()
+                prov_np_src = prov_np_src.groupby(['Name', 'Month_Clean'], as_index=False)['New Patients'].sum()
+                prov_np_src['Quarter'] = prov_np_src['Month_Clean'].apply(lambda x: f"Q{x.quarter} {x.year}")
+            else:
+                prov_np_src = pd.DataFrame()
+            provider_np_tbl = build_quarterly_summary_table(prov_np_src, 'Name', 'New Patients', year)
+            if provider_np_tbl.empty:
+                st.info("No provider-level New Patient data found for this year.")
+            else:
+                render_table(provider_np_tbl.style.format('{:,.0f}').background_gradient(cmap=_LC['Blues']))
+            st.caption("Advanced Practice Providers are excluded from the by-provider New Patient table — new-patient consults are typically physician-only in this practice.")
+
+            st.markdown("##### 📋 By Provider — Established Visits (CPT 99212–99215, \"9921X\")")
+            cpt_parts = [x for x in [df_app_cpt_all, df_md_cpt_all] if x is not None and not x.empty]
+            if cpt_parts:
+                cpt_9921x_src = pd.concat(cpt_parts, ignore_index=True)
+                cpt_9921x_src = cpt_9921x_src.groupby(['Name', 'Month_Clean'], as_index=False)['Count'].sum()
+                cpt_9921x_src['Quarter'] = cpt_9921x_src['Month_Clean'].apply(lambda x: f"Q{x.quarter} {x.year}")
+            else:
+                cpt_9921x_src = pd.DataFrame()
+            cpt_9921x_tbl = build_quarterly_summary_table(cpt_9921x_src, 'Name', 'Count', year)
+            if cpt_9921x_tbl.empty:
+                st.info("No CPT 99212–99215 data found for this year.")
+            else:
+                render_table(cpt_9921x_tbl.style.format('{:,.0f}').background_gradient(cmap=_LC['Purples']))
+            st.caption(
+                "Covers CPT 99212–99215 only — 99211 is not currently tracked (no wRVU conversion rate configured "
+                "for it), so true \"9921X\" volume here is slightly undercounted if 99211 is used at your sites."
             )
 
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
@@ -3538,7 +3621,8 @@ if check_password():
             ])
 
             with tab_exec:
-                render_executive_summary(2026, df_clinic, df_mds, df_visits, df_financial, df_apps_all=df_apps)
+                render_executive_summary(2026, df_clinic, df_mds, df_visits, df_financial, df_apps_all=df_apps,
+                                          df_pos_trend_all=df_pos_trend, df_app_cpt_all=df_app_cpt, df_md_cpt_all=df_md_cpt)
 
             with tab_c26:
                 render_clinic_tab(2026, df_clinic, df_provider_raw, df_pos_trend, df_consults, "26")
