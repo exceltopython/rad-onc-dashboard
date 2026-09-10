@@ -37,6 +37,12 @@ except ImportError:
 st.set_page_config(page_title="RadOnc Analytics", layout="wide", page_icon="🩺")
 
 def inject_custom_css():
+    st.markdown(
+        '<link rel="preconnect" href="https://fonts.googleapis.com">'
+        '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+        '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">',
+        unsafe_allow_html=True,
+    )
     st.markdown("""
         <style>
         /* --- Hide Streamlit chrome --- */
@@ -45,7 +51,7 @@ def inject_custom_css():
             { visibility: hidden !important; display: none !important; }
 
         /* --- Global font --- */
-        html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+        html, body, [class*="css"] { font-family: 'Inter', -apple-system, sans-serif; }
 
         /* --- Tab bar --- */
         .stTabs [data-baseweb="tab-list"] {
@@ -54,13 +60,17 @@ def inject_custom_css():
         }
         .stTabs [data-baseweb="tab-list"] button {
             background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px;
-            color: #475569; padding: 10px 22px;
+            color: #475569; padding: 10px 22px; transition: all 0.15s ease;
+        }
+        .stTabs [data-baseweb="tab-list"] button:hover {
+            border-color: #93c5fd; background: #eff6ff;
         }
         .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
             font-size: 15px !important; font-weight: 600 !important; margin: 0;
         }
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
-            background: #1E3A8A !important; color: #FFFFFF !important;
+            background: linear-gradient(135deg, #1E3A8A 0%, #1d4ed8 100%) !important;
+            color: #FFFFFF !important;
             border-color: #1E3A8A; box-shadow: 0 4px 14px rgba(30,58,138,0.28);
         }
         .stTabs [data-baseweb="tab-highlight"] { background: transparent !important; }
@@ -114,12 +124,86 @@ def inject_custom_css():
         /* --- Sidebar --- */
         [data-testid="stSidebar"] { background-color: #f8fafc; width: 220px !important; min-width: 220px !important; }
         [data-testid="stSidebar"] > div:first-child { width: 220px !important; min-width: 220px !important; }
+
+        /* ============================================================
+           HERO / LANDING PAGE DESIGN SYSTEM
+           ============================================================ */
+
+        /* --- Hero banner --- */
+        .hero-banner {
+            position: relative; overflow: hidden;
+            background: radial-gradient(1200px 400px at 15% -20%, rgba(255,255,255,0.14), transparent),
+                        linear-gradient(120deg, #0f1f4d 0%, #1E3A8A 45%, #1d4ed8 100%);
+            border-radius: 18px; padding: 28px 32px; margin: 6px 0 22px 0;
+            box-shadow: 0 12px 32px rgba(30,58,138,0.28);
+        }
+        .hero-banner h1 {
+            color: #ffffff; margin: 0; font-size: 2.1rem; font-weight: 800;
+            letter-spacing: -0.5px; display: flex; align-items: center; gap: 10px;
+        }
+        .hero-banner p {
+            color: #c7d7fb; margin: 6px 0 0 0; font-size: 14px; font-weight: 500;
+        }
+        .hero-banner .hero-chip {
+            display: inline-block; background: rgba(255,255,255,0.14);
+            border: 1px solid rgba(255,255,255,0.25); color: #ffffff;
+            border-radius: 999px; padding: 3px 12px; font-size: 11.5px;
+            font-weight: 700; letter-spacing: 0.3px; margin-right: 8px;
+        }
+
+        /* --- Hero KPI cards --- */
+        .khc-wrap { display: flex; flex-direction: column; height: 100%; }
+        .kpi-hero-card {
+            background: #ffffff; border: 1px solid #e2e8f0; border-top: 4px solid #1E3A8A;
+            border-radius: 14px; padding: 16px 18px 10px 18px;
+            box-shadow: 0 2px 10px rgba(15,23,42,0.05);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .kpi-hero-card:hover {
+            transform: translateY(-2px); box-shadow: 0 8px 20px rgba(15,23,42,0.10);
+        }
+        .khc-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+        .khc-icon { font-size: 19px; }
+        .khc-value { font-size: 1.65rem; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; line-height: 1.1; }
+        .khc-label { font-size: 12px; color: #64748b; font-weight: 600; margin-top: 3px; }
+
+        .delta-pill {
+            font-size: 11px; font-weight: 700; border-radius: 999px;
+            padding: 2px 9px; letter-spacing: 0.2px;
+        }
+        .delta-pill.pos { background: #dcfce7; color: #15803d; }
+        .delta-pill.neg { background: #fee2e2; color: #b91c1c; }
+        .delta-pill.flat { background: #f1f5f9; color: #475569; }
+
+        /* --- Anomaly cards --- */
+        .anomaly-card {
+            background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px;
+            padding: 10px 14px; margin-bottom: 8px; display: flex;
+            justify-content: space-between; align-items: center;
+        }
+        .anomaly-card.high  { border-left: 5px solid #dc2626; }
+        .anomaly-card.med   { border-left: 5px solid #f97316; }
+        .anomaly-name  { font-weight: 700; color: #0f172a; font-size: 13.5px; }
+        .anomaly-sub   { color: #64748b; font-size: 12px; margin-top: 1px; }
+        .anomaly-z {
+            font-weight: 800; font-size: 13px; border-radius: 8px; padding: 3px 10px;
+        }
+        .anomaly-z.high { background: #fee2e2; color: #b91c1c; }
+        .anomaly-z.med  { background: #ffedd5; color: #c2410c; }
+
+        .all-clear-box {
+            background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+            border: 1px solid #bbf7d0; border-left: 5px solid #16a34a;
+            border-radius: 10px; padding: 14px 18px; color: #166534;
+            font-weight: 600; font-size: 13.5px;
+        }
         </style>
     """, unsafe_allow_html=True)
 
 inject_custom_css()
 
 def render_table(styled_df, height=None):
+
     data = styled_df.data
     show_idx = not isinstance(data.index, pd.RangeIndex)
     s = styled_df
@@ -188,6 +272,123 @@ def style_high_end_chart(fig):
     fig.update_xaxes(zeroline=False)
     fig.update_yaxes(zeroline=False)
     return fig
+
+# ==========================================
+# HERO KPI CARDS, SPARKLINES, FORECASTING & ANOMALY DETECTION
+# ==========================================
+
+def render_sparkline(values, color='#1E3A8A', height=46):
+    """Small filled-area trendline with no axes, for embedding under a KPI card."""
+    fig = go.Figure(go.Scatter(
+        y=list(values), mode='lines', line=dict(color=color, width=2.2),
+        fill='tozeroy', fillcolor=color + '26', hoverinfo='skip',
+    ))
+    fig.update_layout(
+        margin=dict(l=0, r=0, t=0, b=0), height=height,
+        xaxis=dict(visible=False), yaxis=dict(visible=False),
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        showlegend=False,
+    )
+    return fig
+
+def render_hero_kpi(label, value_str, icon="📊", accent="#1E3A8A",
+                     delta_pct=None, sparkline_values=None, key=None, help_text=None):
+    """Renders one gradient-accented KPI card, optionally with a delta pill and
+    an embedded sparkline of recent monthly history."""
+    delta_html = ""
+    if delta_pct is not None:
+        cls = "pos" if delta_pct >= 0.5 else ("neg" if delta_pct <= -0.5 else "flat")
+        arrow = "▲" if delta_pct > 0 else ("▼" if delta_pct < 0 else "→")
+        delta_html = f'<span class="delta-pill {cls}">{arrow} {abs(delta_pct):.1f}%</span>'
+    st.markdown(
+        f'<div class="kpi-hero-card" style="border-top-color:{accent}">'
+        f'<div class="khc-top"><span class="khc-icon">{icon}</span>{delta_html}</div>'
+        f'<div class="khc-value">{value_str}</div>'
+        f'<div class="khc-label">{label}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    if help_text:
+        st.caption(help_text)
+    if sparkline_values is not None and len(sparkline_values) >= 2:
+        st.plotly_chart(render_sparkline(sparkline_values, color=accent), use_container_width=True,
+                        config={'displayModeBar': False}, key=key or f"spark_{label}")
+
+def compute_linear_forecast(df, date_col='Month_Clean', value_col='Total RVUs',
+                             periods=3, lookback=12, band_z=1.28):
+    """Simple linear-trend forecast with a residual-based confidence band.
+    Fits a straight line to the last `lookback` months and extrapolates
+    `periods` months forward. band_z=1.28 gives roughly an 80% interval."""
+    d = df.dropna(subset=[date_col, value_col]).sort_values(date_col).tail(lookback).copy()
+    if len(d) < 3:
+        return None
+    d = d.reset_index(drop=True)
+    d['t'] = np.arange(len(d))
+    coeffs = np.polyfit(d['t'], d[value_col], 1)
+    fitted = np.polyval(coeffs, d['t'])
+    resid_std = float(np.std(d[value_col] - fitted))
+    last_t = d['t'].max()
+    last_date = d[date_col].max()
+    future_t = np.arange(last_t + 1, last_t + 1 + periods)
+    future_dates = [last_date + pd.DateOffset(months=i) for i in range(1, periods + 1)]
+    future_vals = np.polyval(coeffs, future_t)
+    return pd.DataFrame({
+        date_col: future_dates,
+        'Forecast': np.clip(future_vals, 0, None),
+        'Lower': np.clip(future_vals - band_z * resid_std, 0, None),
+        'Upper': future_vals + band_z * resid_std,
+    }), coeffs[0]
+
+def detect_anomalies(df, group_col, value_col, date_col='Month_Clean',
+                      z_thresh=2.0, min_history=4):
+    """Flags the most recent month for each group if it deviates from that
+    group's own historical mean by more than z_thresh standard deviations.
+    Returns a DataFrame of flags sorted by |z-score| descending (empty if none)."""
+    rows = []
+    if df.empty:
+        return pd.DataFrame()
+    for g, grp in df.groupby(group_col):
+        grp = grp.dropna(subset=[date_col, value_col]).sort_values(date_col)
+        if len(grp) < min_history + 1:
+            continue
+        hist = grp.iloc[:-1][value_col]
+        latest_row = grp.iloc[-1]
+        mu, sigma = hist.mean(), hist.std()
+        if not sigma or pd.isna(sigma) or sigma == 0:
+            continue
+        z = (latest_row[value_col] - mu) / sigma
+        if abs(z) >= z_thresh:
+            rows.append({
+                group_col: g, 'Latest Value': latest_row[value_col], 'Historical Avg': mu,
+                'Z-Score': z, 'Month': latest_row[date_col],
+                'Direction': 'Above' if z > 0 else 'Below',
+            })
+    if not rows:
+        return pd.DataFrame()
+    out = pd.DataFrame(rows)
+    return out.reindex(out['Z-Score'].abs().sort_values(ascending=False).index)
+
+def render_anomaly_cards(anomaly_df, group_col, unit_label="wRVUs"):
+    """Renders flagged anomalies as small colored cards; shows an all-clear
+    box when none are found."""
+    if anomaly_df.empty:
+        st.markdown(
+            '<div class="all-clear-box">✅ No statistically significant outliers detected this period.</div>',
+            unsafe_allow_html=True,
+        )
+        return
+    for _, row in anomaly_df.iterrows():
+        sev = "high" if abs(row['Z-Score']) >= 3 else "med"
+        arrow = "▲" if row['Direction'] == 'Above' else "▼"
+        st.markdown(
+            f'<div class="anomaly-card {sev}">'
+            f'<div><div class="anomaly-name">{row[group_col]}</div>'
+            f'<div class="anomaly-sub">{row["Month"].strftime("%B %Y")}: '
+            f'{row["Latest Value"]:,.0f} {unit_label} vs avg {row["Historical Avg"]:,.0f}</div></div>'
+            f'<div class="anomaly-z {sev}">{arrow} z={row["Z-Score"]:+.1f}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
 # --- PDF GENERATOR ---
 if FPDF:
@@ -1518,13 +1719,14 @@ if check_password():
     # ==========================================
     # EXECUTIVE SUMMARY RENDERER
     # ==========================================
-    def render_executive_summary(year, df_clinic_all, df_mds_all, df_visits_all, df_financial):
+    def render_executive_summary(year, df_clinic_all, df_mds_all, df_visits_all, df_financial, df_apps_all=None):
         prior_year = year - 1
         df_cur  = df_clinic_all[df_clinic_all['Month_Clean'].dt.year == year].copy()  if not df_clinic_all.empty else pd.DataFrame()
         df_pri  = df_clinic_all[df_clinic_all['Month_Clean'].dt.year == prior_year].copy() if not df_clinic_all.empty else pd.DataFrame()
         df_mc   = df_mds_all[df_mds_all['Month_Clean'].dt.year == year].copy()        if not df_mds_all.empty   else pd.DataFrame()
         df_mp   = df_mds_all[df_mds_all['Month_Clean'].dt.year == prior_year].copy()  if not df_mds_all.empty   else pd.DataFrame()
         df_vc   = df_visits_all[df_visits_all['Month_Clean'].dt.year == year].copy()  if not df_visits_all.empty else pd.DataFrame()
+        df_ac   = df_apps_all[df_apps_all['Month_Clean'].dt.year == year].copy() if df_apps_all is not None and not df_apps_all.empty else pd.DataFrame()
 
         cur_months = set(df_cur['Month_Clean'].dt.month.unique()) if not df_cur.empty else set()
         df_pri_cmp = df_pri[df_pri['Month_Clean'].dt.month.isin(cur_months)] if not df_pri.empty else pd.DataFrame()
@@ -1541,15 +1743,12 @@ if check_password():
         projected = ytd_rvu / n_months * 12 if n_months > 0 else 0
         n_mds     = df_mc['Name'].nunique()     if not df_mc.empty else 0
         n_sites   = df_cur['Name'].nunique()    if not df_cur.empty else 0
+        app_ytd   = df_ac['Total RVUs'].sum() if not df_ac.empty else 0
 
         # Derived efficiency KPIs
         fte_map_exec = {cid: cfg['fte'] for cid, cfg in CLINIC_CONFIG.items()}
         total_fte     = sum(fte_map_exec.values())
         net_rvu_fte   = ytd_rvu / total_fte if total_fte > 0 else 0
-        app_ytd       = df_mds_all[
-            (df_mds_all['Month_Clean'].dt.year == year) &
-            (df_mds_all['Name'].isin(APP_LIST))
-        ]['Total RVUs'].sum() if not df_mds_all.empty else 0
         app_pct       = app_ytd / ytd_rvu * 100 if ytd_rvu > 0 else 0
         md_pct        = md_ytd  / ytd_rvu * 100 if ytd_rvu > 0 else 0
 
@@ -1561,44 +1760,132 @@ if check_password():
                          .sort_values('wRVU_FTE', ascending=False)['Name'].iloc[0]
                          if not df_cur.empty else "—")
 
-        # Page header
+        # ================= HERO BANNER =================
         latest_lbl = df_cur['Month_Clean'].max().strftime('%B %Y') if not df_cur.empty else ""
         st.markdown(
-            f"<h2 style='color:#0f172a;margin-bottom:2px;'>🩺 Radiation Oncology Division — {year} Executive Summary</h2>"
-            f"<p style='color:#64748b;font-size:14px;margin-top:0;'>Data through <b>{latest_lbl}</b> &nbsp;·&nbsp; {n_months}-month YTD &nbsp;·&nbsp; {n_sites} active sites &nbsp;·&nbsp; {n_mds} active physicians</p>",
+            f"""
+            <div class="hero-banner">
+                <h1>🩺 Radiation Oncology Division — {year} Executive Summary</h1>
+                <p>Data through <b>{latest_lbl}</b></p>
+                <div style="margin-top:14px;">
+                    <span class="hero-chip">📅 {n_months}-MONTH YTD</span>
+                    <span class="hero-chip">🏥 {n_sites} ACTIVE SITES</span>
+                    <span class="hero-chip">👨‍⚕️ {n_mds} PHYSICIANS</span>
+                </div>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
-        st.markdown("---")
 
-        # ---- ROW 1: Volume KPIs ----
-        render_section_header("Volume Metrics", "Year-to-date wRVU production across the network", "📊")
-        k1, k2, k3, k4 = st.columns(4)
-        with k1:
-            st.metric("Network wRVUs YTD", f"{ytd_rvu:,.0f}",
-                      delta=f"{yoy_pct:+.1f}% vs {prior_year}" if pri_rvu > 0 else None)
-        with k2:
-            st.metric(f"Projected {year} Annual", f"{projected:,.0f}",
-                      help=f"Linear extrapolation from {n_months}-month YTD pace")
-        with k3:
-            st.metric("MD wRVUs YTD", f"{md_ytd:,.0f}",
-                      delta=f"{md_yoy:+.1f}% vs {prior_year}" if md_pri > 0 else None,
-                      help="Physician-attributed wRVUs only")
-        with k4:
-            st.metric("APP wRVUs YTD", f"{app_ytd:,.0f}",
-                      help=f"Advanced Practice Provider contribution ({app_pct:.1f}% of network total)")
+        # ================= HERO KPI ROW (with sparklines) =================
+        # Build recent 12-month series (crossing year boundaries) for the sparklines.
+        def _monthly_series(df, value_col='Total RVUs', n=12):
+            if df.empty:
+                return []
+            s = df.groupby('Month_Clean')[value_col].sum().sort_index()
+            return s.tail(n).tolist()
 
-        # ---- ROW 2: Efficiency & Access KPIs ----
-        render_section_header("Efficiency & Access Metrics", "Productivity intensity and patient access indicators", "⚡")
-        k5, k6, k7, k8 = st.columns(4)
-        with k5:
-            st.metric("Network wRVU/FTE YTD", f"{net_rvu_fte:,.0f}",
-                      help=f"Total network wRVUs ÷ {total_fte:.1f} aggregate FTE")
-        with k6:
-            st.metric("New Patients YTD", f"{np_ytd:,.0f}")
-        with k7:
-            st.metric("Active Physicians", str(n_mds))
-        with k8:
-            st.metric("Active Sites", str(n_sites))
+        net_spark = _monthly_series(df_clinic_all, 'Total RVUs')
+        md_spark  = _monthly_series(df_mds_all, 'Total RVUs')
+        app_spark = _monthly_series(df_apps_all, 'Total RVUs') if df_apps_all is not None else []
+        np_spark  = _monthly_series(df_visits_all, 'New Patients')
+
+        h1, h2, h3, h4 = st.columns(4)
+        with h1:
+            render_hero_kpi("Network wRVUs YTD", f"{ytd_rvu:,.0f}", icon="📊", accent="#1E3A8A",
+                            delta_pct=yoy_pct if pri_rvu > 0 else None,
+                            sparkline_values=net_spark, key="spark_net")
+        with h2:
+            render_hero_kpi(f"Projected {year} Annual", f"{projected:,.0f}", icon="🎯", accent="#7c3aed",
+                            sparkline_values=net_spark, key="spark_proj",
+                            help_text=f"Linear extrapolation from {n_months}-month YTD pace")
+        with h3:
+            render_hero_kpi("MD wRVUs YTD", f"{md_ytd:,.0f}", icon="👨‍⚕️", accent="#0ea5e9",
+                            delta_pct=md_yoy if md_pri > 0 else None,
+                            sparkline_values=md_spark, key="spark_md")
+        with h4:
+            render_hero_kpi("APP wRVUs YTD", f"{app_ytd:,.0f}", icon="👩‍⚕️", accent="#16a34a",
+                            sparkline_values=app_spark, key="spark_app",
+                            help_text=f"{app_pct:.1f}% of network total")
+
+        h5, h6, h7, h8 = st.columns(4)
+        with h5:
+            render_hero_kpi("Network wRVU/FTE YTD", f"{net_rvu_fte:,.0f}", icon="⚡", accent="#f97316",
+                            help_text=f"÷ {total_fte:.1f} aggregate FTE")
+        with h6:
+            render_hero_kpi("New Patients YTD", f"{np_ytd:,.0f}", icon="🆕", accent="#14b8a6",
+                            sparkline_values=np_spark, key="spark_np")
+        with h7:
+            render_hero_kpi("Active Physicians", str(n_mds), icon="🧑‍⚕️", accent="#6366f1")
+        with h8:
+            render_hero_kpi("Active Sites", str(n_sites), icon="🏥", accent="#ec4899")
+
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+        # ================= NETWORK FORECAST =================
+        with st.container(border=True):
+            render_section_header("Network wRVU Forecast",
+                                  "Linear trend projection with ~80% confidence band, based on the last 12 months", "🔮")
+            if not df_clinic_all.empty:
+                hist_monthly = df_clinic_all.groupby('Month_Clean')[['Total RVUs']].sum().reset_index().sort_values('Month_Clean')
+                forecast_result = compute_linear_forecast(hist_monthly, periods=3, lookback=12)
+            else:
+                forecast_result = None
+            if forecast_result is not None:
+                fc_df, slope = forecast_result
+                hist_tail = hist_monthly.tail(12)
+                fig_fc = go.Figure()
+                fig_fc.add_trace(go.Scatter(
+                    x=hist_tail['Month_Clean'], y=hist_tail['Total RVUs'], mode='lines+markers',
+                    name='Actual', line=dict(color='#1E3A8A', width=2.5), marker=dict(size=6),
+                ))
+                bridge_x = [hist_tail['Month_Clean'].iloc[-1]] + fc_df['Month_Clean'].tolist()
+                bridge_y = [hist_tail['Total RVUs'].iloc[-1]] + fc_df['Forecast'].tolist()
+                fig_fc.add_trace(go.Scatter(
+                    x=bridge_x, y=bridge_y, mode='lines+markers', name='Forecast',
+                    line=dict(color='#f97316', width=2.5, dash='dash'), marker=dict(size=6),
+                ))
+                band_x = [hist_tail['Month_Clean'].iloc[-1]] + fc_df['Month_Clean'].tolist() + fc_df['Month_Clean'].tolist()[::-1] + [hist_tail['Month_Clean'].iloc[-1]]
+                band_y = ([hist_tail['Total RVUs'].iloc[-1]] + fc_df['Upper'].tolist()
+                          + fc_df['Lower'].tolist()[::-1] + [hist_tail['Total RVUs'].iloc[-1]])
+                fig_fc.add_trace(go.Scatter(
+                    x=band_x, y=band_y, fill='toself', fillcolor='rgba(249,115,22,0.14)',
+                    line=dict(color='rgba(0,0,0,0)'), name='~80% confidence band', hoverinfo='skip',
+                ))
+                fig_fc.update_layout(title=f"Network wRVUs: Actual + {len(fc_df)}-Month Forecast")
+                st.plotly_chart(style_high_end_chart(fig_fc), use_container_width=True, key="exec_forecast")
+                trend_word = "growing" if slope > 0 else ("declining" if slope < 0 else "flat")
+                next_m = fc_df.iloc[0]
+                st.caption(
+                    f"Trend is **{trend_word}** at roughly **{slope:+,.0f} wRVUs/month**. "
+                    f"Next month ({next_m['Month_Clean'].strftime('%B %Y')}) is projected at "
+                    f"**{next_m['Forecast']:,.0f}** wRVUs (range {next_m['Lower']:,.0f}–{next_m['Upper']:,.0f}). "
+                    f"This is a simple linear-trend model on recent months, not a seasonally adjusted forecast — "
+                    f"treat it as a directional signal, not a budget number."
+                )
+            else:
+                st.info("Not enough monthly history yet to generate a forecast.")
+
+        # ================= ANOMALY DETECTION =================
+        with st.container(border=True):
+            render_section_header("Anomaly Detection",
+                                  "Sites and physicians whose most recent month deviates sharply from their own history (|z-score| ≥ 2)", "⚠️")
+            a1, a2 = st.columns(2)
+            with a1:
+                st.markdown("**🏥 Clinic-Level Anomalies**")
+                clinic_anom = detect_anomalies(df_clinic_all, 'Name', 'Total RVUs') if not df_clinic_all.empty else pd.DataFrame()
+                render_anomaly_cards(clinic_anom, 'Name')
+            with a2:
+                st.markdown("**👨‍⚕️ Physician-Level Anomalies**")
+                md_anom = detect_anomalies(df_mds_all, 'Name', 'Total RVUs') if not df_mds_all.empty else pd.DataFrame()
+                render_anomaly_cards(md_anom, 'Name')
+            st.caption(
+                "A flag means this period looks statistically unusual for that site or physician specifically — "
+                "it isn't automatically good or bad. Common causes: leave/PTO, a new hire ramping up, a coding or "
+                "data-entry issue, or a genuine volume shift worth a closer look."
+            )
+
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
         # ---- Automated Key Insights ----
         if ytd_rvu > 0:
@@ -3251,7 +3538,7 @@ if check_password():
             ])
 
             with tab_exec:
-                render_executive_summary(2026, df_clinic, df_mds, df_visits, df_financial)
+                render_executive_summary(2026, df_clinic, df_mds, df_visits, df_financial, df_apps_all=df_apps)
 
             with tab_c26:
                 render_clinic_tab(2026, df_clinic, df_provider_raw, df_pos_trend, df_consults, "26")
