@@ -1,0 +1,78 @@
+# ============================================================
+# Clinic / site configuration for the RadOnc Analytics dashboard.
+#
+# name:    Display name shown throughout the dashboard.
+# fte:     Aggregate physician FTE assigned to the site (used for
+#          wRVU/FTE efficiency metrics).
+# linacs:  Number of linear accelerators at the site. Use `null` for
+#          sites that aren't LINAC-based (e.g. the proton center) —
+#          they're automatically excluded from wRVU/LINAC charts.
+# group:   Health-system grouping used for the TriStar / Ascension
+#          filter views. Use `tristar`, `ascension`, or `null`.
+#
+# To add a new clinic: add one entry below with a short ID key (this
+# ID must match how the site appears in your source Excel filenames
+# / sheet names). No code changes required.
+# ============================================================
+
+clinics:
+  CENT:
+    name: Centennial
+    fte: 2.2
+    linacs: 2
+    group: tristar
+  Dickson:
+    name: Horizon
+    fte: 1.0
+    linacs: 1
+    group: tristar
+  Skyline:
+    name: Skyline
+    fte: 1.0
+    linacs: 1
+    group: tristar
+  Summit:
+    name: Summit
+    fte: 1.0
+    linacs: 1
+    group: tristar
+  Stonecrest:
+    name: StoneCrest
+    fte: 1.0
+    linacs: 1
+    group: tristar
+  STW:
+    name: ST West
+    fte: 1.8
+    linacs: 2
+    group: ascension
+  Midtown:
+    name: ST Midtown
+    fte: 1.8
+    linacs: 2
+    group: ascension
+  MURF:
+    name: ST Rutherford
+    fte: 2.0
+    linacs: 2
+    group: ascension
+  Sumner:
+    name: Sumner
+    fte: 1.5
+    linacs: 1
+    group: null
+  TROC:
+    name: "TROC (Tullahoma)"
+    fte: 0.6
+    linacs: 1
+    group: null
+  LROC:
+    name: "LROC (Lebanon)"
+    fte: 1.2
+    linacs: 1
+    group: null
+  TOPC:
+    name: TN Proton Center
+    fte: 2.5
+    linacs: null
+    group: null
