@@ -2944,13 +2944,21 @@ if check_password():
         total_all_time = prov_rvu['Total RVUs'].sum()
         latest_month    = prov_rvu['Month_Clean'].max()
         latest_year     = latest_month.year
+        prior_year      = latest_year - 1
         cur_year_df     = prov_rvu[prov_rvu['Month_Clean'].dt.year == latest_year]
+        pri_year_df     = prov_rvu[prov_rvu['Month_Clean'].dt.year == prior_year]
         ytd_total       = cur_year_df['Total RVUs'].sum()
+        pri_total       = pri_year_df['Total RVUs'].sum()
         n_months_cur    = cur_year_df['Month_Clean'].dt.month.nunique()
+        projected_annual = ytd_total / n_months_cur * 12 if n_months_cur > 0 else 0
+        yoy_pct = (ytd_total - pri_total) / pri_total * 100 if pri_total > 0 else None
 
-        # MGMA tier for latest year (physicians only, respecting proration + exclude list)
+        # MGMA targets for latest year (physicians only, respecting proration + exclude list)
+        exp_months = 0
+        ref_25 = ref_50 = ref_75 = 0
         tier_label = "—"
-        if (not is_app) and provider not in MGMA_EXCLUDE and n_months_cur > 0:
+        show_mgma = (not is_app) and provider not in MGMA_EXCLUDE and n_months_cur > 0
+        if show_mgma:
             months_present_p = sorted(cur_year_df['Month_Clean'].dt.to_period('M').unique())
             exp_months = expected_months_for(provider, months_present_p)
             ref_50 = exp_months / 12 * MGMA_BENCHMARKS['50th']
@@ -2965,27 +2973,115 @@ if check_password():
             else:
                 tier_label = "🔴 Below Avg (<25th)"
 
-        k1, k2, k3, k4 = st.columns(4)
+        # ---- KPI row ----
+        k1, k2, k3, k4, k5 = st.columns(5)
         with k1:
             st.metric("All-Time wRVUs (loaded data)", f"{total_all_time:,.0f}")
         with k2:
             st.metric(f"{latest_year} YTD wRVUs", f"{ytd_total:,.0f}",
+                      delta=f"{yoy_pct:+.1f}% vs {prior_year}" if yoy_pct is not None else None,
                       help=f"{n_months_cur}-month YTD through {latest_month.strftime('%B %Y')}")
         with k3:
-            st.metric(f"{latest_year} wRVU/FTE YTD", f"{(ytd_total/fte if fte>0 else 0):,.0f}")
+            st.metric(f"Projected {latest_year} Annual", f"{projected_annual:,.0f}",
+                      help=f"Linear extrapolation from {n_months_cur}-month YTD pace")
         with k4:
+            st.metric(f"{latest_year} wRVU/FTE YTD", f"{(ytd_total/fte if fte>0 else 0):,.0f}")
+        with k5:
             st.metric("MGMA Tier (YTD)" if not is_app else "Role", tier_label if not is_app else role_label)
 
-        # --- wRVU trend, all available history ---
+        # ---- wRVU trend: bars + 3-month rolling average line ----
         with st.container(border=True):
             render_section_header("wRVU Trend — All Available History",
-                                  "Monthly wRVU production across every loaded year", "📈")
-            fig_t = px.line(prov_rvu, x='Month_Clean', y='Total RVUs', markers=True)
-            fig_t.add_hline(y=prov_rvu['Total RVUs'].mean(), line_dash='dash', line_color='#94a3b8',
-                            annotation_text="All-time monthly avg", annotation_position="top right")
+                                  "Monthly wRVU production with 3-month rolling average (dashed)", "📈")
+            pr = prov_rvu.sort_values('Month_Clean').copy()
+            pr['Rolling'] = pr['Total RVUs'].rolling(3, min_periods=2).mean()
+            fig_t = go.Figure()
+            fig_t.add_trace(go.Bar(
+                x=pr['Month_Clean'], y=pr['Total RVUs'], name='Monthly wRVUs',
+                marker_color='#1E3A8A',
+                hovertemplate='%{x|%b %Y}<br>wRVUs: %{y:,.0f}<extra></extra>',
+            ))
+            fig_t.add_trace(go.Scatter(
+                x=pr['Month_Clean'], y=pr['Rolling'], name='3-mo Rolling Avg',
+                mode='lines', line=dict(color='#f97316', width=2.5, dash='dot'),
+                hovertemplate='%{x|%b %Y}<br>3mo avg: %{y:,.0f}<extra></extra>',
+            ))
+            fig_t.update_layout(title=f"{provider}: Monthly wRVUs")
             st.plotly_chart(style_high_end_chart(fig_t), use_container_width=True, key="profile_rvu_trend")
 
-        # --- Visits / new patients ---
+        # ---- Monthly wRVU data table ----
+        with st.container(border=True):
+            st.markdown("#### 🔢 Monthly wRVU Detail")
+            piv_prov = prov_rvu.pivot_table(index='Name', columns='Month_Label', values='Total RVUs', aggfunc='sum').fillna(0)
+            sorted_pm = prov_rvu.sort_values('Month_Clean')['Month_Label'].unique()
+            piv_prov = piv_prov.reindex(columns=sorted_pm).fillna(0)
+            piv_prov['Total'] = piv_prov.sum(axis=1)
+            render_table(piv_prov.style.format('{:,.0f}').background_gradient(cmap=_LC['Blues']))
+
+        # ---- Year-End Projection table ----
+        with st.container(border=True):
+            render_section_header(f"{latest_year} Year-End Projection",
+                                  f"Linear extrapolation from {n_months_cur}-month YTD pace", "🎯")
+            proj_rows = [{
+                'Metric': 'wRVUs',
+                f'{latest_year} YTD': ytd_total,
+                'Months Elapsed': n_months_cur,
+                f'Projected {latest_year} Annual': projected_annual,
+                f'{prior_year} Full Year': pri_year_df['Total RVUs'].sum() if not pri_year_df.empty and pri_year_df['Month_Clean'].dt.month.nunique() >= 11 else (pri_total if pri_total > 0 else None),
+            }]
+            proj_df = pd.DataFrame(proj_rows).set_index('Metric')
+            fmt_proj = {c: '{:,.0f}' for c in proj_df.columns if c != 'Months Elapsed'}
+            fmt_proj['Months Elapsed'] = '{:.0f}'
+            render_table(proj_df.style.format(fmt_proj, na_rep='—'))
+            fig_proj = go.Figure()
+            fig_proj.add_trace(go.Bar(x=['YTD', f'Projected {latest_year}'],
+                                       y=[ytd_total, projected_annual],
+                                       marker_color=['#1E3A8A', '#93c5fd'], text_auto='.2s'))
+            if pri_total > 0:
+                fig_proj.add_hline(y=pri_total, line_dash='dash', line_color='#94a3b8',
+                                   annotation_text=f"{prior_year} Total  {pri_total:,.0f}",
+                                   annotation_position="top right")
+            fig_proj.update_layout(title=f"{provider}: YTD vs Projected {latest_year} Annual", yaxis_title='wRVUs')
+            st.plotly_chart(style_high_end_chart(fig_proj), use_container_width=True, key="profile_projection")
+
+        # ---- MGMA comparison table + gauge chart ----
+        if show_mgma:
+            with st.container(border=True):
+                render_section_header("MGMA Percentile Comparison",
+                                      f"Benchmark prorated to {exp_months:.0f} active month(s) this year", "🏅")
+                mg_df = pd.DataFrame([{
+                    'YTD wRVUs': ytd_total,
+                    'Expected Months': exp_months,
+                    '25th Pct Target': ref_25,
+                    '50th Pct Target': ref_50,
+                    '75th Pct Target': ref_75,
+                    'vs 25th': (ytd_total / ref_25 - 1) if ref_25 > 0 else 0,
+                    'vs 50th': (ytd_total / ref_50 - 1) if ref_50 > 0 else 0,
+                    'vs 75th': (ytd_total / ref_75 - 1) if ref_75 > 0 else 0,
+                    'Tier': tier_label,
+                }])
+                render_table(mg_df.style.format({
+                    'YTD wRVUs': '{:,.0f}', 'Expected Months': '{:.0f}',
+                    '25th Pct Target': '{:,.0f}', '50th Pct Target': '{:,.0f}', '75th Pct Target': '{:,.0f}',
+                    'vs 25th': '{:+.1%}', 'vs 50th': '{:+.1%}', 'vs 75th': '{:+.1%}',
+                }).background_gradient(subset=['vs 50th'], cmap=_LC['RdYlGn']))
+
+                fig_gauge = go.Figure()
+                fig_gauge.add_trace(go.Bar(
+                    x=[ytd_total], y=[provider], orientation='h',
+                    marker_color='#16a34a' if ytd_total >= ref_50 else '#dc2626',
+                    text=[f"{ytd_total:,.0f}"], textposition='outside', cliponaxis=False,
+                    hovertemplate='YTD wRVUs: %{x:,.0f}<extra></extra>', name='YTD wRVUs',
+                ))
+                for ref_val, label, color in [(ref_25, '25th', '#f97316'), (ref_50, '50th', '#334155'), (ref_75, '75th', '#7c3aed')]:
+                    fig_gauge.add_vline(x=ref_val, line_dash='dot', line_color=color, line_width=2,
+                                        annotation_text=f"{label}  {ref_val:,.0f}", annotation_position="top")
+                fig_gauge.update_layout(title=f"{provider}: YTD wRVUs vs MGMA Targets",
+                                        xaxis_title="wRVUs", yaxis_title="", height=220,
+                                        showlegend=False)
+                st.plotly_chart(style_high_end_chart(fig_gauge), use_container_width=True, key="profile_mgma_gauge")
+
+        # ---- Visits / new patients ----
         prov_visits = df_visits[df_visits['Name'] == provider].copy() if not df_visits.empty else pd.DataFrame()
         if not prov_visits.empty:
             with st.container(border=True):
@@ -3000,7 +3096,18 @@ if check_password():
                 fig_v.update_layout(barmode='group', title=f"{provider}: Visits & New Patients by Month")
                 st.plotly_chart(style_high_end_chart(fig_v), use_container_width=True, key="profile_visits")
 
-        # --- CPT mix ---
+                piv_vis = pv.pivot_table(index='Name', columns='Month_Label',
+                                          values=['Total Visits', 'New Patients'], aggfunc='sum').fillna(0)
+                # Flatten the visits/new-patients pivot into two stacked simple tables for readability
+                vt1 = pv.pivot_table(index='Name', columns='Month_Label', values='Total Visits', aggfunc='sum').fillna(0)
+                vt2 = pv.pivot_table(index='Name', columns='Month_Label', values='New Patients', aggfunc='sum').fillna(0)
+                sorted_vm = pv.sort_values('Month_Clean')['Month_Label'].unique()
+                vt1 = vt1.reindex(columns=sorted_vm).fillna(0); vt1.index = ['Total Visits']
+                vt2 = vt2.reindex(columns=sorted_vm).fillna(0); vt2.index = ['New Patients']
+                vt_combined = pd.concat([vt1, vt2])
+                render_table(vt_combined.style.format('{:,.0f}').background_gradient(cmap=_LC['Greens']))
+
+        # ---- CPT mix ----
         if is_app:
             prov_cpt = df_app_cpt[df_app_cpt['Name'] == provider].copy() if not df_app_cpt.empty else pd.DataFrame()
             if not prov_cpt.empty:
@@ -3010,6 +3117,11 @@ if check_password():
                     fig_c = px.bar(prov_cpt.sort_values('Month_Clean'), x='Month_Label', y='Count',
                                    color='CPT Code', barmode='stack')
                     st.plotly_chart(style_high_end_chart(fig_c), use_container_width=True, key="profile_app_cpt")
+                    piv_cpt = prov_cpt.pivot_table(index='CPT Code', columns='Month_Label', values='Count', aggfunc='sum').fillna(0)
+                    sorted_cm = prov_cpt.sort_values('Month_Clean')['Month_Label'].unique()
+                    piv_cpt = piv_cpt.reindex(columns=sorted_cm).fillna(0)
+                    piv_cpt['Total'] = piv_cpt.sum(axis=1)
+                    render_table(piv_cpt.style.format('{:,.0f}').background_gradient(cmap=_LC['Oranges']))
         else:
             prov_77263 = df_md_consults[df_md_consults['Name'] == provider].copy() if not df_md_consults.empty else pd.DataFrame()
             prov_77470 = df_md_77470[df_md_77470['Name'] == provider].copy() if not df_md_77470.empty else pd.DataFrame()
@@ -3027,8 +3139,13 @@ if check_password():
                     combo_df = pd.concat(combo, ignore_index=True).sort_values('Month_Clean')
                     fig_p = px.bar(combo_df, x='Month_Label', y='Count', color='CPT', barmode='group')
                     st.plotly_chart(style_high_end_chart(fig_p), use_container_width=True, key="profile_md_cpt")
+                    piv_combo = combo_df.pivot_table(index='CPT', columns='Month_Label', values='Count', aggfunc='sum').fillna(0)
+                    sorted_com = combo_df.sort_values('Month_Clean')['Month_Label'].unique()
+                    piv_combo = piv_combo.reindex(columns=sorted_com).fillna(0)
+                    piv_combo['Total'] = piv_combo.sum(axis=1)
+                    render_table(piv_combo.style.format('{:,.1f}').background_gradient(cmap=_LC['Purples']))
 
-        # --- Revenue efficiency ---
+        # ---- Revenue efficiency ----
         if not df_financial.empty:
             prov_fin = df_financial[(df_financial['Mode'] == 'Provider') & (df_financial['Name'] == provider)].copy()
             if not prov_fin.empty:
@@ -3050,6 +3167,8 @@ if check_password():
                             fig_eff = px.line(merged, x='Month_Label', y='$/wRVU (Payments)', markers=True,
                                               title="$ per wRVU (Payments)")
                             st.plotly_chart(style_high_end_chart(fig_eff), use_container_width=True, key="profile_fin_eff")
+                        fin_tbl = merged.set_index('Month_Label')[['Charges','Payments','Total RVUs','$/wRVU (Payments)']].T
+                        render_table(fin_tbl.style.format('{:,.2f}').background_gradient(cmap=_LC['Greens']))
                     total_charges  = prov_fin['Charges'].sum()
                     total_payments = prov_fin['Payments'].sum()
                     st.caption(f"All-time (loaded data): **${total_charges:,.0f}** charges, **${total_payments:,.0f}** payments.")
