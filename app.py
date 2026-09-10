@@ -3036,7 +3036,9 @@ if check_password():
             fig_proj = go.Figure()
             fig_proj.add_trace(go.Bar(x=['YTD', f'Projected {latest_year}'],
                                        y=[ytd_total, projected_annual],
-                                       marker_color=['#1E3A8A', '#93c5fd'], text_auto='.2s'))
+                                       marker_color=['#1E3A8A', '#93c5fd'],
+                                       text=[f"{ytd_total:,.0f}", f"{projected_annual:,.0f}"],
+                                       textposition='outside', cliponaxis=False))
             if pri_total > 0:
                 fig_proj.add_hline(y=pri_total, line_dash='dash', line_color='#94a3b8',
                                    annotation_text=f"{prior_year} Total  {pri_total:,.0f}",
