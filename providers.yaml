@@ -1,0 +1,58 @@
+# ============================================================
+# Provider roster configuration for the RadOnc Analytics dashboard.
+#
+# fte:         Full-time-equivalent, used for wRVU/FTE calculations.
+# start_date:  OPTIONAL, format YYYY-MM-DD. If set, MGMA benchmark
+#              targets are prorated to this provider's actual active
+#              months instead of the full reporting window — this
+#              keeps a mid-year hire from being unfairly compared
+#              against a full-year target. Leave as `null` for
+#              providers who were active the entire period, or until
+#              you know the exact start date.
+#
+# To add a new provider: add one line under `providers:` and, if
+# they're an Advanced Practice Provider (not a physician), add their
+# name to `app_providers:` as well. No code changes required.
+# ============================================================
+
+providers:
+  Burke:       {fte: 1.0}
+  Camarata:    {fte: 1.0, start_date: "2026-06-01"}   # TODO: set actual start date
+  Castle:      {fte: 0.6}
+  Chen:        {fte: 1.0}
+  Cohen:       {fte: 1.0}
+  Cooper:      {fte: 1.0}
+  Ellis:       {fte: 1.0}
+  Escott:      {fte: 1.0}
+  Friedman:    {fte: 1.0}
+  Gray:        {fte: 1.0}
+  Hubler:      {fte: 1.0, start_date: "2026-08-01"}   # TODO: set actual start date
+  Jones:       {fte: 1.0}
+  Kropp:       {fte: 1.0, start_date: "2026-07-01"}   # TODO: set actual start date
+  Lee:         {fte: 1.0}
+  Lewis:       {fte: 1.0}
+  Lipscomb:    {fte: 0.6}
+  Lydon:       {fte: 1.0}
+  Mayo:        {fte: 1.0}
+  Mondschein:  {fte: 1.0}
+  Nguyen:      {fte: 1.0}
+  Osborne:     {fte: 1.0}
+  Phillips:    {fte: 1.0}
+  Sittig:      {fte: 1.0}
+  Strickler:   {fte: 1.0}
+  Wakefield:   {fte: 1.0}
+  Wendt:       {fte: 1.0}
+  Whitaker:    {fte: 1.0}
+
+# Physicians who left mid-year: labeled "(Ret.)" in tables, excluded
+# from trend/heatmap/distribution charts where partial data distorts
+# the view.
+retired_providers: [Wendt]
+
+# Advanced Practice Providers — tracked separately from physicians
+# (their own tab, own CPT-code follow-up-visit logic).
+app_providers: [Burke, Ellis, Lewis, Lydon]
+
+# Providers excluded from MGMA benchmark comparisons entirely
+# (e.g. non-standard role, leadership time carve-out, etc.)
+mgma_exclude: [Cohen]
