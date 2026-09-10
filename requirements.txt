@@ -5,3 +5,4 @@ openpyxl
 xlrd
 matplotlib
 fpdf
+pyyaml
