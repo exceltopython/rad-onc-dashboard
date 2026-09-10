@@ -7,6 +7,7 @@ import io
 import os
 import re
 import numpy as np
+import yaml
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
@@ -240,7 +241,17 @@ if FPDF:
         return pdf.output(dest='S').encode('latin-1')
 
 # --- PASSWORD ---
-APP_PASSWORD = "test2026"
+try:
+    APP_PASSWORD = st.secrets["APP_PASSWORD"]
+except (KeyError, FileNotFoundError):
+    # Local/dev fallback so the app still runs before secrets are configured.
+    # Set APP_PASSWORD under Settings -> Secrets in Streamlit Cloud for production.
+    APP_PASSWORD = "test2026"
+    st.warning(
+        "⚠️ No APP_PASSWORD found in Streamlit secrets — using a temporary fallback password. "
+        "Add APP_PASSWORD under your app's Settings → Secrets in Streamlit Cloud.",
+        icon="⚠️",
+    )
 
 def check_password():
     def password_entered():
@@ -272,46 +283,98 @@ HISTORICAL_DATA = {
 if check_password():
 
     # ==========================================
-    # CONFIGURATION
+    # CONFIGURATION  (loaded from providers.yaml / clinics.yaml)
     # ==========================================
-    CLINIC_CONFIG = {
-        "CENT":       {"name": "Centennial",        "fte": 2.2},
-        "Dickson":    {"name": "Horizon",            "fte": 1.0},
-        "LROC":       {"name": "LROC (Lebanon)",     "fte": 1.2},
-        "Skyline":    {"name": "Skyline",            "fte": 1.0},
-        "Midtown":    {"name": "ST Midtown",         "fte": 1.8},
-        "MURF":       {"name": "ST Rutherford",      "fte": 2.0},
-        "STW":        {"name": "ST West",            "fte": 1.8},
-        "Stonecrest": {"name": "StoneCrest",         "fte": 1.0},
-        "Summit":     {"name": "Summit",             "fte": 1.0},
-        "Sumner":     {"name": "Sumner",             "fte": 1.5},
-        "TROC":       {"name": "TROC (Tullahoma)",   "fte": 0.6},
-        "TOPC":       {"name": "TN Proton Center",   "fte": 2.5},
-    }
-    TRISTAR_IDS   = ["CENT", "Skyline", "Dickson", "Summit", "Stonecrest"]
-    ASCENSION_IDS = ["STW", "Midtown", "MURF"]
-    # Number of linear accelerators (LINACs) per site — used for per-machine productivity benchmarks.
-    # TOPC is intentionally excluded (proton therapy, not LINAC-based).
-    LINAC_CONFIG = {
-        "CENT": 2, "Midtown": 2, "STW": 2, "MURF": 2,
-        "Sumner": 1, "Dickson": 1, "Skyline": 1, "Summit": 1,
-        "LROC": 1, "TROC": 1, "Stonecrest": 1,
-    }
+    CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
 
-    PROVIDER_CONFIG = {
-        "Burke": 1.0, "Camarata": 1.0, "Castle": 0.6, "Chen": 1.0, "Cohen": 1.0,
-        "Cooper": 1.0, "Ellis": 1.0, "Escott": 1.0, "Friedman": 1.0,
-        "Gray": 1.0, "Hubler": 1.0, "Jones": 1.0, "Kropp": 1.0, "Lee": 1.0,
-        "Lewis": 1.0, "Lipscomb": 0.6, "Lydon": 1.0, "Mayo": 1.0,
-        "Mondschein": 1.0, "Nguyen": 1.0, "Osborne": 1.0, "Phillips": 1.0,
-        "Sittig": 1.0, "Strickler": 1.0, "Wakefield": 1.0, "Wendt": 1.0,
-        "Whitaker": 1.0,
-    }
-    # Physicians who left mid-year: labeled "(Ret.)" in tables, excluded from
-    # trend/heatmap/distribution charts where partial data distorts the view.
-    RETIRED_PROVIDERS = {"Wendt"}
+    @st.cache_data(show_spinner=False)
+    def load_config(config_dir, _sig=None):
+        """Load provider and clinic configuration from YAML files.
+
+        _sig is a cache-busting signature (mtimes of the yaml files) so edits
+        to providers.yaml / clinics.yaml are picked up without a full app
+        restart — Streamlit reruns invalidate the cache automatically when
+        the file contents (and therefore the mtime signature) change.
+        """
+        prov_path = os.path.join(config_dir, "providers.yaml")
+        clinic_path = os.path.join(config_dir, "clinics.yaml")
+
+        with open(prov_path, "r") as f:
+            prov_yaml = yaml.safe_load(f)
+        with open(clinic_path, "r") as f:
+            clinic_yaml = yaml.safe_load(f)
+
+        provider_config = {name: cfg["fte"] for name, cfg in prov_yaml["providers"].items()}
+        provider_start_dates = {}
+        for name, cfg in prov_yaml["providers"].items():
+            sd = cfg.get("start_date")
+            if sd:
+                provider_start_dates[name] = pd.Period(pd.Timestamp(sd), freq="M")
+
+        retired_providers = set(prov_yaml.get("retired_providers", []) or [])
+        app_list = list(prov_yaml.get("app_providers", []) or [])
+        mgma_exclude = set(prov_yaml.get("mgma_exclude", []) or [])
+
+        clinic_config = {
+            cid: {"name": cfg["name"], "fte": cfg["fte"]}
+            for cid, cfg in clinic_yaml["clinics"].items()
+        }
+        linac_config = {
+            cid: cfg["linacs"] for cid, cfg in clinic_yaml["clinics"].items()
+            if cfg.get("linacs") is not None
+        }
+        tristar_ids = [cid for cid, cfg in clinic_yaml["clinics"].items() if cfg.get("group") == "tristar"]
+        ascension_ids = [cid for cid, cfg in clinic_yaml["clinics"].items() if cfg.get("group") == "ascension"]
+
+        return {
+            "PROVIDER_CONFIG": provider_config,
+            "PROVIDER_START_DATES": provider_start_dates,
+            "RETIRED_PROVIDERS": retired_providers,
+            "APP_LIST": app_list,
+            "MGMA_EXCLUDE": mgma_exclude,
+            "CLINIC_CONFIG": clinic_config,
+            "LINAC_CONFIG": linac_config,
+            "TRISTAR_IDS": tristar_ids,
+            "ASCENSION_IDS": ascension_ids,
+        }
+
+    def _config_signature(config_dir):
+        sig = []
+        for fname in ("providers.yaml", "clinics.yaml"):
+            p = os.path.join(config_dir, fname)
+            try:
+                sig.append((fname, os.path.getmtime(p)))
+            except OSError:
+                sig.append((fname, None))
+        return tuple(sig)
+
+    _cfg = load_config(CONFIG_DIR, _sig=_config_signature(CONFIG_DIR))
+    PROVIDER_CONFIG        = _cfg["PROVIDER_CONFIG"]
+    PROVIDER_START_DATES   = _cfg["PROVIDER_START_DATES"]
+    RETIRED_PROVIDERS      = _cfg["RETIRED_PROVIDERS"]
+    APP_LIST               = _cfg["APP_LIST"]
+    MGMA_EXCLUDE           = _cfg["MGMA_EXCLUDE"]
+    CLINIC_CONFIG          = _cfg["CLINIC_CONFIG"]
+    LINAC_CONFIG           = _cfg["LINAC_CONFIG"]
+    TRISTAR_IDS            = _cfg["TRISTAR_IDS"]
+    ASCENSION_IDS          = _cfg["ASCENSION_IDS"]
+
     PROVIDER_KEYS_UPPER = {k.upper(): k for k in PROVIDER_CONFIG.keys()}
-    APP_LIST = ["Burke", "Ellis", "Lewis", "Lydon"]
+
+    def expected_months_for(provider_name, months_present):
+        """How many months this provider should be benchmarked against.
+
+        If the provider has a configured start_date, count only the months
+        in `months_present` (a sorted list of pandas Period('M') values)
+        on or after that start — so a mid-year hire's MGMA target is
+        prorated to their actual active months instead of the full window.
+        Providers with no start_date configured (the common case) are
+        benchmarked against the full window, matching prior behavior.
+        """
+        start_period = PROVIDER_START_DATES.get(provider_name)
+        if not start_period:
+            return len(months_present)
+        return sum(1 for m in months_present if m >= start_period)
 
     TARGET_CATEGORIES = ["E&M OFFICE CODES", "RADIATION CODES", "SPECIAL PROCEDURES"]
     IGNORED_SHEETS   = ["RAD PHYSICIAN WORK RVUS", "COVER", "SHEET1", "TOTALS", "PROTON PHYSICIAN WORK RVUS",
@@ -1300,6 +1363,33 @@ if check_password():
                 debug_log, consult_log, prov_log, scan_77470_log)
 
     # ==========================================
+    # CACHED FILE PROCESSING WRAPPER
+    # ==========================================
+    def get_files_signature(file_objects):
+        """Build a hashable signature of the input files so we can cache
+        process_files() results. Local server files are keyed on path +
+        mtime + size (so an edited/replaced Reports file busts the cache
+        automatically); uploaded files are keyed on name + size."""
+        sig = []
+        for f in file_objects:
+            if isinstance(f, LocalFile):
+                try:
+                    st_info = os.stat(f.path)
+                    sig.append((f.path, st_info.st_mtime, st_info.st_size))
+                except OSError:
+                    sig.append((f.path, None, None))
+            else:
+                sig.append((getattr(f, 'name', str(f)), getattr(f, 'size', None)))
+        return tuple(sorted(sig, key=lambda t: str(t[0])))
+
+    @st.cache_data(show_spinner=False)
+    def process_files_cached(_file_objects, signature):
+        # `_file_objects` is prefixed with an underscore so Streamlit does not
+        # try to hash it directly (file-like objects aren't reliably hashable);
+        # `signature` is the actual cache key, built above.
+        return process_files(_file_objects)
+
+    # ==========================================
     # NARRATIVE GENERATOR
     # FIX #3: guarded column access, no KeyError on missing RVU per FTE
     # ==========================================
@@ -1631,15 +1721,18 @@ if check_password():
                                       f"Individual physician wRVU production benchmarked against MGMA Radiation Oncology norms ({n_months}-month YTD)", "👨‍⚕️")
                 msc = df_mc.groupby('Name').agg({'Total RVUs':'sum','FTE':'max'}).reset_index()
                 msc['wRVU/FTE'] = msc['Total RVUs'] / msc['FTE']
-                mgma_50_ytd = MGMA_BENCHMARKS['50th'] / 12 * n_months if n_months > 0 else MGMA_BENCHMARKS['50th']
-                mgma_25_ytd = MGMA_BENCHMARKS['25th'] / 12 * n_months if n_months > 0 else MGMA_BENCHMARKS['25th']
-                mgma_75_ytd = MGMA_BENCHMARKS['75th'] / 12 * n_months if n_months > 0 else MGMA_BENCHMARKS['75th']
-                msc['vs MGMA 50th'] = msc['Total RVUs'] / mgma_50_ytd - 1
-                msc['Productivity Tier'] = msc['Total RVUs'].apply(
-                    lambda x: '🥇 Elite (>75th)' if x > mgma_75_ytd
-                    else ('✅ Above Avg (50–75th)' if x > mgma_50_ytd
-                    else ('⚠️ Average (25–50th)' if x > mgma_25_ytd
-                    else '🔴 Below Avg (<25th)')))
+                months_present_exec = sorted(df_mc['Month_Clean'].dt.to_period('M').unique())
+                msc['Expected Months'] = msc['Name'].apply(lambda n: expected_months_for(n, months_present_exec))
+                msc['MGMA 50th Target'] = msc['Expected Months'] / 12 * MGMA_BENCHMARKS['50th']
+                msc['MGMA 25th Target'] = msc['Expected Months'] / 12 * MGMA_BENCHMARKS['25th']
+                msc['MGMA 75th Target'] = msc['Expected Months'] / 12 * MGMA_BENCHMARKS['75th']
+                msc['vs MGMA 50th'] = msc.apply(
+                    lambda r: (r['Total RVUs'] / r['MGMA 50th Target'] - 1) if r['MGMA 50th Target'] > 0 else 0, axis=1)
+                msc['Productivity Tier'] = msc.apply(
+                    lambda r: '🥇 Elite (>75th)' if r['MGMA 75th Target'] > 0 and r['Total RVUs'] > r['MGMA 75th Target']
+                    else ('✅ Above Avg (50–75th)' if r['MGMA 50th Target'] > 0 and r['Total RVUs'] > r['MGMA 50th Target']
+                    else ('⚠️ Average (25–50th)' if r['MGMA 25th Target'] > 0 and r['Total RVUs'] > r['MGMA 25th Target']
+                    else '🔴 Below Avg (<25th)')), axis=1)
                 if not df_mp_cmp.empty:
                     pm = df_mp_cmp.groupby('Name')['Total RVUs'].sum().reset_index().rename(columns={'Total RVUs':'Prior RVUs'})
                     msc = msc.merge(pm, on='Name', how='left').fillna({'Prior RVUs':0})
@@ -1654,12 +1747,14 @@ if check_password():
                 msc = msc.sort_values('Total RVUs', ascending=False)
                 render_table(msc[m_cols].style.format(fmt_m)
                              .background_gradient(subset=['vs MGMA 50th'], cmap=_LC['RdYlGn']))
-                elite_n = (msc['Total RVUs'] > mgma_75_ytd).sum()
-                above_n = ((msc['Total RVUs'] > mgma_50_ytd) & (msc['Total RVUs'] <= mgma_75_ytd)).sum()
+                elite_n = (msc['Total RVUs'] > msc['MGMA 75th Target']).sum()
+                above_n = ((msc['Total RVUs'] > msc['MGMA 50th Target']) & (msc['Total RVUs'] <= msc['MGMA 75th Target'])).sum()
                 st.caption(
-                    f"MGMA benchmarks scaled to {n_months}-month YTD — 25th: {mgma_25_ytd:,.0f} | 50th: {mgma_50_ytd:,.0f} | 75th: {mgma_75_ytd:,.0f} wRVUs. "
+                    f"MGMA benchmarks prorated per-physician to their active months this period "
+                    f"(network window: {n_months}-month YTD). "
                     f"**{elite_n}** physician(s) above 75th percentile; **{above_n}** between 50th–75th. "
-                    f"Approximate Radiation Oncology MGMA benchmarks."
+                    f"Approximate Radiation Oncology MGMA benchmarks. Providers with a configured start date "
+                    f"are benchmarked only against months since they joined."
                 )
 
         # ---- Year-End Projection by Clinic ----
@@ -2563,15 +2658,18 @@ if check_password():
                     with st.container(border=True):
                         n_md_m   = df_mds_yr['Month_Clean'].dt.month.nunique()
                         render_section_header("MGMA Benchmark Comparison",
-                                              f"Individual physician wRVUs vs national Radiation Oncology MGMA percentile norms ({n_md_m}-month YTD)", "🎯")
-                        MGMA_EXCLUDE = {"Cohen"}
+                                              f"Individual physician wRVUs vs national Radiation Oncology MGMA percentile norms — prorated to each physician's active months", "🎯")
+                        months_present_md = sorted(df_mds_yr['Month_Clean'].dt.to_period('M').unique())
                         ytd_mgma = (df_mds_yr.groupby('Name')[['Total RVUs']].sum().reset_index()
                                     .loc[lambda d: ~d['Name'].isin(MGMA_EXCLUDE) & ~d['Name'].str.endswith('(Ret.)')]
                                     .sort_values('Total RVUs', ascending=False))
-                        ref_25   = MGMA_BENCHMARKS['25th'] / 12 * n_md_m
-                        ref_50   = MGMA_BENCHMARKS['50th'] / 12 * n_md_m
-                        ref_75   = MGMA_BENCHMARKS['75th'] / 12 * n_md_m
-                        ytd_mgma['pct_vs_50'] = (ytd_mgma['Total RVUs'] / ref_50 - 1) * 100
+                        ytd_mgma['Expected Months'] = ytd_mgma['Name'].apply(
+                            lambda n: expected_months_for(n, months_present_md))
+                        ytd_mgma['ref_25'] = ytd_mgma['Expected Months'] / 12 * MGMA_BENCHMARKS['25th']
+                        ytd_mgma['ref_50'] = ytd_mgma['Expected Months'] / 12 * MGMA_BENCHMARKS['50th']
+                        ytd_mgma['ref_75'] = ytd_mgma['Expected Months'] / 12 * MGMA_BENCHMARKS['75th']
+                        ytd_mgma['pct_vs_50'] = ytd_mgma.apply(
+                            lambda r: (r['Total RVUs'] / r['ref_50'] - 1) * 100 if r['ref_50'] > 0 else 0, axis=1)
                         div_df = ytd_mgma.sort_values('pct_vs_50')
                         bar_colors = ['#16a34a' if v >= 0 else '#dc2626' for v in div_df['pct_vs_50']]
                         fig_mgma = go.Figure(go.Bar(
@@ -2586,34 +2684,39 @@ if check_password():
                             hovertemplate='<b>%{y}</b><br>vs MGMA 50th: %{x:+.1f}%<br>wRVUs: %{customdata:,.0f}<extra></extra>',
                         ))
                         fig_mgma.add_vline(x=0, line_color='#334155', line_width=2)
-                        fig_mgma.add_vline(x=(ref_75/ref_50-1)*100, line_dash='dot', line_color='#7c3aed',
+                        # 75th/25th vs 50th ratio is constant regardless of expected-months
+                        # proration (both scale by the same factor), so a single reference
+                        # line is still valid across all physicians.
+                        fig_mgma.add_vline(x=(MGMA_BENCHMARKS['75th']/MGMA_BENCHMARKS['50th']-1)*100, line_dash='dot', line_color='#7c3aed',
                                            annotation_text="75th pct", annotation_position="top")
-                        fig_mgma.add_vline(x=(ref_25/ref_50-1)*100, line_dash='dot', line_color='#f97316',
+                        fig_mgma.add_vline(x=(MGMA_BENCHMARKS['25th']/MGMA_BENCHMARKS['50th']-1)*100, line_dash='dot', line_color='#f97316',
                                            annotation_text="25th pct", annotation_position="top")
                         fig_mgma.update_layout(
-                            title=f"Physician wRVU Performance vs MGMA 50th Percentile ({n_md_m}-mo YTD)",
-                            xaxis_title="% Above / Below MGMA 50th Percentile",
+                            title=f"Physician wRVU Performance vs MGMA 50th Percentile ({n_md_m}-mo network window)",
+                            xaxis_title="% Above / Below MGMA 50th Percentile (prorated)",
                             yaxis_title="",
                             height=max(340, len(div_df) * 42 + 90),
                         )
                         st.plotly_chart(style_high_end_chart(fig_mgma), use_container_width=True,
                                         key=f"md_mgma_{tab_key_suffix}")
-                        ytd_mgma['vs 25th'] = ytd_mgma['Total RVUs'] / ref_25 - 1
-                        ytd_mgma['vs 50th'] = ytd_mgma['Total RVUs'] / ref_50 - 1
-                        ytd_mgma['vs 75th'] = ytd_mgma['Total RVUs'] / ref_75 - 1
-                        ytd_mgma['Productivity Tier'] = ytd_mgma['Total RVUs'].apply(
-                            lambda x: '🥇 Elite (>75th)' if x > ref_75
-                            else ('✅ Above Avg (50–75th)' if x > ref_50
-                            else ('⚠️ Average (25–50th)' if x > ref_25
-                            else '🔴 Below Avg (<25th)')))
-                        render_table(ytd_mgma[['Name','Total RVUs','vs 25th','vs 50th','vs 75th','Productivity Tier']]
-                                     .style.format({'Total RVUs':'{:,.0f}','vs 25th':'{:+.1%}',
+                        ytd_mgma['vs 25th'] = ytd_mgma.apply(lambda r: (r['Total RVUs'] / r['ref_25'] - 1) if r['ref_25'] > 0 else 0, axis=1)
+                        ytd_mgma['vs 50th'] = ytd_mgma.apply(lambda r: (r['Total RVUs'] / r['ref_50'] - 1) if r['ref_50'] > 0 else 0, axis=1)
+                        ytd_mgma['vs 75th'] = ytd_mgma.apply(lambda r: (r['Total RVUs'] / r['ref_75'] - 1) if r['ref_75'] > 0 else 0, axis=1)
+                        ytd_mgma['Productivity Tier'] = ytd_mgma.apply(
+                            lambda r: '🥇 Elite (>75th)' if r['ref_75'] > 0 and r['Total RVUs'] > r['ref_75']
+                            else ('✅ Above Avg (50–75th)' if r['ref_50'] > 0 and r['Total RVUs'] > r['ref_50']
+                            else ('⚠️ Average (25–50th)' if r['ref_25'] > 0 and r['Total RVUs'] > r['ref_25']
+                            else '🔴 Below Avg (<25th)')), axis=1)
+                        render_table(ytd_mgma[['Name','Total RVUs','Expected Months','vs 25th','vs 50th','vs 75th','Productivity Tier']]
+                                     .style.format({'Total RVUs':'{:,.0f}','Expected Months':'{:.0f}','vs 25th':'{:+.1%}',
                                                     'vs 50th':'{:+.1%}','vs 75th':'{:+.1%}'})
                                      .background_gradient(subset=['vs 50th'], cmap=_LC['RdYlGn']))
-                        elite_md  = (ytd_mgma['Total RVUs'] > ref_75).sum()
-                        below_md  = (ytd_mgma['Total RVUs'] < ref_25).sum()
+                        elite_md  = (ytd_mgma['Total RVUs'] > ytd_mgma['ref_75']).sum()
+                        below_md  = (ytd_mgma['Total RVUs'] < ytd_mgma['ref_25']).sum()
                         st.caption(
-                            f"Benchmarks scaled to {n_md_m}-month YTD — 25th: **{ref_25:,.0f}** | 50th: **{ref_50:,.0f}** | 75th: **{ref_75:,.0f}** wRVUs. "
+                            f"Network reporting window: {n_md_m}-month YTD. Each physician's benchmark target is scaled "
+                            f"to their own **Expected Months** — the full window unless they have a configured start "
+                            f"date, in which case only months since joining count. "
                             f"**{elite_md}** physician(s) above the 75th percentile; **{below_md}** below the 25th. "
                             f"Source: Approximate MGMA Radiation Oncology physician benchmarks."
                         )
@@ -2797,6 +2900,168 @@ if check_password():
                                         key=f"ratio_{tab_key_suffix}")
 
     # ==========================================
+    # PROVIDER PROFILE TAB  (new)
+    # Single-provider view combining wRVU, visits, CPT mix, and
+    # revenue-efficiency data that otherwise lives scattered across
+    # the MD, APP, and Financials tabs.
+    # ==========================================
+    def render_provider_profile_tab(df_md_global, df_visits, df_app_cpt, df_md_cpt,
+                                     df_md_consults, df_md_77470, df_financial):
+        all_names = sorted(PROVIDER_CONFIG.keys())
+        if not all_names:
+            st.info("No providers configured.")
+            return
+
+        sel_col, _ = st.columns([2, 4])
+        with sel_col:
+            provider = st.selectbox("Select Provider:", all_names, key="profile_provider_select")
+
+        is_app     = provider in APP_LIST
+        is_retired = provider in RETIRED_PROVIDERS
+        fte        = PROVIDER_CONFIG.get(provider, 1.0)
+        start_p    = PROVIDER_START_DATES.get(provider)
+
+        role_label = "Advanced Practice Provider" if is_app else "Physician"
+        badges = f"**{role_label}** &nbsp;·&nbsp; **{fte:.1f} FTE**"
+        if is_retired:
+            badges += " &nbsp;·&nbsp; 🔴 Retired/Departed"
+        if start_p:
+            badges += f" &nbsp;·&nbsp; Start: {start_p.strftime('%b %Y')}"
+        st.markdown(
+            f"<h2 style='color:#0f172a;margin-bottom:2px;'>🧑‍⚕️ {provider}</h2>"
+            f"<p style='color:#64748b;font-size:14px;margin-top:0;'>{badges}</p>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("---")
+
+        prov_rvu = df_md_global[df_md_global['Name'] == provider].copy() if not df_md_global.empty else pd.DataFrame()
+
+        if prov_rvu.empty:
+            st.warning(f"No wRVU data found for {provider} in the currently loaded files.")
+            return
+
+        prov_rvu = prov_rvu.sort_values('Month_Clean')
+        total_all_time = prov_rvu['Total RVUs'].sum()
+        latest_month    = prov_rvu['Month_Clean'].max()
+        latest_year     = latest_month.year
+        cur_year_df     = prov_rvu[prov_rvu['Month_Clean'].dt.year == latest_year]
+        ytd_total       = cur_year_df['Total RVUs'].sum()
+        n_months_cur    = cur_year_df['Month_Clean'].dt.month.nunique()
+
+        # MGMA tier for latest year (physicians only, respecting proration + exclude list)
+        tier_label = "—"
+        if (not is_app) and provider not in MGMA_EXCLUDE and n_months_cur > 0:
+            months_present_p = sorted(cur_year_df['Month_Clean'].dt.to_period('M').unique())
+            exp_months = expected_months_for(provider, months_present_p)
+            ref_50 = exp_months / 12 * MGMA_BENCHMARKS['50th']
+            ref_25 = exp_months / 12 * MGMA_BENCHMARKS['25th']
+            ref_75 = exp_months / 12 * MGMA_BENCHMARKS['75th']
+            if ref_75 > 0 and ytd_total > ref_75:
+                tier_label = "🥇 Elite (>75th)"
+            elif ref_50 > 0 and ytd_total > ref_50:
+                tier_label = "✅ Above Avg (50–75th)"
+            elif ref_25 > 0 and ytd_total > ref_25:
+                tier_label = "⚠️ Average (25–50th)"
+            else:
+                tier_label = "🔴 Below Avg (<25th)"
+
+        k1, k2, k3, k4 = st.columns(4)
+        with k1:
+            st.metric("All-Time wRVUs (loaded data)", f"{total_all_time:,.0f}")
+        with k2:
+            st.metric(f"{latest_year} YTD wRVUs", f"{ytd_total:,.0f}",
+                      help=f"{n_months_cur}-month YTD through {latest_month.strftime('%B %Y')}")
+        with k3:
+            st.metric(f"{latest_year} wRVU/FTE YTD", f"{(ytd_total/fte if fte>0 else 0):,.0f}")
+        with k4:
+            st.metric("MGMA Tier (YTD)" if not is_app else "Role", tier_label if not is_app else role_label)
+
+        # --- wRVU trend, all available history ---
+        with st.container(border=True):
+            render_section_header("wRVU Trend — All Available History",
+                                  "Monthly wRVU production across every loaded year", "📈")
+            fig_t = px.line(prov_rvu, x='Month_Clean', y='Total RVUs', markers=True)
+            fig_t.add_hline(y=prov_rvu['Total RVUs'].mean(), line_dash='dash', line_color='#94a3b8',
+                            annotation_text="All-time monthly avg", annotation_position="top right")
+            st.plotly_chart(style_high_end_chart(fig_t), use_container_width=True, key="profile_rvu_trend")
+
+        # --- Visits / new patients ---
+        prov_visits = df_visits[df_visits['Name'] == provider].copy() if not df_visits.empty else pd.DataFrame()
+        if not prov_visits.empty:
+            with st.container(border=True):
+                render_section_header("Office Visits & New Patients",
+                                      "Monthly visit volume, all loaded history", "🏥")
+                pv = prov_visits.sort_values('Month_Clean')
+                fig_v = go.Figure()
+                fig_v.add_trace(go.Bar(x=pv['Month_Clean'], y=pv['Total Visits'], name='Total Visits',
+                                       marker_color='#1E3A8A'))
+                fig_v.add_trace(go.Bar(x=pv['Month_Clean'], y=pv['New Patients'], name='New Patients',
+                                       marker_color='#16a34a'))
+                fig_v.update_layout(barmode='group', title=f"{provider}: Visits & New Patients by Month")
+                st.plotly_chart(style_high_end_chart(fig_v), use_container_width=True, key="profile_visits")
+
+        # --- CPT mix ---
+        if is_app:
+            prov_cpt = df_app_cpt[df_app_cpt['Name'] == provider].copy() if not df_app_cpt.empty else pd.DataFrame()
+            if not prov_cpt.empty:
+                with st.container(border=True):
+                    render_section_header("Follow-up Visit Mix (CPT 99212–99215)",
+                                          "Complexity-code mix over time — a shift toward higher codes may indicate rising panel acuity", "📋")
+                    fig_c = px.bar(prov_cpt.sort_values('Month_Clean'), x='Month_Label', y='Count',
+                                   color='CPT Code', barmode='stack')
+                    st.plotly_chart(style_high_end_chart(fig_c), use_container_width=True, key="profile_app_cpt")
+        else:
+            prov_77263 = df_md_consults[df_md_consults['Name'] == provider].copy() if not df_md_consults.empty else pd.DataFrame()
+            prov_77470 = df_md_77470[df_md_77470['Name'] == provider].copy() if not df_md_77470.empty else pd.DataFrame()
+            if not prov_77263.empty or not prov_77470.empty:
+                with st.container(border=True):
+                    render_section_header("Procedure Mix (CPT 77263 / 77470)",
+                                          "Tx Plan Complex and Special Treatment Procedure counts by month", "📋")
+                    combo = []
+                    if not prov_77263.empty:
+                        t = prov_77263[['Month_Clean','Month_Label','Count']].copy(); t['CPT'] = '77263 (Tx Plan)'
+                        combo.append(t)
+                    if not prov_77470.empty:
+                        t = prov_77470[['Month_Clean','Month_Label','Count']].copy(); t['CPT'] = '77470 (Special Tx)'
+                        combo.append(t)
+                    combo_df = pd.concat(combo, ignore_index=True).sort_values('Month_Clean')
+                    fig_p = px.bar(combo_df, x='Month_Label', y='Count', color='CPT', barmode='group')
+                    st.plotly_chart(style_high_end_chart(fig_p), use_container_width=True, key="profile_md_cpt")
+
+        # --- Revenue efficiency ---
+        if not df_financial.empty:
+            prov_fin = df_financial[(df_financial['Mode'] == 'Provider') & (df_financial['Name'] == provider)].copy()
+            if not prov_fin.empty:
+                with st.container(border=True):
+                    render_section_header("Revenue Efficiency",
+                                          "Payments and $/wRVU over time — normalizes revenue by clinical workload", "💡")
+                    fin_by_month = prov_fin.groupby('Month_Label', as_index=False)[['Charges','Payments']].sum()
+                    rvu_by_month = prov_rvu.groupby('Month_Label', as_index=False)['Total RVUs'].sum()
+                    merged = fin_by_month.merge(rvu_by_month, on='Month_Label', how='inner')
+                    merged = merged[merged['Total RVUs'] > 0]
+                    if not merged.empty:
+                        merged['$/wRVU (Payments)'] = merged['Payments'] / merged['Total RVUs']
+                        f1, f2 = st.columns(2)
+                        with f1:
+                            fig_pay = px.bar(merged, x='Month_Label', y='Payments', text_auto='$.2s',
+                                             title="Monthly Payments")
+                            st.plotly_chart(style_high_end_chart(fig_pay), use_container_width=True, key="profile_fin_pay")
+                        with f2:
+                            fig_eff = px.line(merged, x='Month_Label', y='$/wRVU (Payments)', markers=True,
+                                              title="$ per wRVU (Payments)")
+                            st.plotly_chart(style_high_end_chart(fig_eff), use_container_width=True, key="profile_fin_eff")
+                    total_charges  = prov_fin['Charges'].sum()
+                    total_payments = prov_fin['Payments'].sum()
+                    st.caption(f"All-time (loaded data): **${total_charges:,.0f}** charges, **${total_payments:,.0f}** payments.")
+
+        if start_p is None and not is_retired:
+            st.caption(
+                "ℹ️ No start date is configured for this provider — MGMA benchmarking above uses the full "
+                "network reporting window. Set `start_date` in providers.yaml if this provider joined "
+                "partway through a year, so benchmark targets are prorated fairly."
+            )
+
+    # ==========================================
     # MAIN UI
     # ==========================================
     st.markdown(
@@ -2836,10 +3101,11 @@ if check_password():
     all_files = server_files + (list(uploaded_files) if uploaded_files else [])
 
     if all_files:
+        files_sig = get_files_signature(all_files)
         with st.spinner("Analyzing files..."):
             (df_clinic, df_md_global, df_provider_raw, df_visits, df_financial,
              df_pos_trend, df_consults, df_app_cpt, df_md_cpt, df_md_consults, df_md_77470,
-             debug_log, consult_log, prov_log, scan_77470_log) = process_files(all_files)
+             debug_log, consult_log, prov_log, scan_77470_log) = process_files_cached(all_files, files_sig)
 
         if df_clinic.empty and df_md_global.empty:
             st.error("No valid data found. Check that your files are in the Reports folder.")
@@ -2852,13 +3118,14 @@ if check_password():
                 df_apps = pd.DataFrame()
                 df_mds  = pd.DataFrame()
 
-            tab_exec, tab_c26, tab_c25, tab_md26, tab_md25, tab_app, tab_fin = st.tabs([
+            tab_exec, tab_c26, tab_c25, tab_md26, tab_md25, tab_app, tab_profile, tab_fin = st.tabs([
                 "📊 Executive Summary",
                 "🏥 Clinic Analytics - 2026",
                 "🏥 Clinic Analytics - 2025",
                 "👨‍⚕️ MD Analytics - 2026",
                 "👨‍⚕️ MD Analytics - 2025",
                 "👩‍⚕️ APP Analytics",
+                "🧑‍⚕️ Provider Profile",
                 "💰 Financials",
             ])
 
@@ -2986,6 +3253,10 @@ if check_password():
                                     piv_a = piv_a.reindex(columns=sorted_ma).fillna(0)
                                     piv_a["Total"] = piv_a.sum(axis=1)
                                     render_table(piv_a.style.format("{:,.0f}").background_gradient(cmap=_LC['Oranges']))
+
+            with tab_profile:
+                render_provider_profile_tab(df_md_global, df_visits, df_app_cpt, df_md_cpt,
+                                             df_md_consults, df_md_77470, df_financial)
 
             with tab_fin:
                 if df_financial.empty:
