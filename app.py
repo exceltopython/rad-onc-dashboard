@@ -390,6 +390,22 @@ def render_anomaly_cards(anomaly_df, group_col, unit_label="wRVUs"):
             unsafe_allow_html=True,
         )
 
+def cumulative_snapshots_to_monthly(df, group_col, value_col, date_col='Month_Clean'):
+    """Some source reports (e.g. 'PHYS YTD OV') report a running Year-to-Date
+    cumulative total as of each month's snapshot, not that month's own count.
+    This converts such cumulative snapshots into true monthly incremental
+    values per group, resetting at each calendar year boundary (so January's
+    value is left as-is, since YTD-through-January already equals January's
+    own total). Summing the output over a period gives a correct period
+    total; summing the raw cumulative input does not."""
+    if df is None or df.empty:
+        return df
+    d = df.sort_values(date_col).copy()
+    d['_year'] = d[date_col].dt.year
+    diffed = d.groupby([group_col, '_year'])[value_col].diff()
+    d[value_col] = diffed.combine_first(d[value_col]).clip(lower=0)
+    return d.drop(columns='_year')
+
 def build_quarterly_summary_table(df, group_col, value_col, year, date_col='Month_Clean', quarter_col='Quarter'):
     """Builds a summary table for one year: one row per group_col, one column
     per quarter present in that year, plus a 'Latest Month (...)' column and
@@ -1940,6 +1956,9 @@ if check_password():
             if df_visits_all is not None and not df_visits_all.empty:
                 prov_np_src = df_visits_all[~df_visits_all['Name'].isin(APP_LIST)].copy()
                 prov_np_src = prov_np_src.groupby(['Name', 'Month_Clean'], as_index=False)['New Patients'].sum()
+                # Source is a YTD-cumulative snapshot per month ("PHYS YTD OV"), not a
+                # monthly count — convert to true monthly increments before summing.
+                prov_np_src = cumulative_snapshots_to_monthly(prov_np_src, 'Name', 'New Patients')
                 prov_np_src['Quarter'] = prov_np_src['Month_Clean'].apply(lambda x: f"Q{x.quarter} {x.year}")
             else:
                 prov_np_src = pd.DataFrame()
@@ -1948,7 +1967,11 @@ if check_password():
                 st.info("No provider-level New Patient data found for this year.")
             else:
                 render_table(provider_np_tbl.style.format('{:,.0f}').background_gradient(cmap=_LC['Blues']))
-            st.caption("Advanced Practice Providers are excluded from the by-provider New Patient table — new-patient consults are typically physician-only in this practice.")
+            st.caption(
+                "Advanced Practice Providers are excluded from the by-provider New Patient table — new-patient "
+                "consults are typically physician-only in this practice. Source data is a YTD-cumulative monthly "
+                "snapshot; values here are the derived month-to-month increments, not the raw cumulative figures."
+            )
 
             st.markdown("##### 📋 By Provider — Established Visits (CPT 99212–99215, \"9921X\")")
             cpt_parts = [x for x in [df_app_cpt_all, df_md_cpt_all] if x is not None and not x.empty]
